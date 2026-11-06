@@ -6,6 +6,7 @@ import { useRows, useWG } from "@/lib/wg";
 import type { CalEvent, ChoreArea, ChoreCheck, ChoreTask } from "@/lib/types";
 import { areaStatuses, isOverdue, periodOf, periodRange, type AreaStatus } from "@/lib/cleaning";
 import { formatDate, fromISO, toISO, todayISO } from "@/lib/dates";
+import { holidayOn } from "@/lib/holidays";
 import { Avatar, btnCls, Card, DeleteButton, inputCls, PageTitle, SectionTitle } from "@/components/ui";
 
 const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
@@ -62,6 +63,7 @@ export default function Kalender() {
   }
 
   const dayEvents = eventsOn(selected);
+  const selHoliday = holidayOn(selected);
   const selPeriod = periodOf(cs, selected);
   const selChores = statusByPeriod(selPeriod);
   const selRange = periodRange(cs, selPeriod);
@@ -87,6 +89,7 @@ export default function Kalender() {
             const evs = eventsOn(iso);
             const chores = statusByPeriod(periodOf(cs, iso));
             const ms = milestone(iso);
+            const holiday = holidayOn(iso);
             return (
               <button key={iso} onClick={() => setSelected(iso)} lang="de"
                 className={`relative flex min-h-[104px] flex-col gap-0.5 p-1 text-left transition md:min-h-[120px] md:p-1.5
@@ -94,7 +97,7 @@ export default function Kalender() {
                   ${inMonth ? "" : "bg-bg"}`}>
                 <span className="flex items-center justify-between">
                   <span className={`flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-xs tabular-nums
-                    ${isToday ? "bg-accent font-bold text-white" : "font-medium"} ${inMonth ? "" : "opacity-40"}`}>
+                    ${isToday ? "bg-accent font-bold text-white" : holiday ? "font-bold text-red-600" : "font-medium"} ${inMonth ? "" : "opacity-40"}`}>
                     {fromISO(iso).getDate()}
                   </span>
                   {ms && (
@@ -109,6 +112,11 @@ export default function Kalender() {
 
                 {/* Termine */}
                 <span className={`flex min-w-0 flex-col gap-0.5 ${inMonth ? "" : "opacity-50"}`}>
+                  {holiday && (
+                    <span title={`Feiertag: ${holiday}`} className="line-clamp-2 hyphens-auto break-words rounded bg-red-500/15 px-0.5 text-[9px] font-semibold leading-[11px] text-red-700 dark:text-red-300 md:truncate md:px-1 md:text-[11px] md:leading-4">
+                      {holiday}
+                    </span>
+                  )}
                   {evs.slice(0, MAX_EVENTS_IN_TILE).map((e) => (
                     <span key={e.id} className="line-clamp-2 hyphens-auto break-words rounded bg-accent/15 px-0.5 text-[9px] font-medium leading-[11px] text-accent md:truncate md:px-1 md:text-[11px] md:leading-4">
                       <span className="hidden md:inline">{e.time && `${e.time.slice(0, 5)} `}</span>{e.title}
@@ -169,6 +177,7 @@ export default function Kalender() {
           ))}
           <span className="hidden h-3 w-px bg-line sm:block" />
           <span>Balken = Putzwoche: {[...areas].sort((a, b) => a.sort - b.sort).map((a) => a.name).join(" · ")} (blass = erledigt)</span>
+          <span className="flex items-center gap-1"><span className="rounded bg-red-500/15 px-1 font-semibold text-red-700 dark:text-red-300">Feiertag</span>Sachsen</span>
           <span className="flex items-center gap-1"><span className="h-1 w-3 rounded bg-red-500" />Fällig (Ende Putzwoche)</span>
           <span className="flex items-center gap-1">
             <span className="h-2.5 w-5 rounded-full" style={{ background: "repeating-linear-gradient(135deg, #dc2626 0 3px, #f87171 3px 6px)" }} />überfällig, nachholen
@@ -183,6 +192,13 @@ export default function Kalender() {
         <button className={btnCls}>+</button>
       </form>
       <div className="space-y-2">
+        {selHoliday && (
+          <Card className="flex items-center gap-3 border-red-500/30 bg-red-500/5">
+            <span className="w-12 text-sm font-medium text-red-600">ganzt.</span>
+            <span className="flex-1 font-medium text-red-700 dark:text-red-300">{selHoliday}</span>
+            <span className="text-xs text-muted">Feiertag Sachsen</span>
+          </Card>
+        )}
         {dayEvents.map((ev) => (
           <Card key={ev.id} className="flex items-center gap-3">
             <span className="w-12 text-sm font-medium tabular-nums text-accent">{ev.time ? ev.time.slice(0, 5) : "ganzt."}</span>
@@ -190,7 +206,7 @@ export default function Kalender() {
             <DeleteButton onClick={() => remove(ev)} />
           </Card>
         ))}
-        {dayEvents.length === 0 && <p className="text-sm text-muted">Keine Termine.</p>}
+        {dayEvents.length === 0 && !selHoliday && <p className="text-sm text-muted">Keine Termine.</p>}
       </div>
 
       {selChores.length > 0 && (

@@ -7,6 +7,7 @@ import { areaStatuses, isOverdue, periodOf, periodRange, phaseOf } from "@/lib/c
 import { beesOf } from "@/components/Praise";
 import { computeBalances } from "@/lib/balances";
 import { addDays, euro, formatDate, todayISO } from "@/lib/dates";
+import { holidayOn } from "@/lib/holidays";
 import { Avatar, Card, PageTitle } from "@/components/ui";
 
 export default function Home() {
@@ -28,7 +29,11 @@ export default function Home() {
   const balance = computeBalances(expenses, members.map((m) => m.id))[myId] ?? 0;
   const ranking = [...members].sort((a, b) => beesOf(praises, b.id) - beesOf(praises, a.id));
   const week = addDays(todayISO(), 7);
-  const upcoming = events.filter((e) => e.day >= todayISO() && e.day <= week).slice(0, 4);
+  // Termine + Feiertage der nächsten 7 Tage
+  const holidays = Array.from({ length: 8 }, (_, i) => addDays(todayISO(), i))
+    .filter((d) => holidayOn(d)).map((d) => ({ id: `fei-${d}`, title: `🎉 ${holidayOn(d)}`, day: d, time: null as string | null }));
+  const upcoming = [...holidays, ...events.filter((e) => e.day >= todayISO() && e.day <= week)]
+    .sort((a, b) => (a.day + (a.time ?? "")).localeCompare(b.day + (b.time ?? ""))).slice(0, 5);
   const myTodos = todos.filter((t) => !t.done && (t.assignee === myId || !t.assignee));
 
   return (
