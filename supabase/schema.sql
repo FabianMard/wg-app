@@ -162,10 +162,12 @@ create table public.praises (
 create table public.notes (
   id           uuid primary key default gen_random_uuid(),
   household_id uuid not null references public.households on delete cascade,
-  text         text not null check (char_length(text) between 1 and 300),
+  text         text not null default '' check (char_length(text) <= 300),
   color        text not null default 'gelb' check (color in ('gelb', 'rosa', 'gruen', 'blau', 'orange')),
+  image_path   text,            -- Foto im Storage-Bucket "pinnwand"
   author       uuid default public.my_member_id() references public.members on delete set null,
-  created_at   timestamptz not null default now()
+  created_at   timestamptz not null default now(),
+  constraint notes_content_check check (char_length(text) > 0 or image_path is not null)
 );
 
 -- ───────────── Beitritt per Link ─────────────
@@ -280,6 +282,30 @@ begin
     'Altglas & Pfand wegbringen',
     'Altpapier wegbringen'
   ]) with ordinality as x(t, o);
+end $$;
+
+-- ───────────── Fotos an der Pinnwand (privater Speicher) ─────────────
+-- Privater Speicher für die Fotos (max. 5 MB pro Bild)
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('pinnwand', 'pinnwand', false, 5242880, array['image/jpeg', 'image/png', 'image/webp'])
+on conflict (id) do nothing;
+
+-- Nur Mitglieder der WG dürfen die Fotos ihrer WG sehen, hochladen und löschen.
+-- Dateien liegen unter <household_id>/<zufälliger-name>.jpg
+do $$
+begin
+  if not exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'Pinnwand-Fotos lesen') then
+    create policy "Pinnwand-Fotos lesen" on storage.objects for select to authenticated
+      using (bucket_id = 'pinnwand' and public.is_member(((storage.foldername(name))[1])::uuid));
+  end if;
+  if not exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'Pinnwand-Fotos hochladen') then
+    create policy "Pinnwand-Fotos hochladen" on storage.objects for insert to authenticated
+      with check (bucket_id = 'pinnwand' and public.is_member(((storage.foldername(name))[1])::uuid));
+  end if;
+  if not exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'Pinnwand-Fotos löschen') then
+    create policy "Pinnwand-Fotos löschen" on storage.objects for delete to authenticated
+      using (bucket_id = 'pinnwand' and public.is_member(((storage.foldername(name))[1])::uuid));
+  end if;
 end $$;
 
 -- Euer Einladungslink: https://<eure-adresse>/?code=<invite_code>

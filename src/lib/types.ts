@@ -85,6 +85,8 @@ export type Note = {
   household_id: string;
   text: string;
   color: NoteColor;
+  /** Foto im Storage-Bucket "pinnwand" (ab 007_pinnwand_fotos.sql) */
+  image_path?: string | null;
   author: string | null;
   created_at: string;
 };
