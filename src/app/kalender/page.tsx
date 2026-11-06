@@ -88,7 +88,7 @@ export default function Kalender() {
             const ms = milestone(iso);
             return (
               <button key={iso} onClick={() => setSelected(iso)} lang="de"
-                className={`relative flex min-h-[92px] flex-col gap-0.5 p-1 text-left transition md:min-h-[112px] md:p-1.5
+                className={`relative flex min-h-[104px] flex-col gap-0.5 p-1 text-left transition md:min-h-[120px] md:p-1.5
                   ${isSel ? "z-10 bg-card shadow-[inset_0_0_0_999px_color-mix(in_srgb,var(--accent)_8%,transparent)] outline outline-2 -outline-offset-2 outline-accent" : "bg-card hover:bg-line/30"}
                   ${inMonth ? "" : "bg-bg opacity-45"}`}>
                 <span className="flex items-center justify-between">
@@ -118,20 +118,35 @@ export default function Kalender() {
                   )}
                 </span>
 
-                {/* Putzplan: Bereich in der Farbe der zuständigen Person */}
-                {chores.length > 0 && (
-                  <span className="mt-auto flex -space-x-1 md:space-x-0.5">
-                    {chores.map((c) => (
-                      <span key={c.area.id}
-                        title={`${c.area.name}: ${c.assignee?.display_name ?? "?"}${c.done ? " ✓" : ""}`}
-                        className={`relative flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] ring-1 ring-card md:h-5 md:w-5 md:text-[11px] ${c.done ? "opacity-40" : ""}`}
-                        style={{ background: c.assignee?.color ?? "#999" }}>
-                        {c.area.icon}
-                        {c.done && <span className="absolute -right-0.5 -top-1 text-[8px] font-black text-emerald-600">✓</span>}
-                      </span>
-                    ))}
-                  </span>
-                )}
+                {/* Putzplan: durchgehender Balken je Bereich in der Farbe der Person,
+                    Name am ersten und letzten Tag der Runde */}
+                {chores.length > 0 && (() => {
+                  const r = periodRange(cs, periodOf(cs, iso));
+                  const isStart = iso === r.from, isEnd = iso === r.end;
+                  const isSunday = fromISO(iso).getDay() === 0;
+                  return (
+                    <span className="-mx-1 mt-auto flex flex-col gap-px md:-mx-1.5">
+                      {chores.map((c) => (
+                        <span key={c.area.id}
+                          title={`${c.area.name}: ${c.assignee?.display_name ?? "?"}${c.done ? " ✓ erledigt" : ""}`}
+                          className={`relative flex h-3.5 items-center whitespace-nowrap text-[9px] font-semibold leading-none text-white md:h-4 md:text-[10px]
+                            ${isStart ? "ml-0.5 rounded-l-full" : ""}
+                            ${isEnd ? "mr-0.5 rounded-r-full" : isSunday ? "" : "-mr-px"}
+`}
+                          style={{
+                            // Erledigt: hellere Farbe statt Transparenz, damit der Name lesbar bleibt
+                            background: c.done
+                              ? `color-mix(in srgb, ${c.assignee?.color ?? "#999"} 45%, var(--card))`
+                              : c.assignee?.color ?? "#999",
+                          }}>
+                          {/* Text darf in die Nachbarkachel laufen (gleiche Farbe), daher absolut + über den Nachbarn */}
+                          {isStart && <span className="absolute left-1 z-[2]">{c.area.icon}&nbsp;{c.assignee?.display_name}</span>}
+                          {isEnd && <span className="absolute right-1 z-[2]">{c.done ? "✓ " : ""}{c.assignee?.display_name}</span>}
+                        </span>
+                      ))}
+                    </span>
+                  );
+                })()}
               </button>
             );
           })}
@@ -145,7 +160,7 @@ export default function Kalender() {
             </span>
           ))}
           <span className="hidden h-3 w-px bg-line sm:block" />
-          {[...areas].sort((a, b) => a.sort - b.sort).map((a) => <span key={a.id}>{a.icon} {a.name}</span>)}
+          <span>Balken: {[...areas].sort((a, b) => a.sort - b.sort).map((a) => `${a.icon} ${a.name}`).join(" · ")} (blass = erledigt)</span>
           <span className="flex items-center gap-1"><span className="h-1 w-3 rounded bg-amber-500" />Soll fertig</span>
           <span className="flex items-center gap-1"><span className="h-1 w-3 rounded bg-red-500" />Deadline</span>
         </div>
