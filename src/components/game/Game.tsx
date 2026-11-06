@@ -11,7 +11,10 @@ import {
 } from "./map";
 import { TalkDialog } from "./TalkDialog";
 import { AvatarFigure, lookOf, Wardrobe, type AvatarLook } from "./avatar";
-import { SONGS, useGameMusic } from "./music";
+import {
+  deleteCustomSong, formatTime, loadCustomMeta, parseTime, saveCustomMeta, saveCustomSong, SONGS,
+  useCustomSong, useGameMusic, type CustomSongMeta,
+} from "./music";
 import { inputCls } from "@/components/ui";
 
 // Die echten App-Seiten – im Spiel öffnen sie sich als Fenster
@@ -32,8 +35,29 @@ const PANELS: Record<PageAction, React.ComponentType> = {
 const STEP_MS = 120;
 const BUBBLE_MS = 6000;
 
-type Target = { type: "object"; obj: GameObject } | { type: "member"; id: string };
+type Target = { type: "object"; obj: GameObject } | { type: "member"; id: string } | { type: "cat" };
 type Panel = Target | { type: "wardrobe"; first?: boolean };
+const CAT_LINES = ["Schnurrrr … 💕", "Miau! 😺", "*kuschelt sich an* 🐾", "Prrrrr 😻", "Mehr! Mehr! 🐱"];
+const CAT_SEE = 3; // so nah muss man sein, um die Katze zu entdecken
+const dist = (a: Pos, b: Pos) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+const store = {
+  get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* privater Modus */ } },
+};
+
+/** Zufälliges Versteck für die Katze: begehbar, nicht in Sichtweite von `far` */
+function catHideout(avoid: Pos[], far?: Pos): Pos {
+  const spots: Pos[] = [];
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    const p = { x, y };
+    if (!isWalkable(x, y) || MAP[y][x] === "h") continue;
+    if (avoid.some((a) => dist(a, p) < 2)) continue;
+    if (far && dist(far, p) < 7) continue;
+    spots.push(p);
+  }
+  return spots[Math.floor(Math.random() * spots.length)] ?? { x: 11, y: 8 };
+}
+
 /** Position + Blickrichtung (l = schaut nach links) */
 type Spot = Pos & { l?: boolean };
 type Bubble = { text: string; until: number };
@@ -46,7 +70,16 @@ export function Game() {
     return HOME_SPOTS[i] ?? { x: 11, y: 7 };
   }, [members]);
 
-  const [pos, setPos] = useState<Pos>(() => homeOf(myId));
+  // Dort weitermachen, wo man aufgehört hat (pro Gerät gespeichert)
+  const posKey = `wg-spiel-pos-${myId}`;
+  const [pos, setPos] = useState<Pos>(() => {
+    try {
+      const p = JSON.parse(store.get(posKey) ?? "null");
+      if (p && isWalkable(p.x, p.y)) return { x: p.x, y: p.y };
+    } catch { /* ungültig */ }
+    return homeOf(myId);
+  });
+  useEffect(() => { store.set(posKey, JSON.stringify(pos)); }, [pos, posKey]);
   const posRef = useRef(pos);
   useEffect(() => { posRef.current = pos; }, [pos]);
   const [path, setPath] = useState<Pos[]>([]);
@@ -67,9 +100,32 @@ export function Game() {
   }, []);
   const [bubbles, setBubbles] = useState<Record<string, Bubble>>({});
   const [chat, setChat] = useState("");
+  const [live, setLive] = useState<"verbinde" | "live" | "offline">("verbinde");
   // Musik: standardmäßig aus, muss aktiv angemacht werden (wird nicht gespeichert)
   const [song, setSong] = useState<string | null>(null);
-  useGameMusic(song);
+  useGameMusic(song === "eigen" ? null : song);
+  const [custom, setCustom] = useState<CustomSongMeta | null>(() => (typeof window === "undefined" ? null : loadCustomMeta()));
+  useCustomSong(song === "eigen", custom);
+  const [songSettings, setSongSettings] = useState(false);
+  const [from, setFrom] = useState(() => (custom ? formatTime(custom.start) : ""));
+  const [to, setTo] = useState(() => (custom?.end != null ? formatTime(custom.end) : ""));
+  const songFile = useRef<HTMLInputElement>(null);
+  async function pickSong(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    const meta = { name: f.name.replace(/\.[^.]+$/, "").slice(0, 40), start: parseTime(from) ?? 0, end: parseTime(to) };
+    await saveCustomSong(f, meta);
+    setCustom(meta);
+    setSongSettings(true);
+    setSong("eigen");
+  }
+  function applyRange() {
+    if (!custom) return;
+    const meta = { ...custom, start: parseTime(from) ?? 0, end: parseTime(to) };
+    saveCustomMeta(meta);
+    setCustom(meta);
+  }
   const channel = useRef<RealtimeChannel | null>(null);
   const lastStep = useRef(0);
 
@@ -101,12 +157,24 @@ export function Game() {
       });
     })
       .on("broadcast", { event: "say" }, ({ payload }) => showBubble((payload as SayPayload).on, (payload as SayPayload).text))
-      .subscribe((status) => { if (status === "SUBSCRIBED") ch.track({ ...posRef.current, l: faceRef.current }); });
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") { setLive("live"); ch.track({ ...posRef.current, l: faceRef.current }); }
+        else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") setLive("offline");
+      });
     channel.current = ch;
     return () => { channel.current = null; supabase.removeChannel(ch); };
   }, [household.id, myId, showBubble, markMoving]);
 
   useEffect(() => { channel.current?.track({ ...pos, l: faceLeft }); }, [pos, faceLeft]);
+
+  // Regelmäßig neu melden – z. B. nachdem das Handy gesperrt war
+  useEffect(() => {
+    const ping = () => channel.current?.track({ ...posRef.current, l: faceRef.current });
+    const id = setInterval(ping, 10_000);
+    const onVis = () => { if (document.visibilityState === "visible") ping(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", onVis); };
+  }, []);
 
   // Beim allerersten Mal: Avatar gestalten
   const askedAvatar = useRef(false);
@@ -126,8 +194,15 @@ export function Game() {
   const memberPos = useCallback((m: Member): Spot => (m.id === myId ? { ...pos, l: faceLeft } : remote[m.id] ?? homeOf(m.id)), [myId, pos, faceLeft, remote, homeOf]);
   const others = members.filter((m) => m.id !== myId);
   const memberAt = (p: Pos) => others.find((m) => { const q = memberPos(m); return q.x === p.x && q.y === p.y; });
+  // ── Versteckte Katze ──
+  const [cat, setCat] = useState<Pos>(() => catHideout([...HOME_SPOTS], pos));
+  const [catHappy, setCatHappy] = useState(false);
+  const [pets, setPets] = useState(() => Number(store.get("wg-spiel-katze") ?? 0) || 0);
+  const catVisible = catHappy || dist(pos, cat) <= CAT_SEE;
+  const catAt = (p: Pos) => p.x === cat.x && p.y === cat.y;
+
   const blockedRef = useRef<(p: Pos) => boolean>(() => false);
-  useEffect(() => { blockedRef.current = (p: Pos) => !!memberAt(p); });
+  useEffect(() => { blockedRef.current = (p: Pos) => !!memberAt(p) || catAt(p); });
 
   // Was ist direkt neben mir?
   const nearby: Target | null = useMemo(() => {
@@ -135,15 +210,30 @@ export function Game() {
       const m = others.find((o) => { const q = memberPos(o); return q.x === n.x && q.y === n.y; });
       if (m) return { type: "member", id: m.id };
     }
+    if (neighbors(pos).some((n) => n.x === cat.x && n.y === cat.y)) return { type: "cat" };
     for (const n of neighbors(pos)) {
       const o = objectAt(n.x, n.y);
       if (o) return { type: "object", obj: o };
     }
     return null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pos, remote, members]);
+  }, [pos, remote, members, cat]);
 
   const open = useCallback((t: Target) => {
+    if (t.type === "cat") {
+      if (catHappy) return;
+      const n = pets + 1;
+      setPets(n);
+      store.set("wg-spiel-katze", String(n));
+      setCatHappy(true);
+      showBubble("katze", CAT_LINES[Math.floor(Math.random() * CAT_LINES.length)]);
+      // Nach dem Streicheln huscht sie in ein neues Versteck
+      setTimeout(() => {
+        setCatHappy(false);
+        setCat(catHideout([...HOME_SPOTS], posRef.current));
+      }, 2600);
+      return;
+    }
     if (t.type === "object" && t.obj.action === "schlafen") { say(myId, "💤"); return; }
     if (t.type === "object" && t.obj.action === "kleiderschrank") {
       const owner = [...members].sort((a, b) => a.sort - b.sort)[t.obj.owner ?? -1];
@@ -152,7 +242,7 @@ export function Game() {
       return;
     }
     setPanel(t);
-  }, [say, myId, members]);
+  }, [say, myId, members, catHappy, pets, showBubble]);
 
   // ── Laufen ──
   const step = useCallback((dx: number, dy: number) => {
@@ -170,7 +260,7 @@ export function Game() {
       const t = pending.current;
       if (t) {
         pending.current = null;
-        const tp = t.type === "object" ? t.obj : memberPos(members.find((m) => m.id === t.id)!);
+        const tp = t.type === "object" ? t.obj : t.type === "cat" ? cat : memberPos(members.find((m) => m.id === t.id)!);
         if (isAdjacent(pos, tp)) open(t);
       }
       return;
@@ -181,7 +271,7 @@ export function Game() {
       moveTo(path[0]); setPath(path.slice(1));
     }, STEP_MS);
     return () => clearTimeout(id);
-  }, [path, pos, open, memberPos, members, moveTo]);
+  }, [path, pos, open, memberPos, members, moveTo, cat]);
 
   // Tastatur
   useEffect(() => {
@@ -222,7 +312,7 @@ export function Game() {
     const t = { x: Math.floor((e.clientX - r.left) / tile), y: Math.floor((e.clientY - r.top) / tile) };
     const m = memberAt(t);
     const o = objectAt(t.x, t.y);
-    const target: Target | null = m ? { type: "member", id: m.id } : o ? { type: "object", obj: o } : null;
+    const target: Target | null = m ? { type: "member", id: m.id } : catVisible && catAt(t) ? { type: "cat" } : o ? { type: "object", obj: o } : null;
     if (target && isAdjacent(pos, t)) { open(target); return; }
     const p = findPath(pos, t, blockedRef.current);
     if (!p) return;
@@ -233,7 +323,7 @@ export function Game() {
   const memberColors = [...members].sort((a, b) => a.sort - b.sort).map((m) => m.color);
   const onlineIds = new Set([myId, ...Object.keys(remote)]);
   const targetMember = panel?.type === "member" ? members.find((m) => m.id === panel.id) : undefined;
-  const nearbyLabel = nearby?.type === "member"
+  const nearbyLabel = nearby?.type === "cat" ? "🐈 Katze streicheln" : nearby?.type === "member"
     ? `Mit ${members.find((m) => m.id === nearby.id)?.display_name} reden`
     : nearby?.type === "object" ? `${nearby.obj.icon} ${nearby.obj.label}: ${nearby.obj.hint}` : null;
 
@@ -274,6 +364,19 @@ export function Game() {
               </div>
             );
           })}
+          {/* Katze – nur sichtbar, wenn man nah genug ist */}
+          {catVisible && (
+            <div className="pointer-events-none absolute z-10 flex items-end justify-center transition-transform duration-300"
+              style={{ width: tile, height: tile, transform: `translate(${cat.x * tile}px, ${cat.y * tile}px)` }}>
+              {bubbles["katze"] && (
+                <div className="absolute bottom-full left-1/2 z-30 mb-1 w-max max-w-[150px] -translate-x-1/2 rounded-xl bg-white px-2 py-1 text-center text-xs font-medium text-neutral-900 shadow-lg">
+                  {bubbles["katze"].text}
+                </div>
+              )}
+              {catHappy && <span className="absolute -top-2 left-1/2 -translate-x-1/2 animate-ping text-sm">💕</span>}
+              <span className={catHappy ? "animate-bounce" : "animate-pulse"} style={{ fontSize: tile * 0.78, lineHeight: 1 }}>🐈</span>
+            </div>
+          )}
           {/* Mitbewohner */}
           {members.map((m) => {
             const p = memberPos(m);
@@ -327,17 +430,52 @@ export function Game() {
           </div>
           <div className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="Musik">
             <span className="text-xs font-medium text-muted">Musik:</span>
-            {[{ id: null, name: "🔇 Aus" }, ...SONGS.map((x) => ({ id: x.id, name: `🎵 ${x.name}` }))].map((x) => (
+            {[{ id: null, name: "🔇 Aus" }, ...SONGS.map((x) => ({ id: x.id, name: `🎵 ${x.name}` })),
+              ...(custom ? [{ id: "eigen", name: `🎧 ${custom.name}` }] : [])].map((x) => (
               <button key={x.id ?? "aus"} role="radio" aria-checked={song === x.id} onClick={() => setSong(x.id)}
                 className={`rounded-full border px-2.5 py-1 text-xs font-medium transition active:scale-95 ${
                   song === x.id ? "border-accent bg-accent text-white" : "border-line bg-card text-muted hover:text-fg"}`}>
                 {x.name}
               </button>
             ))}
+            <button onClick={() => setSongSettings(!songSettings)} className="rounded-full px-2 py-1 text-xs text-muted underline hover:text-fg">
+              {custom ? "Eigener Song …" : "+ Eigener Song"}
+            </button>
           </div>
+          {songSettings && (
+            <div className="space-y-2 rounded-xl border border-dashed border-line p-3 text-xs">
+              <p className="text-muted">
+                Wähle eine Musikdatei von deinem Gerät. Sie bleibt <b>nur auf diesem Gerät</b> und wird nicht hochgeladen.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <button onClick={() => songFile.current?.click()} className="rounded-lg border border-line bg-card px-3 py-1.5 font-medium">
+                  📁 {custom ? "Andere Datei wählen" : "Datei wählen"}
+                </button>
+                <input ref={songFile} type="file" accept="audio/*" onChange={pickSong} className="hidden" />
+                {custom && <span className="truncate text-muted">🎧 {custom.name}</span>}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-muted">Abschnitt in Schleife: von</span>
+                <input value={from} onChange={(e) => setFrom(e.target.value)} onBlur={applyRange} placeholder="0:00" inputMode="numeric"
+                  className="w-16 rounded-lg border border-line bg-card px-2 py-1 text-center" aria-label="Start (mm:ss)" />
+                <span className="text-muted">bis</span>
+                <input value={to} onChange={(e) => setTo(e.target.value)} onBlur={applyRange} placeholder="Ende" inputMode="numeric"
+                  className="w-16 rounded-lg border border-line bg-card px-2 py-1 text-center" aria-label="Ende (mm:ss)" />
+              </div>
+              {custom && (
+                <button onClick={async () => { await deleteCustomSong(); setCustom(null); if (song === "eigen") setSong(null); }}
+                  className="text-red-600 underline">Eigenen Song entfernen</button>
+              )}
+            </div>
+          )}
           <p className="text-xs text-muted">
+            🐾 Irgendwo versteckt sich eine Katze{pets > 0 && <> · schon {pets}× gestreichelt</>}
+          </p>
+          <p className="text-xs text-muted">
+            <span className={`mr-1 inline-block h-2 w-2 rounded-full align-middle ${live === "live" ? "bg-emerald-500" : live === "offline" ? "bg-red-500" : "bg-amber-400"}`} />
+            {live === "live" ? "Live verbunden" : live === "offline" ? "Keine Live-Verbindung" : "Verbinde …"} ·{" "}
             Im Spiel: {[...onlineIds].map((id) => (id === myId ? "du" : members.find((m) => m.id === id)?.display_name)).filter(Boolean).join(", ")}.
-            {" "}Sprechblasen sehen nur die, die gerade online sind.
+            {" "}Sprechblasen sehen nur die, die gerade online sind. Zum Testen auf einem zweiten Gerät dort einen <i>anderen</i> Mitbewohner wählen.
           </p>
         </div>
       </div>
@@ -347,7 +485,7 @@ export function Game() {
 
       {panel && (
         <Sheet onClose={() => setPanel(null)}
-          title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : panel.type === "wardrobe" ? "👚 Dein Kleiderschrank" : `${panel.obj.icon} ${panel.obj.label}`}>
+          title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : panel.type === "wardrobe" ? "👚 Dein Kleiderschrank" : panel.type === "object" ? `${panel.obj.icon} ${panel.obj.label}` : ""}>
           {panel.type === "member" && targetMember ? (
             <TalkDialog target={targetMember} online={onlineIds.has(targetMember.id)}
               onEmote={(em, on) => say(em === "🐝" && on ? on : myId, em)} onClose={() => setPanel(null)} />
