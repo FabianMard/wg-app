@@ -33,6 +33,7 @@ create table public.households (
   cleaning_start date not null default date_trunc('week', now())::date,
   -- "Oft gebraucht" in der Einkaufsliste (null = automatisch)
   shopping_favorites text[],
+  photo_path     text,            -- WG-Foto (Storage-Bucket "pinnwand")
   created_at     timestamptz not null default now()
 );
 

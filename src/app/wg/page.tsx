@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { squarePhoto } from "@/lib/photos";
+import { squarePhoto, useSignedUrl } from "@/lib/photos";
 import { supabase } from "@/lib/supabase";
 import { useRows, useWG } from "@/lib/wg";
 import type { Praise } from "@/lib/types";
@@ -48,6 +48,41 @@ export default function WGSettings() {
       setPhotoBusy(false);
     }
   }
+  // ── WG-Foto (für alle änderbar) ──
+  const wgCamRef = useRef<HTMLInputElement>(null), wgGalRef = useRef<HTMLInputElement>(null);
+  const wgPhoto = useSignedUrl(household.photo_path);
+  async function uploadWgPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    setPhotoErr(null);
+    setPhotoBusy(true);
+    try {
+      const blob = await squarePhoto(f, 600);
+      const path = `${household.id}/wg-${Date.now()}.jpg`;
+      const up = await supabase.storage.from("pinnwand").upload(path, blob, { contentType: "image/jpeg" });
+      if (up.error) throw new Error(up.error.message);
+      const { error } = await supabase.from("households").update({ photo_path: path }).eq("id", household.id);
+      if (error) {
+        await supabase.storage.from("pinnwand").remove([path]);
+        throw new Error(error.message.includes("photo_path") ? "Datenbank-Update fehlt: Bitte supabase/009_wg_foto.sql im SQL Editor ausführen." : error.message);
+      }
+      if (household.photo_path) await supabase.storage.from("pinnwand").remove([household.photo_path]);
+      await refresh();
+    } catch (x) {
+      setPhotoErr((x as Error).message);
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+  async function removeWgPhoto() {
+    if (!household.photo_path || !confirm("WG-Foto entfernen?")) return;
+    const old = household.photo_path;
+    await supabase.from("households").update({ photo_path: null }).eq("id", household.id);
+    await supabase.storage.from("pinnwand").remove([old]);
+    await refresh();
+  }
+
   async function removePhoto() {
     if (!me?.photo_path || !confirm("Profilfoto entfernen?")) return;
     const old = me.photo_path;
@@ -108,6 +143,24 @@ export default function WGSettings() {
           <button onClick={copy} className={btnGhostCls}>{copied ? "Kopiert ✓" : "Kopieren"}</button>
         </div>
         <p className="mt-3 text-xs text-muted">Code zum Eintippen: <b className="font-mono tracking-widest">{household.invite_code}</b></p>
+      </Card>
+
+      <SectionTitle>WG-Foto</SectionTitle>
+      <Card className="flex items-center gap-4">
+        {wgPhoto
+          // eslint-disable-next-line @next/next/no-img-element
+          ? <img src={wgPhoto} alt="WG-Foto" className="h-[72px] w-[72px] shrink-0 rounded-2xl object-cover ring-1 ring-line" />
+          : <span className="flex h-[72px] w-[72px] shrink-0 items-center justify-center rounded-2xl bg-line/50 text-3xl">🏠</span>}
+        <div className="flex flex-1 flex-col gap-2">
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => wgCamRef.current?.click()} disabled={photoBusy} className={btnGhostCls}>📷 Foto machen</button>
+            <button onClick={() => wgGalRef.current?.click()} disabled={photoBusy} className={btnGhostCls}>🖼️ Aus Galerie</button>
+          </div>
+          {household.photo_path && <button onClick={removeWgPhoto} className="self-start text-xs text-muted underline">WG-Foto entfernen</button>}
+          <p className="text-xs text-muted">Erscheint oben neben dem WG-Namen – für alle in der WG.</p>
+        </div>
+        <input ref={wgCamRef} type="file" accept="image/*" capture="environment" onChange={uploadWgPhoto} className="hidden" />
+        <input ref={wgGalRef} type="file" accept="image/*" onChange={uploadWgPhoto} className="hidden" />
       </Card>
 
       <SectionTitle>Profilfoto</SectionTitle>

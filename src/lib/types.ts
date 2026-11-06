@@ -5,6 +5,8 @@ export type Household = {
   cleaning_start: string;
   /** "Oft gebraucht" in der Einkaufsliste; null = automatisch */
   shopping_favorites: string[] | null;
+  /** WG-Foto (ab 009_wg_foto.sql) */
+  photo_path?: string | null;
 };
 
 export type Member = {

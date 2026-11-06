@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useWG } from "@/lib/wg";
 import { Avatar } from "./ui";
 import { OnlineNow } from "./OnlineNow";
+import { useSignedUrl } from "@/lib/photos";
 
 export const NAV = [
   { href: "/", label: "Start", icon: "🏠" },
@@ -18,10 +19,17 @@ export const NAV = [
 
 export function Header() {
   const { household, me } = useWG();
+  const wgPhoto = useSignedUrl(household.photo_path);
   return (
     <header className="sticky top-0 z-20 border-b border-line bg-bg/85 backdrop-blur">
       <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
-        <Link href="/" className="min-w-0 truncate text-lg font-bold tracking-tight">{household.name}</Link>
+        <Link href="/" className="flex min-w-0 items-center gap-2.5">
+          {wgPhoto && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={wgPhoto} alt="" className="h-9 w-9 shrink-0 rounded-xl object-cover shadow-sm ring-1 ring-line" />
+          )}
+          <span className="truncate text-lg font-bold tracking-tight">{household.name}</span>
+        </Link>
         <nav className="hidden gap-1 md:flex">
           <DesktopLinks />
         </nav>
