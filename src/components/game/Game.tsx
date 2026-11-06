@@ -453,7 +453,6 @@ export function Game() {
       </button>
 
       <div className="flex items-start gap-3">
-        <DPad onStep={(dx, dy) => { setPath([]); pending.current = null; step(dx, dy); }} />
         <div className="min-w-0 flex-1 space-y-2">
           <form onSubmit={(e) => { e.preventDefault(); if (chat.trim()) { say(myId, chat.trim().slice(0, 80)); setChat(""); } }} className="flex gap-2">
             <input className={`${inputCls} py-2 text-sm`} placeholder="Etwas sagen …" maxLength={80} value={chat} onChange={(e) => setChat(e.target.value)} />
@@ -509,22 +508,17 @@ export function Game() {
           </p>
           <p className="text-xs text-muted">
             <span className={`mr-1 inline-block h-2 w-2 rounded-full align-middle ${live === "live" ? "bg-emerald-500" : live === "offline" ? "bg-red-500" : "bg-amber-400"}`} />
-            {live === "live" ? "Live verbunden" : live === "offline" ? "Keine Live-Verbindung" : "Verbinde …"} ·{" "}
-            Im Spiel: {[...onlineIds].map((id) => (id === myId ? "du" : members.find((m) => m.id === id)?.display_name)).filter(Boolean).join(", ")}.
-            {" "}Sprechblasen sehen nur die, die gerade online sind. Zum Testen auf einem zweiten Gerät dort einen <i>anderen</i> Mitbewohner wählen.
+            {live === "live" ? "Live verbunden" : live === "offline" ? "Keine Live-Verbindung" : "Verbinde …"}
           </p>
         </div>
       </div>
-      <p className="hidden text-xs text-muted md:block">
-        Laufen: Pfeiltasten / WASD oder hinklicken · Benutzen & Reden: <b>E</b>, Enter oder Leertaste · Schließen: Esc
-      </p>
 
       {panel && (
         <Sheet onClose={() => setPanel(null)}
           title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : panel.type === "wardrobe" ? (panel.ownerId && panel.ownerId !== myId ? `👚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Kleiderschrank` : "👚 Dein Kleiderschrank") : panel.type === "object" ? `${panel.obj.icon} ${panel.obj.label}` : ""}>
           {panel.type === "member" && targetMember ? (
             <TalkDialog target={targetMember} online={onlineIds.has(targetMember.id)}
-              onEmote={(em, on) => say(em === "🐝" && on ? on : myId, em)} onClose={() => setPanel(null)} />
+              onEmote={(em, on) => say(em === "🐝" && on ? on : myId, em)} onSay={(text) => say(myId, text)} onClose={() => setPanel(null)} />
           ) : panel.type === "wardrobe" && me ? (
             <Wardrobe member={me} owner={members.find((m) => m.id === panel.ownerId)} firstTime={panel.first} onSaved={(look) => { setMyLook(look); refresh(); setPanel(null); say(myId, "✨"); }} />
           ) : panel.type === "object" ? (
@@ -532,28 +526,6 @@ export function Game() {
           ) : null}
         </Sheet>
       )}
-    </div>
-  );
-}
-
-function DPad({ onStep }: { onStep: (dx: number, dy: number) => void }) {
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const start = (dx: number, dy: number) => (e: React.PointerEvent) => {
-    e.preventDefault();
-    onStep(dx, dy);
-    stop();
-    timer.current = setInterval(() => onStep(dx, dy), STEP_MS);
-  };
-  const stop = () => { if (timer.current) clearInterval(timer.current); timer.current = null; };
-  useEffect(() => stop, []);
-  const btn = "flex h-11 w-11 items-center justify-center rounded-xl border border-line bg-card text-lg shadow-sm active:scale-90 active:bg-accent/15 touch-none";
-  const props = (dx: number, dy: number) => ({ onPointerDown: start(dx, dy), onPointerUp: stop, onPointerLeave: stop, onPointerCancel: stop, onContextMenu: (e: React.MouseEvent) => e.preventDefault() });
-  return (
-    <div className="grid shrink-0 grid-cols-3 gap-1 md:hidden" aria-label="Steuerkreuz">
-      <span /><button className={btn} aria-label="hoch" {...props(0, -1)}>▲</button><span />
-      <button className={btn} aria-label="links" {...props(-1, 0)}>◀</button><span />
-      <button className={btn} aria-label="rechts" {...props(1, 0)}>▶</button>
-      <span /><button className={btn} aria-label="runter" {...props(0, 1)}>▼</button><span />
     </div>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRows, useWG } from "@/lib/wg";
+import { supabase } from "@/lib/supabase";
 import type { ChoreArea, ChoreCheck, ChoreTask, Expense, Member, Praise, Todo } from "@/lib/types";
 import { areaStatuses, isOverdue, periodOf, phaseOf } from "@/lib/cleaning";
 import { computeBalances, suggestTransfers } from "@/lib/balances";
@@ -18,10 +19,11 @@ const GREETINGS = [
   "Na {me}, auch auf dem Weg zur Küche?",
 ];
 
-export function TalkDialog({ target, online, onEmote, onClose }: {
+export function TalkDialog({ target, online, onEmote, onSay, onClose }: {
   target: Member;
   online: boolean;
   onEmote: (emoji: string, targetId?: string) => void;
+  onSay: (text: string) => void;
   onClose: () => void;
 }) {
   const { me, myId, members, household } = useWG();
@@ -32,6 +34,25 @@ export function TalkDialog({ target, online, onEmote, onClose }: {
   const { rows: todos } = useRows<Todo>("todos", "created_at", false);
   const { rows: expenses } = useRows<Expense>("expenses", "created_at");
   const [topic, setTopic] = useState<Topic>("hallo");
+  const [msg, setMsg] = useState("");
+  const [sent, setSent] = useState<string | null>(null);
+  const [pinned, setPinned] = useState(false);
+
+  function send(e: React.FormEvent) {
+    e.preventDefault();
+    const t = msg.trim().slice(0, 80);
+    if (!t) return;
+    onSay(t);
+    setSent(t);
+    setPinned(false);
+    setMsg("");
+  }
+  // Ist die Person nicht online, kann man die Nachricht stattdessen an die Pinnwand hängen
+  async function pin() {
+    if (!sent) return;
+    const { error } = await supabase.from("notes").insert({ household_id: household.id, text: `An ${target.display_name}: ${sent}`, color: "rosa" });
+    if (!error) setPinned(true);
+  }
 
   const [greeting] = useState(() => GREETINGS[Math.floor(Math.random() * GREETINGS.length)]);
   const period = periodOf(household.cleaning_start);
@@ -131,6 +152,21 @@ export function TalkDialog({ target, online, onEmote, onClose }: {
         <Choice onClick={() => setTopic("todos")} active={topic === "todos"}>✅ Was steht an?</Choice>
         <Choice onClick={() => { onEmote("👋", target.id); onClose(); }}>👋 Winken & tschüss</Choice>
       </div>
+      <form onSubmit={send} className="flex gap-2">
+        <input value={msg} onChange={(e) => setMsg(e.target.value)} maxLength={80} placeholder={`${target.display_name} etwas sagen …`}
+          className="w-full rounded-xl border border-line bg-card px-3 py-2.5 text-base outline-none focus:border-accent" aria-label={`Nachricht an ${target.display_name}`} />
+        <button className="rounded-xl bg-accent px-4 font-medium text-white" aria-label="Sagen">💬</button>
+      </form>
+      {sent && (
+        <div className="-mt-2 text-sm text-muted">
+          {online
+            ? <>💬 Du hast gesagt: „{sent}“</>
+            : pinned
+              ? <>📌 Hängt an der Pinnwand – {target.display_name} sieht es beim nächsten Öffnen.</>
+              : <>💤 {target.display_name} ist gerade nicht im Spiel und hört es nicht.{" "}
+                  <button onClick={pin} className="font-medium text-accent underline">Stattdessen an die Pinnwand hängen</button></>}
+        </div>
+      )}
       <div className="flex justify-center gap-2">
         {["❤️", "😂", "🙏", "🍕", "☕"].map((e) => (
           <button key={e} onClick={() => onEmote(e, target.id)} title="Emote senden"
