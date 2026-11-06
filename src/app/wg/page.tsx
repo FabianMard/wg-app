@@ -16,10 +16,23 @@ export default function WGSettings() {
     await supabase.from("members").update({ display_name: name.trim() }).eq("user_id", userId);
     refresh();
   }
+  const link = typeof window === "undefined" ? "" : `${window.location.origin}/?code=${household.invite_code}`;
+
   async function copy() {
-    await navigator.clipboard.writeText(household.invite_code);
+    await navigator.clipboard.writeText(link);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+  }
+  async function share() {
+    if (navigator.share) {
+      await navigator.share({ title: household.name, text: `Komm in unsere WG-App „${household.name}“:`, url: link }).catch(() => {});
+    } else {
+      copy();
+    }
+  }
+  async function signOut() {
+    if (!confirm("Auf diesem Gerät abmelden? Du kommst jederzeit über den Einladungslink zurück, indem du auf deinen Namen tippst.")) return;
+    await supabase.auth.signOut();
   }
   async function leave() {
     if (!confirm("WG wirklich verlassen?")) return;
@@ -32,11 +45,16 @@ export default function WGSettings() {
       <PageTitle>{household.name}</PageTitle>
 
       <Card>
-        <p className="text-sm text-muted">Einladungscode für neue Mitbewohner</p>
-        <div className="mt-1 flex items-center gap-3">
-          <span className="font-mono text-3xl font-bold tracking-[.25em]">{household.invite_code}</span>
+        <p className="font-semibold">Mitbewohner einladen</p>
+        <p className="mt-1 text-sm text-muted">
+          Wer diesen Link hat, kann sich ohne Anmeldung als Mitbewohner eintragen. Teilt ihn nur in eurer WG-Gruppe.
+        </p>
+        <p className="mt-3 break-all rounded-xl bg-line/40 px-3 py-2 font-mono text-sm">{link}</p>
+        <div className="mt-3 flex gap-2">
+          <button onClick={share} className={btnCls}>Link teilen</button>
           <button onClick={copy} className={btnGhostCls}>{copied ? "Kopiert ✓" : "Kopieren"}</button>
         </div>
+        <p className="mt-3 text-xs text-muted">Code zum Eintippen: <b className="font-mono tracking-widest">{household.invite_code}</b></p>
       </Card>
 
       <SectionTitle>Mitbewohner ({members.length})</SectionTitle>
@@ -56,7 +74,7 @@ export default function WGSettings() {
       </form>
 
       <div className="mt-8 flex flex-wrap gap-2">
-        <button onClick={() => supabase.auth.signOut()} className={btnGhostCls}>Abmelden</button>
+        <button onClick={signOut} className={btnGhostCls}>Auf diesem Gerät abmelden</button>
         <button onClick={leave} className={`${btnGhostCls} text-red-600`}>WG verlassen</button>
       </div>
     </>

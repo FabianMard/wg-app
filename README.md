@@ -8,7 +8,10 @@ Next.js + Supabase, installierbar als App auf dem Handy (PWA). Alle Änderungen 
 ### 1. Supabase-Projekt anlegen
 1. Auf [supabase.com](https://supabase.com) kostenlos registrieren und ein neues Projekt anlegen (Region z. B. Frankfurt).
 2. Im Projekt links **SQL Editor** öffnen, den Inhalt von `supabase/schema.sql` einfügen und **Run** klicken.
-3. Unter **Project Settings → API** die *Project URL* und den *anon public key* kopieren.
+   (Wer `schema.sql` schon früher ausgeführt hat: nur noch `supabase/002_link_join.sql` ausführen.)
+3. **Authentication → Sign In / Providers → „Allow anonymous sign-ins“** aktivieren und speichern.
+   Damit braucht niemand eine E-Mail-Adresse: Wer den Einladungslink öffnet, gibt nur seinen Namen ein.
+4. Unter **Project Settings → API** die *Project URL* und den *anon public key* kopieren.
 
 ### 2. Lokal starten
 ```bash
@@ -16,16 +19,19 @@ cp .env.example .env.local   # Werte aus Schritt 1.3 eintragen
 npm install
 npm run dev
 ```
-Dann http://localhost:3000 öffnen, registrieren, WG gründen. Den Einladungscode (Avatar oben rechts) an die Mitbewohner schicken.
+Dann http://localhost:3000 öffnen und eine WG gründen. Unter dem Avatar oben rechts gibt es den
+Einladungslink zum Teilen.
 
-> Supabase verlangt standardmäßig eine E-Mail-Bestätigung. Für schnelles Testen lässt sie sich unter
-> **Authentication → Sign In / Providers → Email → Confirm email** abschalten.
+## Anmeldung ohne E-Mail
+- Jedes Gerät bekommt automatisch ein anonymes Konto. Der Name wird beim Beitritt eingegeben.
+- **Neues Handy oder Browserdaten gelöscht?** Einladungslink öffnen und auf den eigenen Namen tippen.
+  Das Gerät übernimmt dann Aufgaben, Ausgaben und Kontostand.
+- Wer den Link hat, kommt in die WG. Den Link also nur in der WG-Gruppe teilen.
 
 ### 3. Online stellen mit Vercel
 1. Projekt auf GitHub hochladen.
 2. Auf [vercel.com](https://vercel.com) mit GitHub anmelden → **Add New Project** → Repo auswählen.
 3. Unter *Environment Variables* `NEXT_PUBLIC_SUPABASE_URL` und `NEXT_PUBLIC_SUPABASE_ANON_KEY` eintragen → **Deploy**.
-4. In Supabase unter **Authentication → URL Configuration** die Vercel-Adresse als *Site URL* eintragen (damit die Bestätigungslinks stimmen).
 
 Jeder weitere `git push` wird automatisch veröffentlicht.
 

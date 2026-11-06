@@ -25,17 +25,11 @@ const Ctx = createContext<WGContext | null>(null);
 const StateCtx = createContext<{ state: State; refresh: () => Promise<void> } | null>(null);
 
 export function WGProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [state, setState] = useState<State>({ status: "loading" });
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
-    return () => data.subscription.unsubscribe();
-  }, []);
-
+  // Liest die Sitzung immer frisch, damit refresh() direkt nach dem Anmelden funktioniert
   const refresh = useCallback(async () => {
-    if (session === undefined) return;
+    const { data: { session } } = await supabase.auth.getSession();
     if (!session) return setState({ status: "signed-out" });
     const { data: mine } = await supabase
       .from("members").select("household_id").eq("user_id", session.user.id).maybeSingle();
@@ -46,9 +40,16 @@ export function WGProvider({ children }: { children: React.ReactNode }) {
     ]);
     if (!household) return setState({ status: "no-household", session });
     setState({ status: "ready", session, household, members: members ?? [] });
-  }, [session]);
+  }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    refresh();
+    const { data } = supabase.auth.onAuthStateChange((event) => {
+      // Keine Supabase-Aufrufe direkt im Callback (kann blockieren), daher setTimeout
+      if (event === "SIGNED_IN" || event === "SIGNED_OUT") setTimeout(refresh, 0);
+    });
+    return () => data.subscription.unsubscribe();
+  }, [refresh]);
 
   // Neue Mitbewohner live übernehmen
   const householdId = state.status === "ready" ? state.household.id : null;
