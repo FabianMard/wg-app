@@ -117,19 +117,80 @@ export default function Bericht() {
   ].filter((a) => a.w);
 
   const monthName = month.toLocaleDateString("de-DE", { month: "long", year: "numeric" });
+  // ── Export: Text-Zusammenfassung zum Teilen/Mailen ──
+  const reportText = () => {
+    const L: string[] = [`🏠 ${household.name} – Monatsbericht ${monthName}`, ""];
+    L.push(`🧽 ${doneAreas}/${areaResults.length} Putzbereiche erledigt`, `🛒 ${boughtMonth.length} Sachen eingekauft`,
+      `💶 ${euro(total)} Ausgaben`, `🐝 ${praisesMonth.length} Bienchen verteilt`);
+    if (awards.length) {
+      L.push("", "🏆 Auszeichnungen");
+      for (const a of awards) L.push(`${a.icon} ${a.title}: ${a.w!.m.display_name} (${a.money ? euro(a.w!.n) : `${a.w!.n} ${a.unit}`})`);
+    }
+    if (rounds.length) {
+      L.push("", "🧽 Putzen");
+      for (const r of rounds) {
+        L.push(`Putzwoche bis ${formatDate(r.due)}${r.running ? " (läuft noch)" : ""}: ` +
+          r.statuses.map((x) => `${x.area.name} ${x.assignee?.display_name ?? "?"} ${x.done ? "✓" : r.running ? `${x.doneCount}/${x.tasks.length}` : "✗"}`).join(", "));
+      }
+    }
+    if (itemsMonth.length) {
+      L.push("", "🛒 Einkaufen", `${itemsMonth.length} eingetragen, ${boughtMonth.length} gekauft`);
+      if (topItems.length) L.push(`Am häufigsten: ${topItems.map(([n, c]) => `${n}${c > 1 ? ` (${c}×)` : ""}`).join(", ")}`);
+      if (boughtByMonth.length) L.push(`Eingekauft: ${buyerTally.filter((x) => x.n).map((x) => `${x.m.display_name} ${x.n}`).join(", ")}`);
+    }
+    if (spending.length) {
+      L.push("", "💶 Kosten", `${euro(total)} in ${spending.length} Ausgaben`);
+      L.push(`Bezahlt: ${paidBy.filter((x) => x.sum).map((x) => `${x.m.display_name} ${euro(x.sum)}`).join(", ")}`);
+      if (biggest) L.push(`Größte Ausgabe: ${biggest.title} (${euro(Number(biggest.amount))})`);
+    }
+    if (todosDone.length) L.push("", `✅ ${todosDone.length} To-dos erledigt: ${todosDone.slice(0, 8).map((t) => t.title).join(", ")}`);
+    if (eventsMonth.length || holidays.length) {
+      L.push("", "📅 Termine");
+      for (const e of [...holidays.map((h) => ({ day: h.date, title: `🎉 ${h.name}` })), ...eventsMonth].sort((a, b) => a.day.localeCompare(b.day))) {
+        L.push(`${formatDate(e.day)}: ${e.title}`);
+      }
+    }
+    return L.join("\n");
+  };
+  const [shareMsg, setShareMsg] = useState<string | null>(null);
+  const flash = (m: string) => { setShareMsg(m); setTimeout(() => setShareMsg(null), 2500); };
+  async function share() {
+    const text = reportText();
+    if (navigator.share) {
+      try { await navigator.share({ title: `Monatsbericht ${monthName}`, text }); return; } catch { return; /* abgebrochen */ }
+    }
+    await navigator.clipboard.writeText(text);
+    flash("📋 Kopiert – jetzt z. B. in WhatsApp einfügen");
+  }
+  async function copy() { await navigator.clipboard.writeText(reportText()); flash("📋 Text kopiert"); }
+  const mailto = () => `mailto:?subject=${encodeURIComponent(`${household.name}: Monatsbericht ${monthName}`)}&body=${encodeURIComponent(reportText())}`;
+
   const nothing = !rounds.length && !itemsMonth.length && !spending.length && !eventsMonth.length && !todosCreated.length && !praisesMonth.length && !notesMonth.length;
 
   return (
     <div onTouchStart={(e) => { touch.current = e.touches[0].clientX; }}
       onTouchEnd={(e) => { const t = touch.current; touch.current = null; if (t === null) return; const dx = e.changedTouches[0].clientX - t; if (Math.abs(dx) > 70) shift(dx < 0 ? 1 : -1); }}>
       <div className="mb-5 flex items-center justify-between gap-2">
-        <button onClick={() => shift(-1)} className="rounded-xl px-3 py-2 text-xl hover:bg-line/50" aria-label="Vorheriger Monat">‹</button>
+        <button onClick={() => shift(-1)} className="no-print rounded-xl px-3 py-2 text-xl hover:bg-line/50" aria-label="Vorheriger Monat">‹</button>
         <div className="text-center">
           <p className="text-xs font-semibold uppercase tracking-wider text-muted">Monatsbericht</p>
           <h1 className="text-2xl font-bold tracking-tight">{monthName}</h1>
+          <p className="print-only text-sm text-muted">{household.name}</p>
         </div>
-        <button onClick={() => shift(1)} disabled={isFuture} className="rounded-xl px-3 py-2 text-xl hover:bg-line/50 disabled:opacity-25" aria-label="Nächster Monat">›</button>
+        <button onClick={() => shift(1)} disabled={isFuture} className="no-print rounded-xl px-3 py-2 text-xl hover:bg-line/50 disabled:opacity-25" aria-label="Nächster Monat">›</button>
       </div>
+
+      {!nothing && (
+        <div className="no-print mb-5">
+          <div className="flex flex-wrap justify-center gap-2">
+            <button onClick={share} className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-white shadow-sm active:scale-95">📤 Teilen</button>
+            <a href={mailto()} className="rounded-full border border-line bg-card px-4 py-2 text-sm font-medium active:scale-95">✉️ E-Mail</a>
+            <button onClick={() => window.print()} className="rounded-full border border-line bg-card px-4 py-2 text-sm font-medium active:scale-95">🖨️ Als PDF</button>
+            <button onClick={copy} className="rounded-full border border-line bg-card px-4 py-2 text-sm font-medium active:scale-95">📋 Kopieren</button>
+          </div>
+          {shareMsg && <p className="mt-2 text-center text-sm text-emerald-600">{shareMsg}</p>}
+        </div>
+      )}
 
       {nothing ? (
         <Card><p className="text-center text-muted">In diesem Monat ist (noch) nichts passiert. 🦗</p></Card>
@@ -281,7 +342,7 @@ export default function Bericht() {
         </>
       )}
 
-      <p className="mt-6 text-center text-xs text-muted">
+      <p className="no-print mt-6 text-center text-xs text-muted">
         Tipp: Zwischen den Monaten wischen. <Link href="/" className="underline">Zur Startseite</Link>
       </p>
     </div>

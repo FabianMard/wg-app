@@ -61,3 +61,16 @@ input[type="date"], input[type="time"], select { color-scheme: light dark; }
 @keyframes slide-prev { from { transform: translateX(-28%); opacity: 0; } to { transform: none; opacity: 1; } }
 .animate-slide-next { animation: slide-next .22s ease-out; }
 .animate-slide-prev { animation: slide-prev .22s ease-out; }
+
+/* Drucken / Als PDF speichern: nur der Inhalt, ohne Menüs */
+.print-only { display: none; }
+@media print {
+  header, nav, .no-print, nextjs-portal { display: none !important; }
+  .print-only { display: block; }
+  html, body { background: #fff !important; color: #111 !important; overflow: visible !important; }
+  main { padding: 0 !important; max-width: none !important; }
+  * { box-shadow: none !important; }
+  .rounded-2xl { break-inside: avoid; }
+  h2 { break-after: avoid; page-break-after: avoid; }
+  @page { margin: 14mm; }
+}

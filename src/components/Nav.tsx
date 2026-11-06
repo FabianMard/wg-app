@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useWG } from "@/lib/wg";
 import { Avatar } from "./ui";
+import { OnlineNow } from "./OnlineNow";
 
 export const NAV = [
   { href: "/", label: "Start", icon: "🏠" },
@@ -20,11 +21,14 @@ export function Header() {
   return (
     <header className="sticky top-0 z-20 border-b border-line bg-bg/85 backdrop-blur">
       <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
-        <Link href="/" className="text-lg font-bold tracking-tight">{household.name}</Link>
+        <Link href="/" className="min-w-0 truncate text-lg font-bold tracking-tight">{household.name}</Link>
         <nav className="hidden gap-1 md:flex">
           <DesktopLinks />
         </nav>
-        <Link href="/wg" aria-label="WG-Einstellungen"><Avatar member={me} size={32} /></Link>
+        <div className="flex items-center gap-2">
+          <OnlineNow />
+          <Link href="/wg" aria-label="WG-Einstellungen"><Avatar member={me} size={32} /></Link>
+        </div>
       </div>
     </header>
   );
