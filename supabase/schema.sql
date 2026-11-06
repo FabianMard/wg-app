@@ -1,74 +1,88 @@
--- WG-App: Datenbankschema für Supabase
+-- ════════════════════════════════════════════════════════════════════
+-- WG-App: Datenbank (Version 2)
 -- Im Supabase-Dashboard unter "SQL Editor" komplett einfügen und ausführen.
+--
+-- ACHTUNG: Löscht alle bisherigen WG-Daten und legt alles neu an,
+-- inklusive Mitbewohner (Verena, Stefan, Fabian) und Putzplan.
+-- Am Ende wird der Einladungscode angezeigt.
+--
+-- Voraussetzung: Authentication → Sign In / Providers →
+-- "Allow anonymous sign-ins" aktivieren.
+-- ════════════════════════════════════════════════════════════════════
+
+-- ───────────── Alte Version entfernen ─────────────
+drop table if exists public.praises, public.chore_checks, public.chore_tasks, public.chore_areas,
+  public.chores, public.shopping_items, public.expenses, public.events, public.todos,
+  public.members, public.households cascade;
+drop function if exists public.is_member(uuid) cascade;
+drop function if exists public.my_member_id() cascade;
+drop function if exists public.next_color(uuid) cascade;
+drop function if exists public.create_household(text, text) cascade;
+drop function if exists public.join_household(text, text) cascade;
+drop function if exists public.household_preview(text) cascade;
+drop function if exists public.claim_member(text, uuid) cascade;
 
 create extension if not exists pgcrypto;
 
--- ───────────── WG & Mitglieder ─────────────
+-- ───────────── WG & Mitbewohner ─────────────
 create table public.households (
-  id          uuid primary key default gen_random_uuid(),
-  name        text not null,
-  invite_code text not null unique default upper(substr(md5(random()::text), 1, 6)),
-  created_at  timestamptz not null default now()
+  id             uuid primary key default gen_random_uuid(),
+  name           text not null,
+  invite_code    text not null unique default upper(substr(md5(random()::text), 1, 6)),
+  -- Montag, an dem die erste Putzrunde beginnt (Runden dauern 2 Wochen)
+  cleaning_start date not null default date_trunc('week', now())::date,
+  created_at     timestamptz not null default now()
 );
 
+-- Mitbewohner sind fest angelegt. Ein Gerät "übernimmt" einen Mitbewohner (user_id).
 create table public.members (
+  id           uuid primary key default gen_random_uuid(),
   household_id uuid not null references public.households on delete cascade,
-  user_id      uuid not null references auth.users on delete cascade,
   display_name text not null,
-  color        text not null default '#6366f1',
-  joined_at    timestamptz not null default now(),
-  primary key (household_id, user_id)
+  color        text not null,
+  sort         int  not null default 0,
+  user_id      uuid unique references auth.users on delete set null,
+  created_at   timestamptz not null default now()
 );
--- Vereinfachung: jede Person ist in genau einer WG
-create unique index members_one_household on public.members (user_id);
 
-create or replace function public.is_member(h uuid)
+create function public.is_member(h uuid)
 returns boolean language sql security definer stable set search_path = public as $$
   select exists (select 1 from members where household_id = h and user_id = auth.uid())
 $$;
 
-create or replace function public.next_color(h uuid)
-returns text language sql stable set search_path = public as $$
-  select (array['#ef4444','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ec4899','#14b8a6','#f97316'])
-         [((select count(*) from members where household_id = h) % 8) + 1]
+create function public.my_member_id()
+returns uuid language sql security definer stable set search_path = public as $$
+  select id from members where user_id = auth.uid()
 $$;
 
--- WG anlegen (Ersteller wird automatisch Mitglied)
-create or replace function public.create_household(p_name text, p_display_name text)
-returns uuid language plpgsql security definer set search_path = public as $$
-declare h uuid;
-begin
-  if auth.uid() is null then raise exception 'Nicht eingeloggt'; end if;
-  insert into households (name) values (p_name) returning id into h;
-  insert into members (household_id, user_id, display_name, color)
-  values (h, auth.uid(), p_display_name, next_color(h));
-  return h;
-end $$;
-
--- Per Einladungscode beitreten
-create or replace function public.join_household(p_code text, p_display_name text)
-returns uuid language plpgsql security definer set search_path = public as $$
-declare h uuid;
-begin
-  if auth.uid() is null then raise exception 'Nicht eingeloggt'; end if;
-  select id into h from households where invite_code = upper(trim(p_code));
-  if h is null then raise exception 'Einladungscode ungültig'; end if;
-  insert into members (household_id, user_id, display_name, color)
-  values (h, auth.uid(), p_display_name, next_color(h));
-  return h;
-end $$;
-
 -- ───────────── Putzplan ─────────────
-create table public.chores (
-  id            uuid primary key default gen_random_uuid(),
-  household_id  uuid not null references public.households on delete cascade,
-  title         text not null,
-  interval_days int  not null default 7 check (interval_days > 0),
-  assignee      uuid references auth.users on delete set null,
-  next_due      date not null default current_date,
-  last_done_at  timestamptz,
-  last_done_by  uuid references auth.users on delete set null,
-  created_at    timestamptz not null default now()
+create table public.chore_areas (
+  id           uuid primary key default gen_random_uuid(),
+  household_id uuid not null references public.households on delete cascade,
+  name         text not null,
+  icon         text not null default '🧽',
+  sort         int  not null default 0
+);
+
+create table public.chore_tasks (
+  id           uuid primary key default gen_random_uuid(),
+  household_id uuid not null references public.households on delete cascade,
+  area_id      uuid not null references public.chore_areas on delete cascade,
+  title        text not null,
+  sort         int  not null default 0,
+  created_at   timestamptz not null default now()
+);
+
+-- Abgehakte Tasks je Putzrunde (period = Nummer der 2-Wochen-Runde ab cleaning_start)
+create table public.chore_checks (
+  id           uuid primary key default gen_random_uuid(),
+  household_id uuid not null references public.households on delete cascade,
+  area_id      uuid not null references public.chore_areas on delete cascade,
+  task_id      uuid not null references public.chore_tasks on delete cascade,
+  period       int  not null,
+  done_by      uuid default public.my_member_id() references public.members on delete set null,
+  done_at      timestamptz not null default now(),
+  unique (task_id, period)
 );
 
 -- ───────────── Einkaufsliste ─────────────
@@ -76,24 +90,27 @@ create table public.shopping_items (
   id           uuid primary key default gen_random_uuid(),
   household_id uuid not null references public.households on delete cascade,
   name         text not null,
+  store        text not null default 'egal'
+               check (store in ('hit', 'rewe', 'konsum', 'baumarkt', 'egal', 'sonstiges')),
+  store_note   text,            -- bei "sonstiges": welcher Laden
   done         boolean not null default false,
-  added_by     uuid default auth.uid() references auth.users on delete set null,
+  archived     boolean not null default false,  -- "Gekaufte entfernen" (bleibt für Vorschläge erhalten)
+  added_by     uuid default public.my_member_id() references public.members on delete set null,
   created_at   timestamptz not null default now()
 );
 
--- ───────────── Kosten teilen ─────────────
--- Eine Ausgleichszahlung (A zahlt B zurück) wird als Ausgabe gespeichert:
--- paid_by = A, participants = {B}, is_settlement = true
+-- ───────────── Kosten ─────────────
+-- Ausgleichszahlung (A zahlt B zurück): paid_by = A, participants = {B}, is_settlement = true
 create table public.expenses (
   id            uuid primary key default gen_random_uuid(),
   household_id  uuid not null references public.households on delete cascade,
   title         text not null,
   amount        numeric(10,2) not null check (amount > 0),
-  paid_by       uuid not null references auth.users on delete cascade,
+  paid_by       uuid not null references public.members on delete cascade,
   participants  uuid[] not null check (cardinality(participants) > 0),
   is_settlement boolean not null default false,
   spent_on      date not null default current_date,
-  created_by    uuid default auth.uid() references auth.users on delete set null,
+  created_by    uuid default public.my_member_id() references public.members on delete set null,
   created_at    timestamptz not null default now()
 );
 
@@ -103,9 +120,9 @@ create table public.events (
   household_id uuid not null references public.households on delete cascade,
   title        text not null,
   day          date not null,
-  time         time,           -- null = ganztägig
+  time         time,
   note         text,
-  created_by   uuid default auth.uid() references auth.users on delete set null,
+  created_by   uuid default public.my_member_id() references public.members on delete set null,
   created_at   timestamptz not null default now()
 );
 
@@ -115,81 +132,138 @@ create table public.todos (
   household_id uuid not null references public.households on delete cascade,
   title        text not null,
   done         boolean not null default false,
-  assignee     uuid references auth.users on delete set null,
+  done_by      uuid references public.members on delete set null,
+  done_at      timestamptz,
+  assignee     uuid references public.members on delete set null,
   due_date     date,
-  created_by   uuid default auth.uid() references auth.users on delete set null,
+  created_by   uuid default public.my_member_id() references public.members on delete set null,
   created_at   timestamptz not null default now()
 );
 
--- ───────────── Zugriffsrechte (Row Level Security) ─────────────
-alter table public.households     enable row level security;
-alter table public.members        enable row level security;
-alter table public.chores         enable row level security;
-alter table public.shopping_items enable row level security;
-alter table public.expenses       enable row level security;
-alter table public.events         enable row level security;
-alter table public.todos          enable row level security;
+-- ───────────── Fleißige Bienchen (Lob) ─────────────
+create table public.praises (
+  id           uuid primary key default gen_random_uuid(),
+  household_id uuid not null references public.households on delete cascade,
+  from_member  uuid not null default public.my_member_id() references public.members on delete cascade,
+  to_member    uuid not null references public.members on delete cascade,
+  kind         text not null check (kind in ('putzen', 'todo')),
+  ref          text not null,   -- z. B. "<area_id>:<period>" oder todo-id
+  created_at   timestamptz not null default now(),
+  unique (from_member, to_member, kind, ref),
+  check (from_member <> to_member)
+);
 
-create policy "WG sehen"      on public.households for select using (is_member(id));
-create policy "WG umbenennen" on public.households for update using (is_member(id));
-
-create policy "Mitbewohner sehen"   on public.members for select using (is_member(household_id));
-create policy "Eigenes Profil ändern" on public.members for update using (user_id = auth.uid());
-create policy "WG verlassen"        on public.members for delete using (user_id = auth.uid());
-
-create policy "WG-Daten" on public.chores         for all using (is_member(household_id)) with check (is_member(household_id));
-create policy "WG-Daten" on public.shopping_items for all using (is_member(household_id)) with check (is_member(household_id));
-create policy "WG-Daten" on public.expenses       for all using (is_member(household_id)) with check (is_member(household_id));
-create policy "WG-Daten" on public.events         for all using (is_member(household_id)) with check (is_member(household_id));
-create policy "WG-Daten" on public.todos          for all using (is_member(household_id)) with check (is_member(household_id));
-
--- ───────────── Live-Updates ─────────────
-alter publication supabase_realtime
-  add table public.members, public.chores, public.shopping_items,
-            public.expenses, public.events, public.todos;
-
--- ───────────── Beitritt per Link (siehe auch 002_link_join.sql) ─────────────
--- WG-Name und Mitbewohner anhand des Einladungscodes anzeigen (vor dem Beitritt)
-create or replace function public.household_preview(p_code text)
+-- ───────────── Beitritt per Link ─────────────
+create function public.household_preview(p_code text)
 returns json language sql security definer stable set search_path = public as $$
   select json_build_object(
     'name', h.name,
     'members', coalesce((
-      select json_agg(json_build_object('user_id', m.user_id, 'display_name', m.display_name, 'color', m.color) order by m.joined_at)
+      select json_agg(json_build_object(
+               'id', m.id, 'display_name', m.display_name, 'color', m.color,
+               'claimed', m.user_id is not null) order by m.sort)
       from members m where m.household_id = h.id), '[]'::json))
   from households h
   where h.invite_code = upper(trim(p_code))
 $$;
 
--- "Ich bin schon dabei": Ein neues Gerät übernimmt einen bestehenden Mitbewohner
--- samt Aufgaben, Ausgaben usw.
-create or replace function public.claim_member(p_code text, p_user_id uuid)
+-- Dieses Gerät wird zu Mitbewohner p_member_id (z. B. "Ich bin Verena")
+create function public.claim_member(p_code text, p_member_id uuid)
 returns uuid language plpgsql security definer set search_path = public as $$
-declare
-  h  uuid;
-  me uuid := auth.uid();
+declare h uuid;
 begin
-  if me is null then raise exception 'Nicht eingeloggt'; end if;
-  if me = p_user_id then return null; end if;
+  if auth.uid() is null then raise exception 'Nicht eingeloggt'; end if;
   select id into h from households where invite_code = upper(trim(p_code));
   if h is null then raise exception 'Einladungscode ungültig'; end if;
-  if not exists (select 1 from members where household_id = h and user_id = p_user_id) then
+  if not exists (select 1 from members where id = p_member_id and household_id = h) then
     raise exception 'Mitbewohner nicht gefunden';
   end if;
-  if exists (select 1 from members where user_id = me) then
-    raise exception 'Dieses Gerät gehört schon zu einer WG';
-  end if;
-
-  update members        set user_id      = me where household_id = h and user_id      = p_user_id;
-  update chores         set assignee     = me where household_id = h and assignee     = p_user_id;
-  update chores         set last_done_by = me where household_id = h and last_done_by = p_user_id;
-  update shopping_items set added_by     = me where household_id = h and added_by     = p_user_id;
-  update expenses       set paid_by      = me where household_id = h and paid_by      = p_user_id;
-  update expenses       set created_by   = me where household_id = h and created_by   = p_user_id;
-  update expenses       set participants = array_replace(participants, p_user_id, me)
-                                              where household_id = h and p_user_id = any(participants);
-  update events         set created_by   = me where household_id = h and created_by   = p_user_id;
-  update todos          set assignee     = me where household_id = h and assignee     = p_user_id;
-  update todos          set created_by   = me where household_id = h and created_by   = p_user_id;
+  update members set user_id = null where user_id = auth.uid();
+  update members set user_id = auth.uid() where id = p_member_id;
   return h;
 end $$;
+
+-- ───────────── Zugriffsrechte (Row Level Security) ─────────────
+alter table public.households     enable row level security;
+alter table public.members        enable row level security;
+alter table public.chore_areas    enable row level security;
+alter table public.chore_tasks    enable row level security;
+alter table public.chore_checks   enable row level security;
+alter table public.shopping_items enable row level security;
+alter table public.expenses       enable row level security;
+alter table public.events         enable row level security;
+alter table public.todos          enable row level security;
+alter table public.praises        enable row level security;
+
+create policy "WG sehen"      on public.households for select using (is_member(id));
+create policy "WG umbenennen" on public.households for update using (is_member(id));
+
+create policy "Mitbewohner sehen"     on public.members for select using (is_member(household_id));
+create policy "Eigenen Namen ändern"  on public.members for update using (user_id = auth.uid());
+
+create policy "WG-Daten" on public.chore_areas    for all using (is_member(household_id)) with check (is_member(household_id));
+create policy "WG-Daten" on public.chore_tasks    for all using (is_member(household_id)) with check (is_member(household_id));
+create policy "WG-Daten" on public.chore_checks   for all using (is_member(household_id)) with check (is_member(household_id));
+create policy "WG-Daten" on public.shopping_items for all using (is_member(household_id)) with check (is_member(household_id));
+create policy "WG-Daten" on public.expenses       for all using (is_member(household_id)) with check (is_member(household_id));
+create policy "WG-Daten" on public.events         for all using (is_member(household_id)) with check (is_member(household_id));
+create policy "WG-Daten" on public.todos          for all using (is_member(household_id)) with check (is_member(household_id));
+
+create policy "Lob sehen"     on public.praises for select using (is_member(household_id));
+create policy "Loben"         on public.praises for insert
+  with check (is_member(household_id) and from_member = my_member_id());
+create policy "Lob zurücknehmen" on public.praises for delete using (from_member = my_member_id());
+
+-- ───────────── Live-Updates ─────────────
+alter publication supabase_realtime
+  add table public.members, public.chore_areas, public.chore_tasks, public.chore_checks,
+            public.shopping_items, public.expenses, public.events, public.todos, public.praises;
+
+-- ───────────── Startdaten: eure WG ─────────────
+do $$
+declare
+  h uuid;
+  a uuid;
+begin
+  insert into households (name) values ('Unsere WG') returning id into h;
+
+  insert into members (household_id, display_name, color, sort) values
+    (h, 'Verena', '#ec4899', 0),
+    (h, 'Stefan', '#3b82f6', 1),
+    (h, 'Fabian', '#10b981', 2);
+
+  insert into chore_areas (household_id, name, icon, sort) values (h, 'Küche', '🍳', 0) returning id into a;
+  insert into chore_tasks (household_id, area_id, title, sort)
+  select h, a, t, o from unnest(array[
+    'Arbeitsflächen & Herd putzen',
+    'Spüle & Armaturen reinigen',
+    'Kühlschrank: Abgelaufenes raus & auswischen',
+    'Mikrowelle & Backofen auswischen',
+    'Mülleimer auswaschen',
+    'Boden saugen & wischen'
+  ]) with ordinality as x(t, o);
+
+  insert into chore_areas (household_id, name, icon, sort) values (h, 'Bad', '🛁', 1) returning id into a;
+  insert into chore_tasks (household_id, area_id, title, sort)
+  select h, a, t, o from unnest(array[
+    'Toilette putzen',
+    'Waschbecken & Spiegel putzen',
+    'Dusche / Badewanne putzen',
+    'Handtücher & Badvorleger waschen',
+    'Mülleimer leeren',
+    'Boden saugen & wischen'
+  ]) with ordinality as x(t, o);
+
+  insert into chore_areas (household_id, name, icon, sort) values (h, 'Sonstiges', '🧹', 2) returning id into a;
+  insert into chore_tasks (household_id, area_id, title, sort)
+  select h, a, t, o from unnest(array[
+    'Flur saugen & wischen',
+    'Wohnzimmer saugen',
+    'Staub wischen',
+    'Altglas & Pfand wegbringen',
+    'Altpapier wegbringen'
+  ]) with ordinality as x(t, o);
+end $$;
+
+-- Euer Einladungslink: https://<eure-adresse>/?code=<invite_code>
+select name, invite_code from public.households;

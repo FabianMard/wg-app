@@ -52,7 +52,8 @@ function NotConfigured() {
   );
 }
 
-type Preview = { name: string; members: { user_id: string; display_name: string; color: string }[] };
+type PreviewMember = { id: string; display_name: string; color: string; claimed: boolean };
+type Preview = { name: string; members: PreviewMember[] };
 
 /** Stellt sicher, dass dieses Gerät eine (anonyme) Sitzung hat. */
 async function ensureSession() {
@@ -60,7 +61,7 @@ async function ensureSession() {
   if (data.session) return;
   const { error } = await supabase.auth.signInAnonymously();
   if (error) {
-    throw new Error(error.message.includes("Anonymous")
+    throw new Error(error.message.toLowerCase().includes("anonymous")
       ? "Anonyme Anmeldung ist in Supabase noch nicht aktiviert (Authentication → Sign In / Providers)."
       : error.message);
   }
@@ -70,8 +71,6 @@ function Setup() {
   const { refresh } = useWGState();
   const [code, setCode] = useState<string | null>(null);
   const [preview, setPreview] = useState<Preview | null | "invalid">(null);
-  const [name, setName] = useState("");
-  const [wgName, setWgName] = useState("");
   const [manualCode, setManualCode] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -84,19 +83,21 @@ function Setup() {
 
   useEffect(() => {
     if (!code) return;
+    setPreview(null);
     supabase.rpc("household_preview", { p_code: code }).then(({ data, error }) => {
       if (error) setErr(error.message.includes("household_preview")
-        ? "Datenbank-Update fehlt: Bitte supabase/002_link_join.sql ausführen." : error.message);
+        ? "Datenbank fehlt: Bitte supabase/schema.sql im SQL Editor ausführen." : error.message);
       setPreview(data ?? "invalid");
     });
   }, [code]);
 
-  async function run(fn: () => PromiseLike<{ error: { message: string } | null }>) {
+  async function claim(m: PreviewMember) {
+    if (m.claimed && !confirm(`${m.display_name} ist schon auf einem anderen Gerät angemeldet.\n\nNeues Handy? Dann übernimmt dieses Gerät.`)) return;
     setBusy(true);
     setErr(null);
     try {
       await ensureSession();
-      const { error } = await fn();
+      const { error } = await supabase.rpc("claim_member", { p_code: code, p_member_id: m.id });
       if (error) throw new Error(error.message);
       window.history.replaceState(null, "", "/");
       await refresh();
@@ -107,89 +108,61 @@ function Setup() {
     }
   }
 
-  const join = (e: React.FormEvent) => {
-    e.preventDefault();
-    run(() => supabase.rpc("join_household", { p_code: code, p_display_name: name.trim() }));
-  };
-  const claim = (m: Preview["members"][number]) => {
-    if (!confirm(`Bist du ${m.display_name}? Dieses Gerät übernimmt dann deine Aufgaben und deinen Kontostand.`)) return;
-    run(() => supabase.rpc("claim_member", { p_code: code, p_user_id: m.user_id }));
-  };
-  const create = (e: React.FormEvent) => {
-    e.preventDefault();
-    run(() => supabase.rpc("create_household", { p_name: wgName.trim(), p_display_name: name.trim() }));
-  };
-
-  // ── Mit Einladungslink ──
-  if (code) {
-    if (preview === null) return <Centered><p className="text-center text-muted">Lädt …</p>{err && <ErrorText>{err}</ErrorText>}</Centered>;
-    if (preview === "invalid") {
-      return (
-        <Centered>
-          <Card>
-            <p className="font-semibold">Dieser Einladungslink ist ungültig.</p>
-            <p className="mt-1 text-sm text-muted">Frag in deiner WG nach dem aktuellen Link.</p>
-            <button className={`${btnCls} mt-4 w-full`} onClick={() => { setCode(null); window.history.replaceState(null, "", "/"); }}>Neue WG gründen</button>
-            {err && <ErrorText>{err}</ErrorText>}
-          </Card>
-        </Centered>
-      );
-    }
+  if (!code) {
     return (
       <Centered>
-        <Card className="space-y-5">
-          <div className="text-center">
-            <p className="text-sm text-muted">Du wurdest eingeladen in</p>
-            <p className="text-xl font-bold">{preview.name}</p>
-          </div>
-          <form onSubmit={join} className="space-y-2">
-            <label className="block text-sm font-medium" htmlFor="name">Wie heißt du?</label>
-            <input id="name" className={inputCls} placeholder="Dein Name" value={name} autoFocus
-              onChange={(e) => setName(e.target.value)} required maxLength={30} />
-            <button className={`${btnCls} w-full`} disabled={busy || !name.trim()}>Mitbewohner werden</button>
-          </form>
-          {preview.members.length > 0 && (
-            <div>
-              <p className="mb-2 text-sm text-muted">Schon dabei, aber neues Handy oder Browser? Tipp auf deinen Namen:</p>
-              <div className="flex flex-wrap gap-2">
-                {preview.members.map((m) => (
-                  <button key={m.user_id} onClick={() => claim(m)} disabled={busy}
-                    className="flex items-center gap-2 rounded-full border border-line py-1 pl-1 pr-3 text-sm font-medium transition hover:bg-line/40">
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold text-white" style={{ background: m.color }}>
-                      {m.display_name.slice(0, 1).toUpperCase()}
-                    </span>
-                    {m.display_name}
-                  </button>
-                ))}
-              </div>
+        <Card>
+          <form onSubmit={(e) => { e.preventDefault(); setCode(manualCode.trim().toUpperCase()); }} className="space-y-2">
+            <label className="block text-sm font-medium" htmlFor="code">Einladungscode</label>
+            <p className="text-sm text-muted">Öffne den Einladungslink aus eurer WG-Gruppe oder gib den Code ein.</p>
+            <div className="flex gap-2">
+              <input id="code" className={`${inputCls} uppercase tracking-widest`} placeholder="ABC123" value={manualCode}
+                onChange={(e) => setManualCode(e.target.value)} required />
+              <button className={btnCls}>Weiter</button>
             </div>
-          )}
+          </form>
+        </Card>
+      </Centered>
+    );
+  }
+
+  if (preview === null) {
+    return <Centered><p className="text-center text-muted">Lädt …</p>{err && <ErrorText>{err}</ErrorText>}</Centered>;
+  }
+
+  if (preview === "invalid") {
+    return (
+      <Centered>
+        <Card>
+          <p className="font-semibold">Dieser Einladungscode ist ungültig.</p>
+          <p className="mt-1 text-sm text-muted">Frag in deiner WG nach dem aktuellen Link.</p>
+          <button className={`${btnCls} mt-4 w-full`} onClick={() => { setCode(null); window.history.replaceState(null, "", "/"); }}>
+            Anderen Code eingeben
+          </button>
           {err && <ErrorText>{err}</ErrorText>}
         </Card>
       </Centered>
     );
   }
 
-  // ── Ohne Link: WG gründen oder Code eingeben ──
   return (
     <Centered>
-      <Card className="space-y-5">
-        <form onSubmit={create} className="space-y-2">
-          <span className="block text-sm font-medium">Neue WG gründen</span>
-          <input className={inputCls} placeholder="Dein Name" value={name} onChange={(e) => setName(e.target.value)} required maxLength={30} />
-          <input className={inputCls} placeholder="Name der WG, z. B. Kastanienallee 12" value={wgName}
-            onChange={(e) => setWgName(e.target.value)} required />
-          <button className={`${btnCls} w-full`} disabled={busy}>WG gründen</button>
-        </form>
-        <div className="flex items-center gap-3 text-xs text-muted"><hr className="flex-1 border-line" />oder<hr className="flex-1 border-line" /></div>
-        <form onSubmit={(e) => { e.preventDefault(); setCode(manualCode.trim().toUpperCase()); }} className="space-y-2">
-          <span className="block text-sm font-medium">Einladungscode eingeben</span>
-          <div className="flex gap-2">
-            <input className={`${inputCls} uppercase tracking-widest`} placeholder="ABC123" value={manualCode}
-              onChange={(e) => setManualCode(e.target.value)} required />
-            <button className={btnCls}>Weiter</button>
-          </div>
-        </form>
+      <Card>
+        <p className="text-center text-sm text-muted">Willkommen in</p>
+        <p className="text-center text-xl font-bold">{preview.name}</p>
+        <p className="mb-3 mt-5 text-center font-medium">Wer bist du?</p>
+        <div className="space-y-2">
+          {preview.members.map((m) => (
+            <button key={m.id} onClick={() => claim(m)} disabled={busy}
+              className="flex w-full items-center gap-3 rounded-2xl border border-line p-3 text-left transition hover:border-accent/50 hover:bg-accent/5 active:scale-[.99] disabled:opacity-50">
+              <span className="flex h-11 w-11 items-center justify-center rounded-full text-lg font-semibold text-white" style={{ background: m.color }}>
+                {m.display_name.slice(0, 1).toUpperCase()}
+              </span>
+              <span className="flex-1 text-lg font-medium">{m.display_name}</span>
+              {m.claimed && <span className="text-xs text-muted">schon angemeldet</span>}
+            </button>
+          ))}
+        </div>
         {err && <ErrorText>{err}</ErrorText>}
       </Card>
     </Centered>

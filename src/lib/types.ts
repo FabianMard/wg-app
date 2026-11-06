@@ -1,29 +1,36 @@
-export type Household = { id: string; name: string; invite_code: string };
+export type Household = { id: string; name: string; invite_code: string; cleaning_start: string };
 
 export type Member = {
-  household_id: string;
-  user_id: string;
-  display_name: string;
-  color: string;
-  joined_at: string;
-};
-
-export type Chore = {
   id: string;
   household_id: string;
-  title: string;
-  interval_days: number;
-  assignee: string | null;
-  next_due: string;
-  last_done_at: string | null;
-  last_done_by: string | null;
+  display_name: string;
+  color: string;
+  sort: number;
+  user_id: string | null;
 };
+
+export type ChoreArea = { id: string; household_id: string; name: string; icon: string; sort: number };
+export type ChoreTask = { id: string; household_id: string; area_id: string; title: string; sort: number };
+export type ChoreCheck = {
+  id: string;
+  household_id: string;
+  area_id: string;
+  task_id: string;
+  period: number;
+  done_by: string | null;
+  done_at: string;
+};
+
+export type StoreId = "hit" | "rewe" | "konsum" | "baumarkt" | "egal" | "sonstiges";
 
 export type ShoppingItem = {
   id: string;
   household_id: string;
   name: string;
+  store: StoreId;
+  store_note: string | null;
   done: boolean;
+  archived: boolean;
   added_by: string | null;
   created_at: string;
 };
@@ -54,7 +61,19 @@ export type Todo = {
   household_id: string;
   title: string;
   done: boolean;
+  done_by: string | null;
+  done_at: string | null;
   assignee: string | null;
   due_date: string | null;
+  created_at: string;
+};
+
+export type Praise = {
+  id: string;
+  household_id: string;
+  from_member: string;
+  to_member: string;
+  kind: "putzen" | "todo";
+  ref: string;
   created_at: string;
 };

@@ -9,15 +9,15 @@ import { euro, formatDate, todayISO } from "@/lib/dates";
 import { Avatar, btnCls, btnGhostCls, Card, DeleteButton, Empty, inputCls, PageTitle, SectionTitle } from "@/components/ui";
 
 export default function Kosten() {
-  const { household, members, member, userId } = useWG();
+  const { household, members, member, myId } = useWG();
   const { rows: expenses, loaded, reload } = useRows<Expense>("expenses", "created_at", false);
   const [title, setTitle] = useState("");
   const [amount, setAmount] = useState("");
-  const [paidBy, setPaidBy] = useState(userId);
+  const [paidBy, setPaidBy] = useState(myId);
   const [parts, setParts] = useState<string[] | null>(null); // null = alle
-  const participants = parts ?? members.map((m) => m.user_id);
+  const participants = parts ?? members.map((m) => m.id);
 
-  const balances = useMemo(() => computeBalances(expenses, members.map((m) => m.user_id)), [expenses, members]);
+  const balances = useMemo(() => computeBalances(expenses, members.map((m) => m.id)), [expenses, members]);
   const transfers = useMemo(() => suggestTransfers(balances), [balances]);
 
   function togglePart(id: string) {
@@ -63,13 +63,13 @@ export default function Kosten() {
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <span className="text-muted">Bezahlt von</span>
             <select className={`${inputCls} w-auto py-1.5`} value={paidBy} onChange={(e) => setPaidBy(e.target.value)}>
-              {members.map((m) => <option key={m.user_id} value={m.user_id}>{m.display_name}</option>)}
+              {members.map((m) => <option key={m.id} value={m.id}>{m.display_name}</option>)}
             </select>
             <span className="text-muted">für</span>
             {members.map((m) => {
-              const on = participants.includes(m.user_id);
+              const on = participants.includes(m.id);
               return (
-                <button type="button" key={m.user_id} onClick={() => togglePart(m.user_id)}
+                <button type="button" key={m.id} onClick={() => togglePart(m.id)}
                   className="rounded-full border px-3 py-1 font-medium transition"
                   style={on ? { background: m.color, borderColor: m.color, color: "white" } : { borderColor: "var(--line)", color: "var(--muted)" }}>
                   {m.display_name}
@@ -84,11 +84,11 @@ export default function Kosten() {
       <SectionTitle>Salden</SectionTitle>
       <Card className="divide-y divide-line p-0">
         {members.map((m) => {
-          const b = balances[m.user_id] ?? 0;
+          const b = balances[m.id] ?? 0;
           return (
-            <div key={m.user_id} className="flex items-center gap-3 px-4 py-3">
+            <div key={m.id} className="flex items-center gap-3 px-4 py-3">
               <Avatar member={m} />
-              <span className="flex-1">{m.display_name}{m.user_id === userId && <span className="text-muted"> (du)</span>}</span>
+              <span className="flex-1">{m.display_name}{m.id === myId && <span className="text-muted"> (du)</span>}</span>
               <span className={`font-semibold tabular-nums ${b > 0 ? "text-emerald-600" : b < 0 ? "text-red-600" : "text-muted"}`}>
                 {b > 0 && "+"}{euro(b / 100)}
               </span>

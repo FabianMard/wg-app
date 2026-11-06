@@ -1,27 +1,60 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRows, useWG } from "@/lib/wg";
-import type { ShoppingItem } from "@/lib/types";
+import type { ShoppingItem, StoreId } from "@/lib/types";
+import { DEFAULT_SUGGESTIONS, STORES, storeById } from "@/lib/stores";
+import { StoreBadge } from "@/components/StoreBadge";
 import { btnCls, btnGhostCls, Card, Check, DeleteButton, Empty, inputCls, PageTitle, SectionTitle } from "@/components/ui";
+
+const fmtAdded = (iso: string) =>
+  new Date(iso).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "numeric" });
 
 export default function Einkauf() {
   const { household, member } = useWG();
   const { rows: items, loaded, reload } = useRows<ShoppingItem>("shopping_items", "created_at");
   const [name, setName] = useState("");
+  const [store, setStore] = useState<StoreId>("egal");
+  const [note, setNote] = useState("");
 
-  const open = items.filter((i) => !i.done);
-  const done = items.filter((i) => i.done);
+  const visible = items.filter((i) => !i.archived);
+  const open = visible.filter((i) => !i.done);
+  const done = visible.filter((i) => i.done);
+
+  // Häufig gekaufte Artikel (aus allem, was je eingetragen wurde), ergänzt um Standardvorschläge
+  const suggestions = useMemo(() => {
+    const openNames = new Set(open.map((i) => i.name.toLowerCase()));
+    const count = new Map<string, { name: string; n: number }>();
+    for (const i of items) {
+      const k = i.name.trim().toLowerCase();
+      const e = count.get(k);
+      count.set(k, { name: e?.name ?? i.name.trim(), n: (e?.n ?? 0) + 1 });
+    }
+    const frequent = [...count.values()].filter((x) => x.n >= 2).sort((a, b) => b.n - a.n).map((x) => x.name);
+    const list = [...frequent, ...DEFAULT_SUGGESTIONS];
+    const seen = new Set<string>();
+    return list.filter((n) => {
+      const k = n.toLowerCase();
+      if (seen.has(k) || openNames.has(k)) return false;
+      seen.add(k);
+      return true;
+    }).slice(0, 14);
+  }, [items, open]);
+
+  async function addNames(names: string[]) {
+    if (!names.length) return;
+    await supabase.from("shopping_items").insert(names.map((n) => ({
+      household_id: household.id, name: n, store, store_note: store === "sonstiges" ? note.trim() || null : null,
+    })));
+    reload();
+  }
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
     // Mehrere Sachen auf einmal: "Milch, Eier, Brot"
-    const names = name.split(",").map((s) => s.trim()).filter(Boolean);
-    if (!names.length) return;
-    await supabase.from("shopping_items").insert(names.map((n) => ({ household_id: household.id, name: n })));
+    await addNames(name.split(",").map((s) => s.trim()).filter(Boolean));
     setName("");
-    reload();
   }
   async function toggle(i: ShoppingItem) {
     await supabase.from("shopping_items").update({ done: !i.done }).eq("id", i.id);
@@ -32,24 +65,70 @@ export default function Einkauf() {
     reload();
   }
   async function clearDone() {
-    await supabase.from("shopping_items").delete().in("id", done.map((i) => i.id));
+    await supabase.from("shopping_items").update({ archived: true }).in("id", done.map((i) => i.id));
     reload();
   }
+
+  const groups = STORES.map((s) => ({ store: s, items: open.filter((i) => i.store === s.id) })).filter((g) => g.items.length);
 
   return (
     <>
       <PageTitle sub="Tipp: Mehrere Sachen mit Komma trennen.">Einkaufsliste</PageTitle>
-      <form onSubmit={add} className="mb-5 flex gap-2">
-        <input className={inputCls} placeholder="Milch, Eier, Klopapier …" value={name} onChange={(e) => setName(e.target.value)} />
-        <button className={btnCls}>+</button>
-      </form>
 
-      {loaded && items.length === 0 && <Empty>Die Liste ist leer.</Empty>}
-      {open.length > 0 && (
-        <Card className="divide-y divide-line p-0">
-          {open.map((i) => <ItemRow key={i.id} item={i} by={member(i.added_by)?.display_name} onToggle={toggle} onRemove={remove} />)}
-        </Card>
-      )}
+      <Card className="mb-5 space-y-3">
+        <form onSubmit={add} className="flex gap-2">
+          <input className={inputCls} placeholder="Milch, Eier, Klopapier …" value={name} onChange={(e) => setName(e.target.value)} />
+          <button className={btnCls} aria-label="Hinzufügen">+</button>
+        </form>
+
+        <div>
+          <p className="mb-1.5 text-xs font-medium text-muted">Wo kaufen?</p>
+          <div className="flex flex-wrap gap-1.5">
+            {STORES.map((s) => (
+              <button key={s.id} type="button" onClick={() => setStore(s.id)}
+                className={`flex items-center gap-1.5 rounded-full border py-1 pl-1 pr-3 text-sm font-medium transition ${
+                  store === s.id ? "border-accent bg-accent/10 text-accent" : "border-line text-muted hover:text-fg"}`}>
+                <StoreBadge store={s.id} size={22} />{s.label}
+              </button>
+            ))}
+          </div>
+          {store === "sonstiges" && (
+            <input className={`${inputCls} mt-2 py-2 text-sm`} placeholder="Welcher Laden? z. B. Drogerie, Apotheke …"
+              value={note} onChange={(e) => setNote(e.target.value)} />
+          )}
+        </div>
+
+        <div>
+          <p className="mb-1.5 text-xs font-medium text-muted">Oft gebraucht, antippen zum Hinzufügen</p>
+          <div className="flex flex-wrap gap-1.5">
+            {suggestions.map((s) => (
+              <button key={s} type="button" onClick={() => addNames([s])}
+                className="rounded-full bg-line/50 px-3 py-1 text-sm transition hover:bg-accent/15 hover:text-accent active:scale-95">
+                + {s}
+              </button>
+            ))}
+          </div>
+        </div>
+      </Card>
+
+      {loaded && open.length === 0 && done.length === 0 && <Empty>Die Liste ist leer.</Empty>}
+
+      <div className="space-y-4">
+        {groups.map(({ store: s, items: list }) => (
+          <div key={s.id}>
+            <div className="mb-2 flex items-center gap-2">
+              <StoreBadge store={s.id} size={24} />
+              <h2 className="font-semibold">{s.label}</h2>
+              <span className="text-sm text-muted">{list.length}</span>
+            </div>
+            <Card className="divide-y divide-line p-0">
+              {list.map((i) => (
+                <ItemRow key={i.id} item={i} by={member(i.added_by)?.display_name} onToggle={toggle} onRemove={remove} />
+              ))}
+            </Card>
+          </div>
+        ))}
+      </div>
 
       {done.length > 0 && (
         <>
@@ -58,7 +137,7 @@ export default function Einkauf() {
             <button onClick={clearDone} className={`${btnGhostCls} mb-2`}>Gekaufte entfernen</button>
           </div>
           <Card className="divide-y divide-line p-0 opacity-70">
-            {done.map((i) => <ItemRow key={i.id} item={i} onToggle={toggle} onRemove={remove} />)}
+            {done.map((i) => <ItemRow key={i.id} item={i} by={member(i.added_by)?.display_name} onToggle={toggle} onRemove={remove} />)}
           </Card>
         </>
       )}
@@ -70,12 +149,16 @@ function ItemRow({ item, by, onToggle, onRemove }: {
   item: ShoppingItem; by?: string; onToggle: (i: ShoppingItem) => void; onRemove: (i: ShoppingItem) => void;
 }) {
   return (
-    <div className="flex items-center gap-3 px-4 py-3">
+    <div className="flex items-center gap-3 px-4 py-2.5">
       <Check checked={item.done} onChange={() => onToggle(item)} />
-      <button onClick={() => onToggle(item)} className={`flex-1 text-left ${item.done ? "text-muted line-through" : ""}`}>
-        {item.name}
+      <button onClick={() => onToggle(item)} className="min-w-0 flex-1 text-left">
+        <span className={`block truncate ${item.done ? "text-muted line-through" : ""}`}>{item.name}</span>
+        <span className="block text-xs text-muted">
+          {fmtAdded(item.created_at)}{by && ` · ${by}`}
+          {item.store === "sonstiges" && item.store_note && ` · 📍 ${item.store_note}`}
+          {item.done && ` · ${storeById(item.store).label}`}
+        </span>
       </button>
-      {by && <span className="text-xs text-muted">{by}</span>}
       <DeleteButton onClick={() => onRemove(item)} />
     </div>
   );

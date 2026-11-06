@@ -2,18 +2,21 @@
 
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { useWG } from "@/lib/wg";
+import { useRows, useWG } from "@/lib/wg";
+import type { Praise } from "@/lib/types";
+import { beesOf } from "@/components/Praise";
 import { Avatar, btnCls, btnGhostCls, Card, inputCls, PageTitle, SectionTitle } from "@/components/ui";
 
 export default function WGSettings() {
-  const { household, members, me, userId, refresh } = useWG();
-  const [name, setName] = useState(me?.display_name ?? "");
+  const { household, members, myId, refresh } = useWG();
+  const { rows: praises } = useRows<Praise>("praises", "created_at");
+  const [name, setName] = useState(household.name);
   const [copied, setCopied] = useState(false);
 
   async function saveName(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
-    await supabase.from("members").update({ display_name: name.trim() }).eq("user_id", userId);
+    await supabase.from("households").update({ name: name.trim() }).eq("id", household.id);
     refresh();
   }
   const link = typeof window === "undefined" ? "" : `${window.location.origin}/?code=${household.invite_code}`;
@@ -33,11 +36,6 @@ export default function WGSettings() {
   async function signOut() {
     if (!confirm("Auf diesem Gerät abmelden? Du kommst jederzeit über den Einladungslink zurück, indem du auf deinen Namen tippst.")) return;
     await supabase.auth.signOut();
-  }
-  async function leave() {
-    if (!confirm("WG wirklich verlassen?")) return;
-    await supabase.from("members").delete().eq("user_id", userId);
-    refresh();
   }
 
   return (
@@ -60,14 +58,16 @@ export default function WGSettings() {
       <SectionTitle>Mitbewohner ({members.length})</SectionTitle>
       <Card className="divide-y divide-line p-0">
         {members.map((m) => (
-          <div key={m.user_id} className="flex items-center gap-3 px-4 py-3">
+          <div key={m.id} className="flex items-center gap-3 px-4 py-3">
             <Avatar member={m} />
-            <span>{m.display_name}{m.user_id === userId && <span className="text-muted"> (du)</span>}</span>
+            <span className="flex-1">{m.display_name}{m.id === myId && <span className="text-muted"> (du)</span>}</span>
+            {!m.user_id && <span className="text-xs text-muted">noch nicht dabei</span>}
+            <span className="text-sm font-medium">🐝 {beesOf(praises, m.id)}</span>
           </div>
         ))}
       </Card>
 
-      <SectionTitle>Dein Name</SectionTitle>
+      <SectionTitle>Name der WG</SectionTitle>
       <form onSubmit={saveName} className="flex gap-2">
         <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} />
         <button className={btnCls}>Speichern</button>
@@ -75,7 +75,6 @@ export default function WGSettings() {
 
       <div className="mt-8 flex flex-wrap gap-2">
         <button onClick={signOut} className={btnGhostCls}>Auf diesem Gerät abmelden</button>
-        <button onClick={leave} className={`${btnGhostCls} text-red-600`}>WG verlassen</button>
       </div>
     </>
   );

@@ -3,23 +3,27 @@
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRows, useWG } from "@/lib/wg";
-import type { Todo } from "@/lib/types";
+import type { Praise, Todo } from "@/lib/types";
 import { daysUntil, formatDate } from "@/lib/dates";
 import { Avatar, btnCls, Card, Check, DeleteButton, Empty, inputCls, PageTitle } from "@/components/ui";
+import { PraiseButton } from "@/components/Praise";
 
 type Filter = "offen" | "meine" | "erledigt";
 
 export default function Todos() {
-  const { household, members, member, userId } = useWG();
+  const { household, members, member, myId } = useWG();
   const { rows: todos, loaded, reload } = useRows<Todo>("todos", "created_at", false);
+  const { rows: praises, reload: reloadPraises } = useRows<Praise>("praises", "created_at");
   const [title, setTitle] = useState("");
   const [assignee, setAssignee] = useState("");
   const [due, setDue] = useState("");
   const [filter, setFilter] = useState<Filter>("offen");
 
   const shown = todos
-    .filter((t) => filter === "erledigt" ? t.done : !t.done && (filter === "offen" || t.assignee === userId))
-    .sort((a, b) => (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999"));
+    .filter((t) => filter === "erledigt" ? t.done : !t.done && (filter === "offen" || t.assignee === myId))
+    .sort((a, b) => filter === "erledigt"
+      ? (b.done_at ?? "").localeCompare(a.done_at ?? "")
+      : (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999"));
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
@@ -31,7 +35,9 @@ export default function Todos() {
     reload();
   }
   async function toggle(t: Todo) {
-    await supabase.from("todos").update({ done: !t.done }).eq("id", t.id);
+    await supabase.from("todos").update(t.done
+      ? { done: false, done_by: null, done_at: null }
+      : { done: true, done_by: myId, done_at: new Date().toISOString() }).eq("id", t.id);
     reload();
   }
   async function remove(t: Todo) {
@@ -47,7 +53,7 @@ export default function Todos() {
           <input className={inputCls} placeholder="Neues To-do" value={title} onChange={(e) => setTitle(e.target.value)} />
           <select className={inputCls} value={assignee} onChange={(e) => setAssignee(e.target.value)}>
             <option value="">Alle / egal</option>
-            {members.map((m) => <option key={m.user_id} value={m.user_id}>{m.display_name}</option>)}
+            {members.map((m) => <option key={m.id} value={m.id}>{m.display_name}</option>)}
           </select>
           <input className={inputCls} type="date" value={due} onChange={(e) => setDue(e.target.value)} aria-label="Fällig am" />
           <button className={btnCls}>Hinzufügen</button>
@@ -65,14 +71,23 @@ export default function Todos() {
       <Card className={`divide-y divide-line p-0 ${shown.length ? "" : "hidden"}`}>
         {shown.map((t) => {
           const late = !t.done && t.due_date && daysUntil(t.due_date) < 0;
+          const doneBy = member(t.done_by);
           return (
-            <div key={t.id} className="flex items-center gap-3 px-4 py-3">
-              <Check checked={t.done} onChange={() => toggle(t)} />
+            <div key={t.id} className="flex items-start gap-3 px-4 py-3">
+              <div className="pt-0.5"><Check checked={t.done} onChange={() => toggle(t)} /></div>
               <div className="min-w-0 flex-1">
-                <p className={`truncate ${t.done ? "text-muted line-through" : ""}`}>{t.title}</p>
-                {t.due_date && <p className={`text-xs ${late ? "font-medium text-red-600" : "text-muted"}`}>bis {formatDate(t.due_date)}</p>}
+                <p className={`${t.done ? "text-muted line-through" : ""}`}>{t.title}</p>
+                {!t.done && t.due_date && <p className={`text-xs ${late ? "font-medium text-red-600" : "text-muted"}`}>bis {formatDate(t.due_date)}</p>}
+                {t.done && doneBy && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-muted">
+                      ✓ {doneBy.id === myId ? "von dir" : doneBy.display_name}{t.done_at && `, ${formatDate(t.done_at.slice(0, 10))}`}
+                    </span>
+                    <PraiseButton kind="todo" refId={t.id} to={[doneBy.id]} praises={praises} onChange={reloadPraises} />
+                  </div>
+                )}
               </div>
-              {t.assignee && <Avatar member={member(t.assignee)} size={24} />}
+              {t.assignee && !t.done && <Avatar member={member(t.assignee)} size={24} />}
               <DeleteButton onClick={() => remove(t)} />
             </div>
           );

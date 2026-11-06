@@ -2,25 +2,34 @@
 
 import Link from "next/link";
 import { useWG, useRows } from "@/lib/wg";
-import type { CalEvent, Chore, Expense, ShoppingItem, Todo } from "@/lib/types";
+import type { CalEvent, ChoreArea, ChoreCheck, ChoreTask, Expense, Praise, ShoppingItem, Todo } from "@/lib/types";
+import { areaStatuses, periodOf, periodRange, phaseOf } from "@/lib/cleaning";
+import { beesOf } from "@/components/Praise";
 import { computeBalances } from "@/lib/balances";
-import { addDays, daysUntil, euro, formatDate, relativeDay, todayISO } from "@/lib/dates";
-import { Card, PageTitle } from "@/components/ui";
+import { addDays, euro, formatDate, todayISO } from "@/lib/dates";
+import { Avatar, Card, PageTitle } from "@/components/ui";
 
 export default function Home() {
-  const { me, userId, members } = useWG();
-  const { rows: chores } = useRows<Chore>("chores", "next_due");
+  const { me, myId, members, household } = useWG();
+  const { rows: areas } = useRows<ChoreArea>("chore_areas", "sort");
+  const { rows: tasks } = useRows<ChoreTask>("chore_tasks", "sort");
+  const { rows: checks } = useRows<ChoreCheck>("chore_checks", "done_at");
+  const { rows: praises } = useRows<Praise>("praises", "created_at");
   const { rows: items } = useRows<ShoppingItem>("shopping_items", "created_at");
   const { rows: expenses } = useRows<Expense>("expenses", "created_at");
   const { rows: events } = useRows<CalEvent>("events", "day");
   const { rows: todos } = useRows<Todo>("todos", "created_at");
 
-  const myChores = chores.filter((c) => c.assignee === userId && daysUntil(c.next_due) <= 2);
-  const openItems = items.filter((i) => !i.done);
-  const balance = computeBalances(expenses, members.map((m) => m.user_id))[userId] ?? 0;
+  const period = periodOf(household.cleaning_start);
+  const range = periodRange(household.cleaning_start, period);
+  const phase = phaseOf(household.cleaning_start, period);
+  const mine = areaStatuses(areas, tasks, checks, members, period).filter((s) => s.assignee?.id === myId);
+  const openItems = items.filter((i) => !i.done && !i.archived);
+  const balance = computeBalances(expenses, members.map((m) => m.id))[myId] ?? 0;
+  const ranking = [...members].sort((a, b) => beesOf(praises, b.id) - beesOf(praises, a.id));
   const week = addDays(todayISO(), 7);
   const upcoming = events.filter((e) => e.day >= todayISO() && e.day <= week).slice(0, 4);
-  const myTodos = todos.filter((t) => !t.done && (t.assignee === userId || !t.assignee));
+  const myTodos = todos.filter((t) => !t.done && (t.assignee === myId || !t.assignee));
 
   return (
     <>
@@ -28,9 +37,14 @@ export default function Home() {
         Hallo {me?.display_name} 👋
       </PageTitle>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Tile href="/putzplan" icon="🧽" title="Deine Putzaufgaben">
-          {myChores.length === 0 ? <Muted>Gerade nichts zu tun 🎉</Muted> : myChores.map((c) => (
-            <Row key={c.id} label={c.title} right={relativeDay(c.next_due)} warn={daysUntil(c.next_due) < 0} />
+        <Tile href="/putzplan" icon="🧽" title="Dein Putzbereich">
+          {mine.length === 0 ? <Muted>Diese Runde nichts</Muted> : mine.map((s) => (
+            <div key={s.area.id}>
+              <Row label={`${s.area.icon} ${s.area.name}`} right={s.done ? "✓ erledigt" : `${s.doneCount}/${s.tasks.length}`} warn={!s.done && phase === "woche2"} />
+              {!s.done && (
+                <Muted>{phase === "woche1" ? `Am besten bis ${formatDate(range.soft)}` : `Spätestens bis ${formatDate(range.end)}!`}</Muted>
+              )}
+            </div>
           ))}
         </Tile>
         <Tile href="/einkauf" icon="🛒" title="Einkaufsliste">
@@ -54,6 +68,16 @@ export default function Home() {
           {myTodos.length === 0 ? <Muted>Nichts offen</Muted> : myTodos.slice(0, 5).map((t) => (
             <Row key={t.id} label={t.title} right={t.due_date ? formatDate(t.due_date) : ""} />
           ))}
+        </Tile>
+        <Tile href="/putzplan" icon="🐝" title="Fleißige Bienchen" className="sm:col-span-2">
+          <div className="flex flex-wrap gap-4">
+            {ranking.map((m, i) => (
+              <span key={m.id} className="flex items-center gap-2 text-sm">
+                {i === 0 && beesOf(praises, m.id) > 0 && <span>👑</span>}
+                <Avatar member={m} size={24} />{m.display_name}<b>{beesOf(praises, m.id)}</b>
+              </span>
+            ))}
+          </div>
         </Tile>
       </div>
     </>

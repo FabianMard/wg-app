@@ -3,16 +3,17 @@
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRows, useWG } from "@/lib/wg";
-import type { CalEvent, Chore } from "@/lib/types";
+import type { CalEvent, ChoreArea } from "@/lib/types";
+import { assigneeFor, periodOf, periodRange } from "@/lib/cleaning";
 import { formatDate, fromISO, toISO, todayISO } from "@/lib/dates";
 import { Avatar, btnCls, Card, DeleteButton, inputCls, PageTitle, SectionTitle } from "@/components/ui";
 
 const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 
 export default function Kalender() {
-  const { household, member } = useWG();
+  const { household, members } = useWG();
   const { rows: events, reload } = useRows<CalEvent>("events", "day");
-  const { rows: chores } = useRows<Chore>("chores", "next_due");
+  const { rows: areas } = useRows<ChoreArea>("chore_areas", "sort");
   const [month, setMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
   const [selected, setSelected] = useState(todayISO());
   const [title, setTitle] = useState("");
@@ -24,7 +25,15 @@ export default function Kalender() {
   const days = Array.from({ length: 42 }, (_, i) => { const d = new Date(start); d.setDate(start.getDate() + i); return toISO(d); });
 
   const eventsOn = (iso: string) => events.filter((e) => e.day === iso);
-  const choresOn = (iso: string) => chores.filter((c) => c.next_due === iso);
+  // Putz-Termine: Soll (Ende Woche 1) und Deadline (Ende Woche 2) jeder Runde
+  const choresOn = (iso: string) => {
+    const p = periodOf(household.cleaning_start, iso);
+    const r = periodRange(household.cleaning_start, p);
+    const kind = iso === r.soft ? "Soll" : iso === r.end ? "Deadline" : null;
+    if (!kind || p < 0) return [];
+    return [...areas].sort((a, b) => a.sort - b.sort)
+      .map((a, i) => ({ id: a.id, kind, area: a, who: assigneeFor(i, p, members) }));
+  };
   const shift = (n: number) => setMonth(new Date(month.getFullYear(), month.getMonth() + n, 1));
 
   async function add(e: React.FormEvent) {
@@ -76,7 +85,7 @@ export default function Kalender() {
         </div>
         <div className="mt-2 flex gap-4 px-1 text-xs text-muted">
           <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-accent" />Termin</span>
-          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" />Putzaufgabe fällig</span>
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" />Putzen: Soll / Deadline</span>
         </div>
       </Card>
 
@@ -96,9 +105,9 @@ export default function Kalender() {
         ))}
         {dayChores.map((c) => (
           <Card key={c.id} className="flex items-center gap-3 border-amber-500/40">
-            <span className="w-12 text-lg">🧽</span>
-            <span className="flex-1">{c.title}</span>
-            <Avatar member={member(c.assignee)} />
+            <span className="w-12 text-lg">{c.area.icon}</span>
+            <span className="flex-1">{c.area.name} <span className="text-sm text-muted">· {c.kind === "Soll" ? "sollte heute fertig sein" : "Deadline"}</span></span>
+            <Avatar member={c.who} />
           </Card>
         ))}
         {dayEvents.length + dayChores.length === 0 && <p className="text-sm text-muted">Nichts geplant.</p>}

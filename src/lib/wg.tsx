@@ -8,6 +8,8 @@ import type { Household, Member } from "./types";
 type WGContext = {
   session: Session | null;
   userId: string;
+  /** ID des eigenen Mitbewohners (members.id) */
+  myId: string;
   household: Household;
   members: Member[];
   me: Member | undefined;
@@ -36,7 +38,7 @@ export function WGProvider({ children }: { children: React.ReactNode }) {
     if (!mine) return setState({ status: "no-household", session });
     const [{ data: household }, { data: members }] = await Promise.all([
       supabase.from("households").select("*").eq("id", mine.household_id).single(),
-      supabase.from("members").select("*").eq("household_id", mine.household_id).order("joined_at"),
+      supabase.from("members").select("*").eq("household_id", mine.household_id).order("sort"),
     ]);
     if (!household) return setState({ status: "no-household", session });
     setState({ status: "ready", session, household, members: members ?? [] });
@@ -61,15 +63,20 @@ export function WGProvider({ children }: { children: React.ReactNode }) {
     return () => { supabase.removeChannel(ch); };
   }, [householdId, refresh]);
 
-  const ctx: WGContext | null = state.status === "ready" ? {
-    session: state.session,
-    userId: state.session.user.id,
-    household: state.household,
-    members: state.members,
-    me: state.members.find((m) => m.user_id === state.session.user.id),
-    member: (id) => state.members.find((m) => m.user_id === id),
-    refresh,
-  } : null;
+  let ctx: WGContext | null = null;
+  if (state.status === "ready") {
+    const me = state.members.find((m) => m.user_id === state.session.user.id);
+    ctx = {
+      session: state.session,
+      userId: state.session.user.id,
+      myId: me?.id ?? "",
+      household: state.household,
+      members: state.members,
+      me,
+      member: (id) => state.members.find((m) => m.id === id),
+      refresh,
+    };
+  }
 
   return (
     <StateCtx.Provider value={{ state, refresh }}>
