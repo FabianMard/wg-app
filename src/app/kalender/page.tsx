@@ -147,7 +147,7 @@ export default function Kalender() {
                                 : c.done ? `color-mix(in srgb, ${color} 45%, var(--card))` : color,
                             }}>
                             {/* Text darf in die Nachbarkachel laufen, daher absolut + über den Nachbarn */}
-                            {isStart && <span className="absolute left-1 z-[2]">{late && "⚠️"}{c.area.icon}&nbsp;{c.assignee?.display_name}</span>}
+                            {isStart && <span className="absolute left-1 z-[2]">{late && "⚠️ "}{c.area.name}: {c.assignee?.display_name}</span>}
                             {isEnd && <span className="absolute right-1 z-[2]">{late ? "nachholen!" : <>{c.done ? "✓ " : ""}{c.assignee?.display_name}</>}</span>}
                           </span>
                         );
@@ -168,7 +168,7 @@ export default function Kalender() {
             </span>
           ))}
           <span className="hidden h-3 w-px bg-line sm:block" />
-          <span>Balken = Putzwoche: {[...areas].sort((a, b) => a.sort - b.sort).map((a) => `${a.icon} ${a.name}`).join(" · ")} (blass = erledigt)</span>
+          <span>Balken = Putzwoche: {[...areas].sort((a, b) => a.sort - b.sort).map((a) => a.name).join(" · ")} (blass = erledigt)</span>
           <span className="flex items-center gap-1"><span className="h-1 w-3 rounded bg-red-500" />Fällig (Ende Putzwoche)</span>
           <span className="flex items-center gap-1">
             <span className="h-2.5 w-5 rounded-full" style={{ background: "repeating-linear-gradient(135deg, #dc2626 0 3px, #f87171 3px 6px)" }} />überfällig, nachholen
@@ -206,7 +206,6 @@ export default function Kalender() {
           <Card className="divide-y divide-line p-0">
             {selChores.map((c) => (
               <div key={c.area.id} className="flex items-center gap-3 px-4 py-2.5">
-                <span className="text-lg">{c.area.icon}</span>
                 <span className="flex-1 font-medium">{c.area.name}</span>
                 <Avatar member={c.assignee} size={24} />
                 <span className="w-16 text-sm">{c.assignee?.display_name}</span>
