@@ -4,7 +4,7 @@ import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRows, useWG } from "@/lib/wg";
 import type { ChoreArea, ChoreCheck, ChoreTask, Praise } from "@/lib/types";
-import { areaStatuses, periodOf, periodRange, phaseOf, type AreaStatus } from "@/lib/cleaning";
+import { areaStatuses, isOverdue, periodOf, periodRange, phaseOf, type AreaStatus } from "@/lib/cleaning";
 import { formatDate } from "@/lib/dates";
 import { Avatar, Card, Check, DeleteButton, inputCls, PageTitle, SectionTitle } from "@/components/ui";
 import { Bees, beesOf, PraiseButton } from "@/components/Praise";
@@ -21,8 +21,11 @@ export default function Putzplan() {
   const range = periodRange(start, period);
   const phase = phaseOf(start, period);
 
-  const current = areaStatuses(areas, tasks, checks, members, period)
-    .sort((a, b) => Number(b.assignee?.id === myId) - Number(a.assignee?.id === myId));
+  // Reihenfolge: überfällige zuerst, dann meiner, dann der Rest
+  const rank = (x: AreaStatus) => (isOverdue(x, start, period) ? 2 : 0) + (x.assignee?.id === myId ? 1 : 0);
+  const current = areaStatuses(areas, tasks, checks, members, period).sort((a, b) => rank(b) - rank(a));
+  const overdueCount = current.filter((x) => isOverdue(x, start, period)).length;
+  const dayLong = (iso: string) => formatDate(iso, { weekday: "long", day: "numeric", month: "numeric" });
   const previous = areaStatuses(areas, tasks, checks, members, period - 1);
   const next = areaStatuses(areas, tasks, checks, members, period + 1);
 
@@ -35,17 +38,21 @@ export default function Putzplan() {
 
   return (
     <>
-      <PageTitle sub={`Runde vom ${formatDate(range.from)} bis ${formatDate(range.end)}`}>Putzplan</PageTitle>
+      <PageTitle sub={`Putzwoche ${formatDate(range.from)} – ${formatDate(range.due)} · frei bis ${formatDate(range.end)}`}>Putzplan</PageTitle>
 
-      <div className={`mb-5 rounded-2xl px-4 py-3 text-sm ${phase === "woche1" ? "bg-accent/10 text-accent" : "bg-amber-500/15 text-amber-800 dark:text-amber-200"}`}>
-        {phase === "woche1"
-          ? <>📅 <b>Woche 1:</b> Am besten bis <b>{formatDate(range.soft, { weekday: "long", day: "numeric", month: "numeric" })}</b> erledigen.</>
-          : <>⏰ <b>Woche 2:</b> Spätestens bis <b>{formatDate(range.end, { weekday: "long", day: "numeric", month: "numeric" })}</b> fertig werden!</>}
+      <div className={`mb-5 rounded-2xl px-4 py-3 text-sm ${
+        phase === "putzwoche" ? "bg-accent/10 text-accent"
+        : overdueCount ? "bg-red-500/15 text-red-700 dark:text-red-300" : "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200"}`}>
+        {phase === "putzwoche"
+          ? <>🧽 <b>Putzwoche!</b> Alles bis <b>{dayLong(range.due)}</b> erledigen. Danach habt ihr eine Woche frei.</>
+          : overdueCount
+            ? <>⚠️ <b>Freie Woche, aber {overdueCount === 1 ? "ein Bereich ist" : `${overdueCount} Bereiche sind`} noch nicht fertig.</b> Bitte nachholen! Ab {dayLong(periodRange(start, period + 1).from)} gibt es neue Aufgaben.</>
+            : <>😎 <b>Freie Woche!</b> Alles erledigt. Neue Aufgaben ab {dayLong(periodRange(start, period + 1).from)}.</>}
       </div>
 
       <div className="space-y-4">
         {current.map((s) => (
-          <AreaCard key={s.area.id} s={s} period={period} phase={phase} mine={s.assignee?.id === myId}
+          <AreaCard key={s.area.id} s={s} period={period} overdue={isOverdue(s, start, period)} free={phase !== "putzwoche"} mine={s.assignee?.id === myId}
             praises={praises} onToggle={(t) => toggle(s, t)} onPraise={reloadPraises} onTasksChanged={reloadTasks} />
         ))}
       </div>
@@ -61,7 +68,7 @@ export default function Putzplan() {
                 <Avatar member={s.assignee} size={22} />
                 <span className="text-sm text-muted">{s.assignee?.display_name}</span>
                 <span className={`ml-auto text-sm font-medium ${s.done ? "text-emerald-600" : "text-red-600"}`}>
-                  {s.done ? "✓ erledigt" : `${s.doneCount}/${s.tasks.length}`}
+                  {s.done ? "✓ erledigt" : `✗ nicht fertig (${s.doneCount}/${s.tasks.length})`}
                 </span>
                 {s.done && (
                   <div className="w-full">
@@ -99,15 +106,14 @@ export default function Putzplan() {
   );
 }
 
-function AreaCard({ s, period, phase, mine, praises, onToggle, onPraise, onTasksChanged }: {
-  s: AreaStatus; period: number; phase: string; mine: boolean; praises: Praise[];
+function AreaCard({ s, period, overdue, free, mine, praises, onToggle, onPraise, onTasksChanged }: {
+  s: AreaStatus; period: number; overdue: boolean; free: boolean; mine: boolean; praises: Praise[];
   onToggle: (t: ChoreTask) => void; onPraise: () => void; onTasksChanged: () => void;
 }) {
   const { household, member } = useWG();
   const [editing, setEditing] = useState(false);
   const [newTask, setNewTask] = useState("");
   const pct = s.tasks.length ? Math.round((s.doneCount / s.tasks.length) * 100) : 0;
-  const late = !s.done && phase === "woche2";
 
   async function addTask(e: React.FormEvent) {
     e.preventDefault();
@@ -124,7 +130,13 @@ function AreaCard({ s, period, phase, mine, praises, onToggle, onPraise, onTasks
   }
 
   return (
-    <Card className={`p-0 ${mine ? "ring-2 ring-accent/40" : ""} ${s.done ? "border-emerald-500/40" : late ? "border-amber-500/50" : ""}`}>
+    <Card className={`p-0 ${overdue ? "border-2 border-red-500 bg-red-500/5 shadow-[0_0_0_4px_rgba(239,68,68,.12)]" : mine ? "ring-2 ring-accent/40" : ""} ${s.done ? "border-emerald-500/40" : ""} ${s.done && free ? "opacity-80" : ""}`}>
+      {overdue && (
+        <div className="flex items-center gap-2 rounded-t-2xl bg-red-500 px-4 py-2 text-sm font-semibold text-white">
+          <span className="animate-pulse">⚠️</span>
+          Überfällig! {mine ? "Bitte diese Woche nachholen" : `${s.assignee?.display_name} muss nachholen`}
+        </div>
+      )}
       <div className="flex items-center gap-3 p-4 pb-3">
         <span className="text-3xl">{s.area.icon}</span>
         <div className="min-w-0 flex-1">
@@ -136,13 +148,13 @@ function AreaCard({ s, period, phase, mine, praises, onToggle, onPraise, onTasks
         </div>
         <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
           s.done ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-          : late ? "bg-amber-500/15 text-amber-800 dark:text-amber-200" : "bg-line/60 text-muted"}`}>
-          {s.done ? "✓ Erledigt" : late ? "Soll verpasst" : `${s.doneCount}/${s.tasks.length}`}
+          : overdue ? "bg-red-500/15 text-red-700 dark:text-red-300" : "bg-line/60 text-muted"}`}>
+          {s.done ? (free ? "✓ Erledigt · frei 😎" : "✓ Erledigt") : overdue ? `Überfällig ${s.doneCount}/${s.tasks.length}` : `${s.doneCount}/${s.tasks.length}`}
         </span>
       </div>
 
       <div className="mx-4 h-1.5 overflow-hidden rounded-full bg-line/60">
-        <div className={`h-full rounded-full transition-all ${s.done ? "bg-emerald-500" : "bg-accent"}`} style={{ width: `${pct}%` }} />
+        <div className={`h-full rounded-full transition-all ${s.done ? "bg-emerald-500" : overdue ? "bg-red-500" : "bg-accent"}`} style={{ width: `${pct}%` }} />
       </div>
 
       <ul className="mt-2">

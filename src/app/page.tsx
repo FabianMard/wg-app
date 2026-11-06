@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useWG, useRows } from "@/lib/wg";
 import type { CalEvent, ChoreArea, ChoreCheck, ChoreTask, Expense, Praise, ShoppingItem, Todo } from "@/lib/types";
-import { areaStatuses, periodOf, periodRange, phaseOf } from "@/lib/cleaning";
+import { areaStatuses, isOverdue, periodOf, periodRange, phaseOf } from "@/lib/cleaning";
 import { beesOf } from "@/components/Praise";
 import { computeBalances } from "@/lib/balances";
 import { addDays, euro, formatDate, todayISO } from "@/lib/dates";
@@ -48,10 +48,12 @@ export default function Home() {
         <Tile href="/putzplan" icon="🧽" title="Dein Putzbereich">
           {mine.length === 0 ? <Muted>Diese Runde nichts</Muted> : mine.map((s) => (
             <div key={s.area.id}>
-              <Row label={`${s.area.icon} ${s.area.name}`} right={s.done ? "✓ erledigt" : `${s.doneCount}/${s.tasks.length}`} warn={!s.done && phase === "woche2"} />
-              {!s.done && (
-                <Muted>{phase === "woche1" ? `Am besten bis ${formatDate(range.soft)}` : `Spätestens bis ${formatDate(range.end)}!`}</Muted>
-              )}
+              <Row label={`${s.area.icon} ${s.area.name}`} right={s.done ? "✓ erledigt" : `${s.doneCount}/${s.tasks.length}`} warn={isOverdue(s, household.cleaning_start, period)} />
+              {s.done
+                ? phase !== "putzwoche" && <Muted>Frei bis {formatDate(range.end)} 😎</Muted>
+                : isOverdue(s, household.cleaning_start, period)
+                  ? <p className="text-sm font-semibold text-red-600">⚠️ Überfällig – bitte nachholen!</p>
+                  : <Muted>Putzwoche: bis {formatDate(range.due)} erledigen</Muted>}
             </div>
           ))}
         </Tile>

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRows, useWG } from "@/lib/wg";
 import type { ChoreArea, ChoreCheck, ChoreTask, Expense, Member, Praise, Todo } from "@/lib/types";
-import { areaStatuses, periodOf } from "@/lib/cleaning";
+import { areaStatuses, isOverdue, periodOf, phaseOf } from "@/lib/cleaning";
 import { computeBalances, suggestTransfers } from "@/lib/balances";
 import { euro, formatDate } from "@/lib/dates";
 import { AvatarFigure, lookOf } from "./avatar";
@@ -72,8 +72,12 @@ export function TalkDialog({ target, online, onEmote, onClose }: {
         {greeting.replace("{me}", me?.display_name ?? "")}{" "}
         {myArea
           ? myArea.done
-            ? <>Ich hab diese Runde {myArea.area.icon} <b>{myArea.area.name}</b>, und die ist schon fertig! 💪</>
-            : <>Ich bin gerade mit {myArea.area.icon} <b>{myArea.area.name}</b> dran: {myArea.doneCount} von {myArea.tasks.length} erledigt.</>
+            ? phaseOf(household.cleaning_start, period) === "putzwoche"
+              ? <>Ich hab diese Woche {myArea.area.icon} <b>{myArea.area.name}</b>, und die ist schon fertig! 💪</>
+              : <>{myArea.area.icon} <b>{myArea.area.name}</b> ist erledigt, ich hab diese Woche frei! 😎</>
+            : isOverdue(myArea, household.cleaning_start, period)
+              ? <>Ups … {myArea.area.icon} <b>{myArea.area.name}</b> hätte ich letzte Woche machen sollen, ich hol das nach! 😅 ({myArea.doneCount} von {myArea.tasks.length})</>
+              : <>Ich hab diese Woche Putzdienst: {myArea.area.icon} <b>{myArea.area.name}</b>, {myArea.doneCount} von {myArea.tasks.length} erledigt.</>
           : null}
         {" "}Ich hab übrigens schon <b>🐝 {beesOf(praises, target.id)}</b> Bienchen.
       </>

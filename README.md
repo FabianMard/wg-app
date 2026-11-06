@@ -42,8 +42,10 @@ Jeder weitere `git push` wird automatisch veröffentlicht.
 Seite im Browser öffnen → iPhone: Teilen → „Zum Home-Bildschirm“, Android: Menü → „App installieren“.
 
 ## Putzplan
-- Drei Bereiche (Küche, Bad, Sonstiges), die alle **2 Wochen** reihum wechseln.
-- Am besten in **Woche 1** erledigen, spätestens bis Ende **Woche 2**.
+- Drei Bereiche (Küche, Bad, Sonstiges), alle haben gleichzeitig Dienst.
+- **Woche 1 = Putzwoche** (fällig am Sonntag), **Woche 2 = frei**, danach wechseln die Bereiche reihum.
+- Nicht in der Putzwoche fertig geworden? Dann ist der Bereich in der freien Woche **überfällig**
+  und wird rot hervorgehoben (Putzplan, Startseite, Kalender, Spiel).
 - Jeder Bereich hat eine Checkliste. Erst wenn alles abgehakt ist, ist er erledigt.
   Die Liste lässt sich in der App bearbeiten („Liste bearbeiten“).
 - Erledigte Bereiche und To-dos können die anderen loben. Das gibt **fleißige Bienchen 🐝**.

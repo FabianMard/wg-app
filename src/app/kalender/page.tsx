@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRows, useWG } from "@/lib/wg";
 import type { CalEvent, ChoreArea, ChoreCheck, ChoreTask } from "@/lib/types";
-import { areaStatuses, periodOf, periodRange, type AreaStatus } from "@/lib/cleaning";
+import { areaStatuses, isOverdue, periodOf, periodRange, type AreaStatus } from "@/lib/cleaning";
 import { formatDate, fromISO, toISO, todayISO } from "@/lib/dates";
 import { Avatar, btnCls, Card, DeleteButton, inputCls, PageTitle, SectionTitle } from "@/components/ui";
 
@@ -40,11 +40,12 @@ export default function Kalender() {
 
   const eventsOn = (iso: string) =>
     events.filter((e) => e.day === iso).sort((a, b) => (a.time ?? "").localeCompare(b.time ?? ""));
-  const milestone = (iso: string): "Soll" | "Deadline" | null => {
+  // Ende der Putzwoche (Sonntag) markieren
+  const milestone = (iso: string): "Fällig" | null => {
     const p = periodOf(cs, iso);
     if (p < 0) return null;
     const r = periodRange(cs, p);
-    return iso === r.soft ? "Soll" : iso === r.end ? "Deadline" : null;
+    return iso === r.due ? "Fällig" : null;
   };
   const shift = (n: number) => setMonth(new Date(month.getFullYear(), month.getMonth() + n, 1));
 
@@ -90,24 +91,24 @@ export default function Kalender() {
               <button key={iso} onClick={() => setSelected(iso)} lang="de"
                 className={`relative flex min-h-[104px] flex-col gap-0.5 p-1 text-left transition md:min-h-[120px] md:p-1.5
                   ${isSel ? "z-10 bg-card shadow-[inset_0_0_0_999px_color-mix(in_srgb,var(--accent)_8%,transparent)] outline outline-2 -outline-offset-2 outline-accent" : "bg-card hover:bg-line/30"}
-                  ${inMonth ? "" : "bg-bg opacity-45"}`}>
+                  ${inMonth ? "" : "bg-bg"}`}>
                 <span className="flex items-center justify-between">
                   <span className={`flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-xs tabular-nums
-                    ${isToday ? "bg-accent font-bold text-white" : "font-medium"}`}>
+                    ${isToday ? "bg-accent font-bold text-white" : "font-medium"} ${inMonth ? "" : "opacity-40"}`}>
                     {fromISO(iso).getDate()}
                   </span>
                   {ms && (
-                    <span title={ms === "Soll" ? "Putzen: sollte fertig sein" : "Putzen: Deadline"}
-                      className={`hidden rounded px-0.5 text-[9px] font-bold uppercase leading-tight md:inline ${ms === "Soll" ? "text-amber-600" : "bg-red-500/15 text-red-600"}`}>
-                      {ms === "Soll" ? "Soll" : "Ende"}
+                    <span title="Ende der Putzwoche: alles sollte fertig sein"
+                      className="hidden rounded bg-red-500/15 px-0.5 text-[9px] font-bold uppercase leading-tight text-red-600 md:inline">
+                      Fällig
                     </span>
                   )}
                 </span>
 
-                {ms && <span aria-hidden className={`absolute inset-x-0 top-0 h-1 md:hidden ${ms === "Soll" ? "bg-amber-500" : "bg-red-500"}`} />}
+                {ms && <span aria-hidden className="absolute inset-x-0 top-0 h-1 bg-red-500 md:hidden" />}
 
                 {/* Termine */}
-                <span className="flex min-w-0 flex-col gap-0.5">
+                <span className={`flex min-w-0 flex-col gap-0.5 ${inMonth ? "" : "opacity-50"}`}>
                   {evs.slice(0, MAX_EVENTS_IN_TILE).map((e) => (
                     <span key={e.id} className="line-clamp-2 hyphens-auto break-words rounded bg-accent/15 px-0.5 text-[9px] font-medium leading-[11px] text-accent md:truncate md:px-1 md:text-[11px] md:leading-4">
                       <span className="hidden md:inline">{e.time && `${e.time.slice(0, 5)} `}</span>{e.title}
@@ -118,32 +119,39 @@ export default function Kalender() {
                   )}
                 </span>
 
-                {/* Putzplan: durchgehender Balken je Bereich in der Farbe der Person,
-                    Name am ersten und letzten Tag der Runde */}
+                {/* Putzplan: Balken je Bereich in der Farbe der Person über die Putzwoche.
+                    In der freien Woche nur, wenn der Bereich überfällig ist (rot gestreift). */}
                 {chores.length > 0 && (() => {
-                  const r = periodRange(cs, periodOf(cs, iso));
-                  const isStart = iso === r.from, isEnd = iso === r.end;
+                  const p = periodOf(cs, iso);
+                  const r = periodRange(cs, p);
+                  const duty = iso <= r.due;
+                  const isStart = iso === (duty ? r.from : r.freeFrom);
+                  const isEnd = iso === (duty ? r.due : r.end);
                   const isSunday = fromISO(iso).getDay() === 0;
                   return (
                     <span className="-mx-1 mt-auto flex flex-col gap-px md:-mx-1.5">
-                      {chores.map((c) => (
-                        <span key={c.area.id}
-                          title={`${c.area.name}: ${c.assignee?.display_name ?? "?"}${c.done ? " ✓ erledigt" : ""}`}
-                          className={`relative flex h-3.5 items-center whitespace-nowrap text-[9px] font-semibold leading-none text-white md:h-4 md:text-[10px]
-                            ${isStart ? "ml-0.5 rounded-l-full" : ""}
-                            ${isEnd ? "mr-0.5 rounded-r-full" : isSunday ? "" : "-mr-px"}
-`}
-                          style={{
-                            // Erledigt: hellere Farbe statt Transparenz, damit der Name lesbar bleibt
-                            background: c.done
-                              ? `color-mix(in srgb, ${c.assignee?.color ?? "#999"} 45%, var(--card))`
-                              : c.assignee?.color ?? "#999",
-                          }}>
-                          {/* Text darf in die Nachbarkachel laufen (gleiche Farbe), daher absolut + über den Nachbarn */}
-                          {isStart && <span className="absolute left-1 z-[2]">{c.area.icon}&nbsp;{c.assignee?.display_name}</span>}
-                          {isEnd && <span className="absolute right-1 z-[2]">{c.done ? "✓ " : ""}{c.assignee?.display_name}</span>}
-                        </span>
-                      ))}
+                      {chores.map((c) => {
+                        const late = !duty && isOverdue(c, cs, p);
+                        // Platzhalter, damit die Zeilen (Küche/Bad/Sonstiges) immer gleich liegen
+                        if (!duty && !late) return <span key={c.area.id} className="h-3.5 md:h-4" />;
+                        const color = c.assignee?.color ?? "#999";
+                        return (
+                          <span key={c.area.id}
+                            title={`${c.area.name}: ${c.assignee?.display_name ?? "?"}${c.done ? " ✓ erledigt" : late ? " – überfällig, bitte nachholen" : ""}`}
+                            className={`relative flex h-3.5 items-center whitespace-nowrap text-[9px] font-semibold leading-none text-white md:h-4 md:text-[10px]
+                              ${isStart ? "ml-0.5 rounded-l-full" : ""}
+                              ${isEnd ? "mr-0.5 rounded-r-full" : isSunday ? "" : "-mr-px"}`}
+                            style={{
+                              background: late
+                                ? "repeating-linear-gradient(135deg, #dc2626 0 5px, #f87171 5px 10px)"
+                                : c.done ? `color-mix(in srgb, ${color} 45%, var(--card))` : color,
+                            }}>
+                            {/* Text darf in die Nachbarkachel laufen, daher absolut + über den Nachbarn */}
+                            {isStart && <span className="absolute left-1 z-[2]">{late && "⚠️"}{c.area.icon}&nbsp;{c.assignee?.display_name}</span>}
+                            {isEnd && <span className="absolute right-1 z-[2]">{late ? "nachholen!" : <>{c.done ? "✓ " : ""}{c.assignee?.display_name}</>}</span>}
+                          </span>
+                        );
+                      })}
                     </span>
                   );
                 })()}
@@ -160,9 +168,11 @@ export default function Kalender() {
             </span>
           ))}
           <span className="hidden h-3 w-px bg-line sm:block" />
-          <span>Balken: {[...areas].sort((a, b) => a.sort - b.sort).map((a) => `${a.icon} ${a.name}`).join(" · ")} (blass = erledigt)</span>
-          <span className="flex items-center gap-1"><span className="h-1 w-3 rounded bg-amber-500" />Soll fertig</span>
-          <span className="flex items-center gap-1"><span className="h-1 w-3 rounded bg-red-500" />Deadline</span>
+          <span>Balken = Putzwoche: {[...areas].sort((a, b) => a.sort - b.sort).map((a) => `${a.icon} ${a.name}`).join(" · ")} (blass = erledigt)</span>
+          <span className="flex items-center gap-1"><span className="h-1 w-3 rounded bg-red-500" />Fällig (Ende Putzwoche)</span>
+          <span className="flex items-center gap-1">
+            <span className="h-2.5 w-5 rounded-full" style={{ background: "repeating-linear-gradient(135deg, #dc2626 0 3px, #f87171 3px 6px)" }} />überfällig, nachholen
+          </span>
         </div>
       </Card>
 
@@ -186,11 +196,11 @@ export default function Kalender() {
       {selChores.length > 0 && (
         <>
           <SectionTitle>
-            Putzplan {formatDate(selRange.from, { day: "numeric", month: "numeric" })} – {formatDate(selRange.end, { day: "numeric", month: "numeric" })}
+            Putzwoche {formatDate(selRange.from, { day: "numeric", month: "numeric" })} – {formatDate(selRange.due, { day: "numeric", month: "numeric" })}
           </SectionTitle>
           {selMilestone && (
-            <p className={`mb-2 text-sm font-medium ${selMilestone === "Soll" ? "text-amber-600" : "text-red-600"}`}>
-              {selMilestone === "Soll" ? "Heute sollte alles fertig sein." : "Heute ist die Deadline für diese Runde!"}
+            <p className="mb-2 text-sm font-medium text-red-600">
+              Heute endet die Putzwoche – alles sollte fertig sein.
             </p>
           )}
           <Card className="divide-y divide-line p-0">
@@ -200,8 +210,8 @@ export default function Kalender() {
                 <span className="flex-1 font-medium">{c.area.name}</span>
                 <Avatar member={c.assignee} size={24} />
                 <span className="w-16 text-sm">{c.assignee?.display_name}</span>
-                <span className={`w-14 text-right text-sm font-medium ${c.done ? "text-emerald-600" : "text-muted"}`}>
-                  {c.done ? "✓" : `${c.doneCount}/${c.tasks.length}`}
+                <span className={`w-20 text-right text-sm font-medium ${c.done ? "text-emerald-600" : isOverdue(c, cs, selPeriod) ? "text-red-600" : "text-muted"}`}>
+                  {c.done ? "✓" : isOverdue(c, cs, selPeriod) ? `⚠️ ${c.doneCount}/${c.tasks.length}` : `${c.doneCount}/${c.tasks.length}`}
                 </span>
               </div>
             ))}
