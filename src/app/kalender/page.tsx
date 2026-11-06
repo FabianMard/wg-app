@@ -155,8 +155,8 @@ export default function Kalender() {
                                 : c.done ? `color-mix(in srgb, ${color} 45%, var(--card))` : color,
                             }}>
                             {/* Text darf in die Nachbarkachel laufen, daher absolut + über den Nachbarn */}
-                            {isStart && <span className="absolute left-1 z-[2]">{late && "⚠️ "}{c.area.name}: {c.assignee?.display_name}</span>}
-                            {isEnd && <span className="absolute right-1 z-[2]">{late ? "nachholen!" : <>{c.done ? "✓ " : ""}{c.assignee?.display_name}</>}</span>}
+                            {isStart && <span className="absolute left-1 z-[2]">{late && "⚠️ "}{c.area.name}</span>}
+                            {isEnd && <span className="absolute right-1 z-[2]">{c.done ? "✓ " : ""}{c.assignee?.display_name}{late && " – nachholen!"}</span>}
                           </span>
                         );
                       })}
