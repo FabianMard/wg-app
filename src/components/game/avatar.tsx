@@ -129,13 +129,17 @@ export function AvatarFigure({ look, size = 40, flip = false, className = "" }: 
 
       {/* Haare vorne */}
       {(hair === "kurz" || hair === "lang" || hair === "zopf" || hair === "dutt") && (
-        <path d="M8.3 11.6 C8.3 4.6 23.7 4.6 23.7 11.6 C21.6 9 18.8 8.4 16.6 9.2 C14.2 8.2 10.8 9.2 8.3 11.6 Z" fill={hairColor} />
+        <path d="M7.6 13.2 C7.2 6.4 10.8 3 16 3 C21.2 3 24.8 6.4 24.4 13.2 C23.4 10.6 21.8 9.3 19.8 9 C18.2 10 15.2 10.3 12.4 9.4 C10.4 9.9 8.6 11.3 7.6 13.2 Z" fill={hairColor} />
       )}
-      {hair === "dutt" && <circle cx="16" cy="3.6" r="2.9" fill={hairColor} />}
+      {hair === "dutt" && <circle cx="16" cy="2.6" r="2.9" fill={hairColor} />}
       {hair === "locken" && [[9.4, 9.2], [11.2, 6.2], [14.2, 4.6], [17.8, 4.6], [20.8, 6.2], [22.6, 9.2], [16, 6.4]].map(([x, y]) => (
         <circle key={`${x}-${y}`} cx={x} cy={y} r="2.7" fill={hairColor} />
       ))}
-      {hair === "iro" && <rect x="14.4" y="1.8" width="3.2" height="7.4" rx="1.6" fill={hairColor} />}
+      {hair === "iro" && <>
+        <path d="M8.2 11.4 C8.2 6 11.6 4 16 4 C20.4 4 23.8 6 23.8 11.4 C21 8.6 11 8.6 8.2 11.4 Z" fill={hairColor} opacity=".22" />
+        <rect x="14.2" y="0.8" width="3.6" height="8.6" rx="1.8" fill={hairColor} />
+      </>}
+      {hair === "glatze" && <ellipse cx="13" cy="6.4" rx="2" ry="1" fill="#fff" opacity=".35" />}
 
       {/* Accessoires */}
       {acc === "brille" && <g stroke="#1f2937" strokeWidth=".7" fill="none">
@@ -146,24 +150,24 @@ export function AvatarFigure({ look, size = 40, flip = false, className = "" }: 
         <rect x="15.2" y="11.6" width="1.6" height=".7" />
       </g>}
       {acc === "cap" && <g>
-        <path d="M8.2 10.4 C8.2 3.8 23.8 3.8 23.8 10.4 Z" fill={accColor} />
-        <ellipse cx="19.6" cy="10.4" rx="6.4" ry="1.4" fill={shade(accColor, -0.2)} />
-        <circle cx="16" cy="4.6" r=".8" fill={shade(accColor, -0.3)} />
+        <path d="M7.6 11 C7.4 4.6 11.2 2.4 16 2.4 C20.8 2.4 24.6 4.6 24.4 11 Z" fill={accColor} />
+        <ellipse cx="19.8" cy="11" rx="6.6" ry="1.5" fill={shade(accColor, -0.2)} />
+        <circle cx="16" cy="2.6" r=".8" fill={shade(accColor, -0.3)} />
       </g>}
       {acc === "muetze" && <g>
-        <path d="M7.9 11 C7.9 2.8 24.1 2.8 24.1 11 Z" fill={accColor} />
-        <rect x="7.5" y="9.4" width="17" height="2.8" rx="1.4" fill={shade(accColor, -0.2)} />
-        <circle cx="16" cy="3.2" r="2" fill="#fff" />
+        <path d="M7.3 11.6 C7.1 3.8 11.2 1.6 16 1.6 C20.8 1.6 24.9 3.8 24.7 11.6 Z" fill={accColor} />
+        <rect x="7" y="9.8" width="18" height="3" rx="1.5" fill={shade(accColor, -0.2)} />
+        <circle cx="16" cy="1.4" r="2" fill="#fff" />
       </g>}
       {acc === "kopfhoerer" && <g>
-        <path d="M8 12 C8 2.6 24 2.6 24 12" stroke={accColor} strokeWidth="1.7" fill="none" />
+        <path d="M7.6 12 C7.2 4.4 11 2.2 16 2.2 C21 2.2 24.8 4.4 24.4 12" stroke={accColor} strokeWidth="1.7" fill="none" />
         <rect x="6.4" y="10.2" width="3.2" height="4.8" rx="1.5" fill={shade(accColor, -0.25)} />
         <rect x="22.4" y="10.2" width="3.2" height="4.8" rx="1.5" fill={shade(accColor, -0.25)} />
       </g>}
       {acc === "schleife" && <g fill={accColor}>
         <path d="M21.6 5.6 L18.8 3.4 L18.8 7.8 Z" /><path d="M21.6 5.6 L24.4 3.4 L24.4 7.8 Z" /><circle cx="21.6" cy="5.6" r="1" fill={shade(accColor, -0.25)} />
       </g>}
-      {acc === "krone" && <path d="M10 6.2 L10.8 1.8 L13.4 4.4 L16 1 L18.6 4.4 L21.2 1.8 L22 6.2 Z" fill="#fbbf24" stroke="#d97706" strokeWidth=".5" />}
+      {acc === "krone" && <path d="M10 5.2 L10.8 0.8 L13.4 3.4 L16 0 L18.6 3.4 L21.2 0.8 L22 5.2 Z" fill="#fbbf24" stroke="#d97706" strokeWidth=".5" />}
       {acc === "blume" && <g>
         {[[0, -1.6], [1.5, -0.5], [0.9, 1.3], [-0.9, 1.3], [-1.5, -0.5]].map(([dx, dy]) => (
           <circle key={`${dx}-${dy}`} cx={21.8 + dx} cy={5.4 + dy} r="1.2" fill={accColor} />

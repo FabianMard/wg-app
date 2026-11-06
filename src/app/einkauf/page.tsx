@@ -6,6 +6,7 @@ import { useRows, useWG } from "@/lib/wg";
 import type { ShoppingItem, StoreId } from "@/lib/types";
 import { DEFAULT_SUGGESTIONS, STORES, storeById } from "@/lib/stores";
 import { StoreBadge } from "@/components/StoreBadge";
+import { Checkout } from "@/components/Checkout";
 import { btnCls, btnGhostCls, Card, Check, DeleteButton, Empty, inputCls, PageTitle, SectionTitle } from "@/components/ui";
 
 const fmtAdded = (iso: string) =>
@@ -17,6 +18,8 @@ export default function Einkauf() {
   const [name, setName] = useState("");
   const [store, setStore] = useState<StoreId>("egal");
   const [note, setNote] = useState("");
+  const [checkout, setCheckout] = useState(false);
+  const [flash, setFlash] = useState<string | null>(null);
 
   const visible = items.filter((i) => !i.archived);
   const open = visible.filter((i) => !i.done);
@@ -111,6 +114,7 @@ export default function Einkauf() {
         </div>
       </Card>
 
+      {flash && <p className="mb-4 rounded-2xl bg-emerald-500/15 px-4 py-3 text-sm font-medium text-emerald-700 dark:text-emerald-300">{flash}</p>}
       {loaded && open.length === 0 && done.length === 0 && <Empty>Die Liste ist leer.</Empty>}
 
       <div className="space-y-4">
@@ -132,10 +136,16 @@ export default function Einkauf() {
 
       {done.length > 0 && (
         <>
-          <div className="flex items-end justify-between">
-            <SectionTitle>Im Wagen ({done.length})</SectionTitle>
-            <button onClick={clearDone} className={`${btnGhostCls} mb-2`}>Gekaufte entfernen</button>
-          </div>
+          <SectionTitle>Im Wagen ({done.length})</SectionTitle>
+          {checkout ? (
+            <Checkout items={done} onCancel={() => setCheckout(false)}
+              onDone={(msg) => { setCheckout(false); setFlash(msg); setTimeout(() => setFlash(null), 5000); reload(); }} />
+          ) : (
+            <div className="mb-3 flex flex-wrap gap-2">
+              <button onClick={() => setCheckout(true)} className={`${btnCls} flex-1`}>💶 Bezahlt? Betrag eintragen & aufteilen</button>
+              <button onClick={clearDone} className={btnGhostCls}>Nur entfernen</button>
+            </div>
+          )}
           <Card className="divide-y divide-line p-0 opacity-70">
             {done.map((i) => <ItemRow key={i.id} item={i} by={member(i.added_by)?.display_name} onToggle={toggle} onRemove={remove} />)}
           </Card>
