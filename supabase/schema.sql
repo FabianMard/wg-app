@@ -45,6 +45,7 @@ create table public.members (
   sort         int  not null default 0,
   user_id      uuid unique references auth.users on delete set null,
   avatar       jsonb,           -- Aussehen im WG-Spiel (Frisur, Kleidung, …)
+  photo_path   text,            -- Profilfoto im Storage-Bucket "pinnwand"
   created_at   timestamptz not null default now()
 );
 

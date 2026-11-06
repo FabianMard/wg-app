@@ -36,7 +36,7 @@ const STEP_MS = 120;
 const BUBBLE_MS = 6000;
 
 type Target = { type: "object"; obj: GameObject } | { type: "member"; id: string } | { type: "cat" };
-type Panel = Target | { type: "wardrobe"; first?: boolean };
+type Panel = Target | { type: "wardrobe"; first?: boolean; ownerId?: string };
 const CAT_LINES = ["Schnurrrr … 💕", "Miau! 😺", "*kuschelt sich an* 🐾", "Prrrrr 😻", "Mehr! Mehr! 🐱"];
 const CAT_SEE = 3; // so nah muss man sein, um die Katze zu entdecken
 const dist = (a: Pos, b: Pos) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
@@ -270,8 +270,7 @@ export function Game() {
     if (t.type === "object" && t.obj.action === "schlafen") { say(myId, "💤"); return; }
     if (t.type === "object" && t.obj.action === "kleiderschrank") {
       const owner = [...members].sort((a, b) => a.sort - b.sort)[t.obj.owner ?? -1];
-      if (owner?.id === myId) setPanel({ type: "wardrobe" });
-      else say(myId, owner ? `Das ist ${owner.display_name}s Schrank … Finger weg! 🙈` : "Leerer Schrank 🤷");
+      setPanel({ type: "wardrobe", ownerId: owner?.id });
       return;
     }
     setPanel(t);
@@ -518,12 +517,12 @@ export function Game() {
 
       {panel && (
         <Sheet onClose={() => setPanel(null)}
-          title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : panel.type === "wardrobe" ? "👚 Dein Kleiderschrank" : panel.type === "object" ? `${panel.obj.icon} ${panel.obj.label}` : ""}>
+          title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : panel.type === "wardrobe" ? (panel.ownerId && panel.ownerId !== myId ? `👚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Kleiderschrank` : "👚 Dein Kleiderschrank") : panel.type === "object" ? `${panel.obj.icon} ${panel.obj.label}` : ""}>
           {panel.type === "member" && targetMember ? (
             <TalkDialog target={targetMember} online={onlineIds.has(targetMember.id)}
               onEmote={(em, on) => say(em === "🐝" && on ? on : myId, em)} onClose={() => setPanel(null)} />
           ) : panel.type === "wardrobe" && me ? (
-            <Wardrobe member={me} firstTime={panel.first} onSaved={(look) => { setMyLook(look); refresh(); setPanel(null); say(myId, "✨"); }} />
+            <Wardrobe member={me} owner={members.find((m) => m.id === panel.ownerId)} firstTime={panel.first} onSaved={(look) => { setMyLook(look); refresh(); setPanel(null); say(myId, "✨"); }} />
           ) : panel.type === "object" ? (
             (() => { const Comp = PANELS[panel.obj.action as PageAction]; return <Comp />; })()
           ) : null}

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { squarePhoto } from "@/lib/photos";
 import { supabase } from "@/lib/supabase";
 import { useRows, useWG } from "@/lib/wg";
 import type { Praise } from "@/lib/types";
@@ -18,6 +19,42 @@ export default function WGSettings() {
   const { household, members, myId, me, refresh } = useWG();
   const [colorErr, setColorErr] = useState<string | null>(null);
   const [myColor, setMyColor] = useState<string | null>(null); // sofort anzeigen
+
+  // ── Profilfoto ──
+  const camRef = useRef<HTMLInputElement>(null), galRef = useRef<HTMLInputElement>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoErr, setPhotoErr] = useState<string | null>(null);
+  async function uploadPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f || !me) return;
+    setPhotoErr(null);
+    setPhotoBusy(true);
+    try {
+      const blob = await squarePhoto(f);
+      const path = `${household.id}/profil/${me.id}-${Date.now()}.jpg`;
+      const up = await supabase.storage.from("pinnwand").upload(path, blob, { contentType: "image/jpeg" });
+      if (up.error) throw new Error(/bucket|not found/i.test(up.error.message) ? "Foto-Speicher fehlt: Bitte supabase/007_pinnwand_fotos.sql ausführen." : up.error.message);
+      const { error } = await supabase.from("members").update({ photo_path: path }).eq("id", me.id);
+      if (error) {
+        await supabase.storage.from("pinnwand").remove([path]);
+        throw new Error(error.message.includes("photo_path") ? "Datenbank-Update fehlt: Bitte supabase/008_profilfoto.sql im SQL Editor ausführen." : error.message);
+      }
+      if (me.photo_path) await supabase.storage.from("pinnwand").remove([me.photo_path]);
+      await refresh();
+    } catch (x) {
+      setPhotoErr((x as Error).message);
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+  async function removePhoto() {
+    if (!me?.photo_path || !confirm("Profilfoto entfernen?")) return;
+    const old = me.photo_path;
+    await supabase.from("members").update({ photo_path: null }).eq("id", me.id);
+    await supabase.storage.from("pinnwand").remove([old]);
+    await refresh();
+  }
 
   async function pickColor(c: string) {
     setColorErr(null);
@@ -71,6 +108,23 @@ export default function WGSettings() {
           <button onClick={copy} className={btnGhostCls}>{copied ? "Kopiert ✓" : "Kopieren"}</button>
         </div>
         <p className="mt-3 text-xs text-muted">Code zum Eintippen: <b className="font-mono tracking-widest">{household.invite_code}</b></p>
+      </Card>
+
+      <SectionTitle>Profilfoto</SectionTitle>
+      <Card className="flex items-center gap-4">
+        <Avatar member={me} size={72} />
+        <div className="flex flex-1 flex-col gap-2">
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => camRef.current?.click()} disabled={photoBusy} className={btnCls}>📷 Foto machen</button>
+            <button onClick={() => galRef.current?.click()} disabled={photoBusy} className={btnGhostCls}>🖼️ Aus Galerie</button>
+          </div>
+          {me?.photo_path && <button onClick={removePhoto} className="self-start text-xs text-muted underline">Foto entfernen</button>}
+          {photoBusy && <p className="text-xs text-muted">Wird hochgeladen …</p>}
+          {photoErr && <p className="text-sm text-red-600">{photoErr}</p>}
+          <p className="text-xs text-muted">Nur eure WG kann das Foto sehen.</p>
+        </div>
+        <input ref={camRef} type="file" accept="image/*" capture="user" onChange={uploadPhoto} className="hidden" />
+        <input ref={galRef} type="file" accept="image/*" onChange={uploadPhoto} className="hidden" />
       </Card>
 
       <SectionTitle>Deine Farbe</SectionTitle>

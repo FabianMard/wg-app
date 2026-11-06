@@ -15,6 +15,8 @@ export type Member = {
   sort: number;
   user_id: string | null;
   avatar: import("@/components/game/avatar").AvatarLook | null;
+  /** Profilfoto im Storage-Bucket "pinnwand" (ab 008_profilfoto.sql) */
+  photo_path?: string | null;
 };
 
 export type ChoreArea = { id: string; household_id: string; name: string; icon: string; sort: number };

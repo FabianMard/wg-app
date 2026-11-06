@@ -12,7 +12,8 @@ export const PANTS_COLORS = ["#1f2937", "#4b5563", "#1e3a8a", "#3b82f6", "#78350
 export const SHOE_COLORS = ["#3f3f46", "#fafafa", "#ef4444", "#78350f", "#3b82f6", "#f59e0b"];
 
 export const HAIRS = { kurz: "Kurz", lang: "Lang", zopf: "Zopf", dutt: "Dutt", locken: "Locken", iro: "Iro", glatze: "Glatze" } as const;
-export const TOPS = { tshirt: "T-Shirt", pulli: "Pulli", hoodie: "Hoodie", streifen: "Ringelshirt", jacke: "Jacke", kleid: "Kleid" } as const;
+export const TOPS = { tshirt: "T-Shirt", pulli: "Pulli", hoodie: "Hoodie", streifen: "Ringelshirt", jacke: "Jacke", kleid: "Kleid", bademantel: "Bademantel" } as const;
+export const BOTTOMS = { hose: "Hose", jeans: "Jeans", shorts: "Shorts", adidas: "Adidas-Hose" } as const;
 export const ACCS = {
   keins: "Nichts", brille: "Brille", sonnenbrille: "Sonnenbrille", cap: "Cap", muetze: "Mütze",
   kopfhoerer: "Kopfhörer", schleife: "Schleife", krone: "Krone", blume: "Blume", schal: "Schal",
@@ -25,6 +26,8 @@ export type AvatarLook = {
   top: keyof typeof TOPS;
   topColor: string;
   pants: string;
+  /** Hosenart (ältere gespeicherte Looks haben das noch nicht → "hose") */
+  bottom?: keyof typeof BOTTOMS;
   shoes: string;
   acc: keyof typeof ACCS;
   accColor: string;
@@ -47,11 +50,27 @@ export function defaultLook(m: Pick<Member, "color" | "sort">): AvatarLook {
 
 export const lookOf = (m: Member): AvatarLook => ({ ...defaultLook(m), ...(m.avatar ?? {}) });
 
+/**
+ * Jeder Kleiderschrank hat ein eigenes Sortiment (Index = members.sort).
+ * Alle Schränke sind für alle offen – man kann sich bei den anderen etwas ausleihen.
+ */
+type Top = keyof typeof TOPS;
+type Bottom = keyof typeof BOTTOMS;
+type Acc = keyof typeof ACCS;
+export const WARDROBES: { tops: Top[]; bottoms: Bottom[]; accs: Acc[] }[] = [
+  { tops: ["kleid", "bademantel", "pulli", "streifen", "tshirt"], bottoms: ["adidas", "jeans", "hose"], accs: ["keins", "blume", "schleife", "sonnenbrille", "krone", "schal"] },
+  { tops: ["hoodie", "tshirt", "jacke", "pulli"], bottoms: ["jeans", "shorts", "hose"], accs: ["keins", "kopfhoerer", "cap", "muetze", "sonnenbrille"] },
+  { tops: ["tshirt", "streifen", "hoodie", "jacke"], bottoms: ["hose", "shorts", "jeans"], accs: ["keins", "brille", "cap", "schal", "muetze"] },
+];
+const ALL_WARDROBE = { tops: Object.keys(TOPS) as Top[], bottoms: Object.keys(BOTTOMS) as Bottom[], accs: Object.keys(ACCS) as Acc[] };
+export const wardrobeOf = (sort: number) => WARDROBES[sort] ?? ALL_WARDROBE;
+
 export function randomLook(): AvatarLook {
   const pick = <T,>(a: readonly T[]) => a[Math.floor(Math.random() * a.length)];
   return {
     skin: pick(SKINS), hair: pick(Object.keys(HAIRS) as AvatarLook["hair"][]), hairColor: pick(HAIR_COLORS),
     top: pick(Object.keys(TOPS) as AvatarLook["top"][]), topColor: pick(CLOTH_COLORS), pants: pick(PANTS_COLORS),
+    bottom: pick(Object.keys(BOTTOMS) as Bottom[]),
     shoes: pick(SHOE_COLORS), acc: pick(Object.keys(ACCS) as AvatarLook["acc"][]), accColor: pick(CLOTH_COLORS),
   };
 }
@@ -69,6 +88,7 @@ export function AvatarFigure({ look, size = 40, flip = false, className = "" }: 
   look: AvatarLook; size?: number; flip?: boolean; className?: string;
 }) {
   const { skin, hair, hairColor, top, topColor, pants, shoes, acc, accColor } = look;
+  const bottom = look.bottom ?? "hose";
   const topDark = shade(topColor, -0.22);
   const hairDark = shade(hairColor, -0.2);
   const longSleeves = top !== "tshirt" && top !== "kleid";
@@ -84,8 +104,24 @@ export function AvatarFigure({ look, size = 40, flip = false, className = "" }: 
       {hair === "zopf" && <><circle cx="24.6" cy="15" r="2.6" fill={hairDark} /><circle cx="25.4" cy="19" r="2.1" fill={hairDark} /></>}
 
       {/* Beine & Schuhe */}
-      <rect x="11.2" y="27.5" width="4" height="8.5" rx="1.6" fill={pants} />
-      <rect x="16.8" y="27.5" width="4" height="8.5" rx="1.6" fill={pants} />
+      {bottom === "shorts" ? <>
+        <rect x="11.6" y="30" width="3.2" height="6" rx="1.4" fill={skin} />
+        <rect x="17.2" y="30" width="3.2" height="6" rx="1.4" fill={skin} />
+        <rect x="11" y="27.5" width="4.4" height="4.2" rx="1.4" fill={pants} />
+        <rect x="16.6" y="27.5" width="4.4" height="4.2" rx="1.4" fill={pants} />
+      </> : <>
+        <rect x="11.2" y="27.5" width="4" height="8.5" rx="1.6" fill={pants} />
+        <rect x="16.8" y="27.5" width="4" height="8.5" rx="1.6" fill={pants} />
+      </>}
+      {bottom === "adidas" && <g fill="#fff">
+        {/* drei Streifen außen an jedem Bein */}
+        <rect x="11.4" y="28.2" width=".3" height="7.4" /><rect x="11.9" y="28.2" width=".3" height="7.4" /><rect x="12.4" y="28.2" width=".3" height="7.4" />
+        <rect x="19.3" y="28.2" width=".3" height="7.4" /><rect x="19.8" y="28.2" width=".3" height="7.4" /><rect x="20.3" y="28.2" width=".3" height="7.4" />
+      </g>}
+      {bottom === "jeans" && <g stroke="#f59e0b" strokeWidth=".3" fill="none" opacity=".9">
+        <line x1="13.2" y1="28.4" x2="13.2" y2="35.6" /><line x1="18.8" y1="28.4" x2="18.8" y2="35.6" />
+        <path d="M11.6 29.4 h2.4 M17.9 29.4 h2.4" />
+      </g>}
       <rect x="10.4" y="34.6" width="5.4" height="2.6" rx="1.3" fill={shoes} stroke="rgba(0,0,0,.15)" strokeWidth=".4" />
       <rect x="16.2" y="34.6" width="5.4" height="2.6" rx="1.3" fill={shoes} stroke="rgba(0,0,0,.15)" strokeWidth=".4" />
 
@@ -99,7 +135,17 @@ export function AvatarFigure({ look, size = 40, flip = false, className = "" }: 
       {/* Oberkörper */}
       {top === "kleid"
         ? <path d="M10.4 18 H21.6 L24.6 31 Q16 33 7.4 31 Z" fill={topColor} />
-        : <rect x="9.6" y="17.6" width="12.8" height="11.6" rx="3.2" fill={topColor} />}
+        : top === "bademantel"
+          ? <path d="M9.4 17.6 H22.6 Q23.6 18 23.8 20 L24.2 34 Q16 35.4 7.8 34 L8.2 20 Q8.4 18 9.4 17.6 Z" fill={topColor} />
+          : <rect x="9.6" y="17.6" width="12.8" height="11.6" rx="3.2" fill={topColor} />}
+      {top === "bademantel" && <>
+        {/* Revers, Gürtel mit Schleife, Frottee-Saum */}
+        <path d="M13.2 17.7 L16 23 L18.8 17.7" stroke={shade(topColor, 0.45)} strokeWidth="1.6" fill="none" />
+        <path d="M16 23 L16.4 34.6" stroke={topDark} strokeWidth=".5" />
+        <rect x="8.4" y="24.2" width="15.2" height="1.5" rx=".7" fill={topDark} />
+        <path d="M16.6 25.6 l-1 3.2 M17.2 25.6 l1.2 3" stroke={topDark} strokeWidth=".9" strokeLinecap="round" />
+        <path d="M8 33.6 Q16 35 24 33.6" stroke={shade(topColor, 0.45)} strokeWidth=".9" fill="none" />
+      </>}
       {top === "streifen" && <><rect x="9.6" y="21" width="12.8" height="1.6" fill="#fff" opacity=".85" /><rect x="9.6" y="24.6" width="12.8" height="1.6" fill="#fff" opacity=".85" /></>}
       {top === "hoodie" && <>
         <path d="M11 17.6 Q16 21.5 21 17.6" stroke={topDark} strokeWidth="1.6" fill="none" />
@@ -185,7 +231,16 @@ export function AvatarFigure({ look, size = 40, flip = false, className = "" }: 
 // ───────────── Kleiderschrank ─────────────
 type Tab = "koerper" | "oben" | "unten" | "acc";
 
-export function Wardrobe({ member, firstTime, onSaved }: { member: Member; firstTime?: boolean; onSaved: (look: AvatarLook) => void }) {
+export function Wardrobe({ member, owner, firstTime, onSaved }: {
+  /** wer sich umzieht */
+  member: Member;
+  /** wessen Schrank (Sortiment); Standard: der eigene */
+  owner?: Member;
+  firstTime?: boolean;
+  onSaved: (look: AvatarLook) => void;
+}) {
+  const shelf = wardrobeOf((owner ?? member).sort);
+  const borrowed = owner && owner.id !== member.id;
   const [look, setLook] = useState<AvatarLook>(() => lookOf(member));
   // (Wardrobe wird beim Öffnen frisch erzeugt und startet mit dem gespeicherten Look)
   const [tab, setTab] = useState<Tab>("koerper");
@@ -214,6 +269,11 @@ export function Wardrobe({ member, firstTime, onSaved }: { member: Member; first
           👋 Willkommen im WG-Spiel! Such dir zuerst aus, wie du aussehen willst. Später kannst du dich jederzeit an deinem Kleiderschrank umziehen.
         </p>
       )}
+      {borrowed && (
+        <p className="rounded-2xl bg-amber-400/15 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
+          👀 Du stöberst in <b>{owner!.display_name}s</b> Schrank. Alles darf ausgeliehen werden!
+        </p>
+      )}
       <div className="flex items-center gap-4">
         <div className="flex h-36 w-32 shrink-0 items-end justify-center rounded-3xl bg-gradient-to-b from-accent/10 to-accent/5 pb-2">
           <AvatarFigure look={look} size={88} />
@@ -229,7 +289,7 @@ export function Wardrobe({ member, firstTime, onSaved }: { member: Member; first
       {err && <p className="text-sm text-red-600">{err}</p>}
 
       <div className="grid grid-cols-4 gap-1 rounded-xl bg-line/50 p-1 text-xs font-medium sm:text-sm">
-        {([["koerper", "Haare"], ["oben", "Oberteil"], ["unten", "Hose"], ["acc", "Extras"]] as [Tab, string][]).map(([id, label]) => (
+        {([["koerper", "Haare"], ["oben", "Oberteil"], ["unten", "Hose & Schuhe"], ["acc", "Extras"]] as [Tab, string][]).map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)} className={`rounded-lg py-1.5 transition ${tab === id ? "bg-card shadow-sm" : "text-muted"}`}>{label}</button>
         ))}
       </div>
@@ -240,21 +300,27 @@ export function Wardrobe({ member, firstTime, onSaved }: { member: Member; first
         <Swatches label="Hautton" colors={SKINS} value={look.skin} onPick={(c) => set({ skin: c })} />
       </>}
       {tab === "oben" && <>
-        <Options label="Oberteil" items={TOPS} value={look.top} preview={(k) => ({ ...look, top: k })} onPick={(k) => set({ top: k })} />
+        <Options label="Oberteil" items={subset(TOPS, shelf.tops)} value={look.top} preview={(k) => ({ ...look, top: k })} onPick={(k) => set({ top: k })} />
         <Swatches label="Farbe" colors={CLOTH_COLORS} value={look.topColor} onPick={(c) => set({ topColor: c })} />
       </>}
       {tab === "unten" && <>
-        <Swatches label="Hose" colors={PANTS_COLORS} value={look.pants} onPick={(c) => set({ pants: c })} />
+        <Options label="Hose" items={subset(BOTTOMS, shelf.bottoms)} value={look.bottom ?? "hose"} preview={(k) => ({ ...look, bottom: k })} onPick={(k) => set({ bottom: k })} />
+        <Swatches label="Hosenfarbe" colors={PANTS_COLORS} value={look.pants} onPick={(c) => set({ pants: c })} />
         <Swatches label="Schuhe" colors={SHOE_COLORS} value={look.shoes} onPick={(c) => set({ shoes: c })} />
       </>}
       {tab === "acc" && <>
-        <Options label="Accessoire" items={ACCS} value={look.acc} preview={(k) => ({ ...look, acc: k })} onPick={(k) => set({ acc: k })} />
+        <Options label="Accessoire" items={subset(ACCS, shelf.accs)} value={look.acc} preview={(k) => ({ ...look, acc: k })} onPick={(k) => set({ acc: k })} />
         {!["keins", "brille", "sonnenbrille", "krone"].includes(look.acc) && (
           <Swatches label="Farbe" colors={CLOTH_COLORS} value={look.accColor} onPick={(c) => set({ accColor: c })} />
         )}
       </>}
     </div>
   );
+}
+
+/** Nur die Teile, die in diesem Schrank hängen */
+function subset<K extends string>(all: Record<K, string>, keys: K[]): Record<K, string> {
+  return Object.fromEntries(keys.map((k) => [k, all[k]])) as Record<K, string>;
 }
 
 function Options<K extends string>({ label, items, value, preview, onPick }: {

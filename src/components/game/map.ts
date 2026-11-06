@@ -55,9 +55,9 @@ export const OBJECTS: GameObject[] = [
   { x: 1, y: 10, icon: "🛏️", label: "Bett", action: "schlafen", hint: "Kurz hinlegen 💤" },
   { x: 8, y: 10, icon: "🛏️", label: "Bett", action: "schlafen", hint: "Kurz hinlegen 💤" },
   { x: 21, y: 10, icon: "🛏️", label: "Bett", action: "schlafen", hint: "Kurz hinlegen 💤" },
-  { x: 6, y: 10, icon: "👚", label: "Kleiderschrank", action: "kleiderschrank", hint: "Umziehen & Accessoires", owner: 0 },
-  { x: 13, y: 10, icon: "👚", label: "Kleiderschrank", action: "kleiderschrank", hint: "Umziehen & Accessoires", owner: 1 },
-  { x: 15, y: 10, icon: "👚", label: "Kleiderschrank", action: "kleiderschrank", hint: "Umziehen & Accessoires", owner: 2 },
+  { x: 6, y: 10, icon: "👚", label: "Kleiderschrank", action: "kleiderschrank", hint: "Verenas Schrank – ausleihen erlaubt", owner: 0 },
+  { x: 13, y: 10, icon: "👚", label: "Kleiderschrank", action: "kleiderschrank", hint: "Stefans Schrank – ausleihen erlaubt", owner: 1 },
+  { x: 15, y: 10, icon: "👚", label: "Kleiderschrank", action: "kleiderschrank", hint: "Fabians Schrank – ausleihen erlaubt", owner: 2 },
 ];
 
 /** Startplatz/Schlafplatz je Zimmer (Index = members.sort) */

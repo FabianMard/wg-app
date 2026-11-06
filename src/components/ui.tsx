@@ -1,6 +1,7 @@
 "use client";
 
 import type { Member } from "@/lib/types";
+import { useSignedUrl } from "@/lib/photos";
 
 export function PageTitle({ children, sub }: { children: React.ReactNode; sub?: React.ReactNode }) {
   return (
@@ -20,10 +21,19 @@ export function SectionTitle({ children }: { children: React.ReactNode }) {
 }
 
 export function Avatar({ member, size = 28 }: { member?: Member; size?: number }) {
+  const photo = useSignedUrl(member?.photo_path);
   if (!member) {
     return (
       <span className="inline-flex shrink-0 items-center justify-center rounded-full bg-line text-xs text-muted"
         style={{ width: size, height: size }}>?</span>
+    );
+  }
+  if (photo) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={photo} alt={member.display_name} title={member.display_name} width={size} height={size}
+        className="inline-block shrink-0 rounded-full object-cover"
+        style={{ width: size, height: size, boxShadow: `0 0 0 2px ${member.color}` }} />
     );
   }
   return (
