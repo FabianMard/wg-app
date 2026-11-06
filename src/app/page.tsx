@@ -36,6 +36,14 @@ export default function Home() {
       <PageTitle sub={formatDate(todayISO(), { weekday: "long", day: "numeric", month: "long" })}>
         Hallo {me?.display_name} 👋
       </PageTitle>
+      <Link href="/spiel" className="mb-3 flex items-center gap-3 rounded-2xl bg-gradient-to-r from-accent to-fuchsia-500 p-4 text-white shadow-sm transition hover:opacity-95">
+        <span className="text-3xl">🎮</span>
+        <span className="flex-1">
+          <span className="block font-semibold">Ab ins WG-Spiel</span>
+          <span className="block text-sm opacity-90">Lauf durch die Wohnung, red mit den anderen, verteil Bienchen</span>
+        </span>
+        <span className="text-xl">→</span>
+      </Link>
       <div className="grid gap-3 sm:grid-cols-2">
         <Tile href="/putzplan" icon="🧽" title="Dein Putzbereich">
           {mine.length === 0 ? <Muted>Diese Runde nichts</Muted> : mine.map((s) => (

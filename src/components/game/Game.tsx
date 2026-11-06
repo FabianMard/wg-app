@@ -1,0 +1,342 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { RealtimeChannel } from "@supabase/supabase-js";
+import { supabase } from "@/lib/supabase";
+import { useWG } from "@/lib/wg";
+import type { Member } from "@/lib/types";
+import {
+  BEDROOM_LABELS, COLS, findPath, floorColor, HOME_SPOTS, isAdjacent, isWalkable, MAP, neighbors,
+  objectAt, OBJECTS, ROOM_LABELS, ROWS, type Action, type GameObject, type Pos,
+} from "./map";
+import { TalkDialog } from "./TalkDialog";
+import { inputCls } from "@/components/ui";
+
+// Die echten App-Seiten – im Spiel öffnen sie sich als Fenster
+import StartPage from "@/app/page";
+import PutzplanPage from "@/app/putzplan/page";
+import EinkaufPage from "@/app/einkauf/page";
+import KostenPage from "@/app/kosten/page";
+import KalenderPage from "@/app/kalender/page";
+import TodosPage from "@/app/todos/page";
+import WGPage from "@/app/wg/page";
+
+const PANELS: Record<Exclude<Action, "schlafen">, React.ComponentType> = {
+  start: StartPage, putzplan: PutzplanPage, einkauf: EinkaufPage, kosten: KostenPage,
+  kalender: KalenderPage, todos: TodosPage, wg: WGPage,
+};
+
+const STEP_MS = 120;
+const BUBBLE_MS = 6000;
+
+type Target = { type: "object"; obj: GameObject } | { type: "member"; id: string };
+type Bubble = { text: string; until: number };
+type SayPayload = { on: string; text: string };
+
+export function Game() {
+  const { members, myId, household } = useWG();
+  const homeOf = useCallback((id: string) => {
+    const i = members.findIndex((m) => m.id === id);
+    return HOME_SPOTS[i] ?? { x: 11, y: 7 };
+  }, [members]);
+
+  const [pos, setPos] = useState<Pos>(() => homeOf(myId));
+  const posRef = useRef(pos);
+  useEffect(() => { posRef.current = pos; }, [pos]);
+  const [path, setPath] = useState<Pos[]>([]);
+  const pending = useRef<Target | null>(null);
+  const [panel, setPanel] = useState<Target | null>(null);
+  const [remote, setRemote] = useState<Record<string, Pos>>({});
+  const [bubbles, setBubbles] = useState<Record<string, Bubble>>({});
+  const [chat, setChat] = useState("");
+  const channel = useRef<RealtimeChannel | null>(null);
+  const lastStep = useRef(0);
+
+  // ── Bubbles ──
+  const showBubble = useCallback((on: string, text: string) => {
+    setBubbles((b) => ({ ...b, [on]: { text, until: Date.now() + BUBBLE_MS } }));
+    setTimeout(() => setBubbles((b) => (b[on] && b[on].until <= Date.now() ? Object.fromEntries(Object.entries(b).filter(([k]) => k !== on)) : b)), BUBBLE_MS + 50);
+  }, []);
+  const say = useCallback((on: string, text: string) => {
+    showBubble(on, text);
+    channel.current?.send({ type: "broadcast", event: "say", payload: { on, text } satisfies SayPayload });
+  }, [showBubble]);
+
+  // ── Live: wer ist im Spiel und wo? (Supabase Realtime Presence) ──
+  useEffect(() => {
+    const ch = supabase.channel(`spiel-${household.id}`, { config: { presence: { key: myId }, broadcast: { self: false } } });
+    ch.on("presence", { event: "sync" }, () => {
+      const state = ch.presenceState<Pos>();
+      const next: Record<string, Pos> = {};
+      for (const [id, metas] of Object.entries(state)) {
+        const m = metas[metas.length - 1];
+        if (id !== myId && m) next[id] = { x: m.x, y: m.y };
+      }
+      setRemote(next);
+    })
+      .on("broadcast", { event: "say" }, ({ payload }) => showBubble((payload as SayPayload).on, (payload as SayPayload).text))
+      .subscribe((status) => { if (status === "SUBSCRIBED") ch.track(posRef.current); });
+    channel.current = ch;
+    return () => { channel.current = null; supabase.removeChannel(ch); };
+  }, [household.id, myId, showBubble]);
+
+  useEffect(() => { channel.current?.track(pos); }, [pos]);
+
+  // ── Positionen aller Mitbewohner ──
+  const memberPos = useCallback((m: Member): Pos => (m.id === myId ? pos : remote[m.id] ?? homeOf(m.id)), [myId, pos, remote, homeOf]);
+  const others = members.filter((m) => m.id !== myId);
+  const memberAt = (p: Pos) => others.find((m) => { const q = memberPos(m); return q.x === p.x && q.y === p.y; });
+  const blockedRef = useRef<(p: Pos) => boolean>(() => false);
+  useEffect(() => { blockedRef.current = (p: Pos) => !!memberAt(p); });
+
+  // Was ist direkt neben mir?
+  const nearby: Target | null = useMemo(() => {
+    for (const n of neighbors(pos)) {
+      const m = others.find((o) => { const q = memberPos(o); return q.x === n.x && q.y === n.y; });
+      if (m) return { type: "member", id: m.id };
+    }
+    for (const n of neighbors(pos)) {
+      const o = objectAt(n.x, n.y);
+      if (o) return { type: "object", obj: o };
+    }
+    return null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pos, remote, members]);
+
+  const open = useCallback((t: Target) => {
+    if (t.type === "object" && t.obj.action === "schlafen") { say(myId, "💤"); return; }
+    setPanel(t);
+  }, [say, myId]);
+
+  // ── Laufen ──
+  const step = useCallback((dx: number, dy: number) => {
+    const now = Date.now();
+    if (now - lastStep.current < STEP_MS - 10) return;
+    lastStep.current = now;
+    const p = posRef.current;
+    const n = { x: p.x + dx, y: p.y + dy };
+    if (isWalkable(n.x, n.y) && !blockedRef.current(n)) setPos(n);
+  }, []);
+
+  useEffect(() => {
+    if (!path.length) {
+      const t = pending.current;
+      if (t) {
+        pending.current = null;
+        const tp = t.type === "object" ? t.obj : memberPos(members.find((m) => m.id === t.id)!);
+        if (isAdjacent(pos, tp)) open(t);
+      }
+      return;
+    }
+    const id = setTimeout(() => {
+      // Steht inzwischen jemand im Weg? Dann stehen bleiben.
+      if (blockedRef.current(path[0])) { setPath([]); pending.current = null; return; }
+      setPos(path[0]); setPath(path.slice(1));
+    }, STEP_MS);
+    return () => clearTimeout(id);
+  }, [path, pos, open, memberPos, members]);
+
+  // Tastatur
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (panel) { if (e.key === "Escape") setPanel(null); return; }
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      const dirs: Record<string, [number, number]> = {
+        ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
+        w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0], W: [0, -1], S: [0, 1], A: [-1, 0], D: [1, 0],
+      };
+      if (dirs[e.key]) { e.preventDefault(); setPath([]); pending.current = null; step(...dirs[e.key]); }
+      else if ((e.key === "e" || e.key === "E" || e.key === "Enter" || e.key === " ") && nearby) { e.preventDefault(); open(nearby); }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [panel, nearby, open, step]);
+
+  // ── Kamera & Größe ──
+  const viewRef = useRef<HTMLDivElement>(null);
+  const [viewW, setViewW] = useState(360);
+  const [viewHMax, setViewHMax] = useState(420);
+  useEffect(() => {
+    const el = viewRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => { setViewW(el.clientWidth); setViewHMax(Math.round(window.innerHeight * 0.58)); });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const tile = Math.max(28, Math.min(40, Math.floor(viewW / COLS)));
+  const mapW = COLS * tile, mapH = ROWS * tile;
+  const viewH = Math.min(mapH, viewHMax);
+  const camX = Math.max(0, Math.min(mapW - viewW, pos.x * tile + tile / 2 - viewW / 2));
+  const camY = Math.max(0, Math.min(mapH - viewH, pos.y * tile + tile / 2 - viewH / 2));
+
+  function onMapClick(e: React.MouseEvent<HTMLDivElement>) {
+    const r = e.currentTarget.getBoundingClientRect();
+    const t = { x: Math.floor((e.clientX - r.left) / tile), y: Math.floor((e.clientY - r.top) / tile) };
+    const m = memberAt(t);
+    const o = objectAt(t.x, t.y);
+    const target: Target | null = m ? { type: "member", id: m.id } : o ? { type: "object", obj: o } : null;
+    if (target && isAdjacent(pos, t)) { open(target); return; }
+    const p = findPath(pos, t, blockedRef.current);
+    if (!p) return;
+    pending.current = target;
+    setPath(p);
+  }
+
+  const memberColors = [...members].sort((a, b) => a.sort - b.sort).map((m) => m.color);
+  const onlineIds = new Set([myId, ...Object.keys(remote)]);
+  const targetMember = panel?.type === "member" ? members.find((m) => m.id === panel.id) : undefined;
+  const nearbyLabel = nearby?.type === "member"
+    ? `Mit ${members.find((m) => m.id === nearby.id)?.display_name} reden`
+    : nearby?.type === "object" ? `${nearby.obj.icon} ${nearby.obj.label}: ${nearby.obj.hint}` : null;
+
+  return (
+    <div className="space-y-3">
+      {/* Spielfeld */}
+      <div ref={viewRef} className="relative overflow-hidden rounded-2xl border border-line bg-[#4b4453] shadow-sm select-none"
+        style={{ height: viewH }}>
+        <div className="absolute left-0 top-0 transition-transform duration-150 ease-linear"
+          style={{ width: mapW, height: mapH, transform: `translate(${-camX}px, ${-camY}px)` }}
+          onClick={onMapClick}>
+          {/* Boden & Wände */}
+          {MAP.map((row, y) => row.split("").map((ch, x) => (
+            <div key={`${x}-${y}`} className="absolute" style={{
+              left: x * tile, top: y * tile, width: tile, height: tile, background: floorColor(ch, x, y, memberColors),
+              boxShadow: ch === "#" ? "inset 0 -3px 0 rgba(0,0,0,.25)" : undefined,
+            }} />
+          )))}
+          {/* Raumnamen */}
+          {ROOM_LABELS.map((l) => (
+            <span key={l.text} className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 text-[11px] font-semibold uppercase tracking-wider text-black/25"
+              style={{ left: l.x * tile + tile / 2, top: l.y * tile }}>{l.text}</span>
+          ))}
+          {[...members].sort((a, b) => a.sort - b.sort).slice(0, 3).map((m, i) => (
+            <span key={m.id} className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 text-[11px] font-semibold uppercase tracking-wider"
+              style={{ left: BEDROOM_LABELS[i].x * tile + tile / 2, top: BEDROOM_LABELS[i].y * tile, color: m.color, opacity: 0.6 }}>
+              {m.display_name}s Zimmer
+            </span>
+          ))}
+          {/* Gegenstände */}
+          {OBJECTS.map((o) => {
+            const hot = nearby?.type === "object" && nearby.obj === o;
+            return (
+              <div key={`${o.x}-${o.y}`} title={`${o.label}: ${o.hint}`}
+                className={`absolute flex cursor-pointer items-center justify-center rounded-lg transition ${hot ? "z-[5] scale-110 bg-white/70 ring-2 ring-accent" : "hover:bg-white/40"}`}
+                style={{ left: o.x * tile, top: o.y * tile, width: tile, height: tile, fontSize: tile * 0.68 }}>
+                <span className={hot ? "animate-bounce" : ""}>{o.icon}</span>
+              </div>
+            );
+          })}
+          {/* Mitbewohner */}
+          {members.map((m) => {
+            const p = memberPos(m);
+            const isMe = m.id === myId;
+            const online = onlineIds.has(m.id);
+            const bubble = bubbles[m.id];
+            const hot = nearby?.type === "member" && nearby.id === m.id;
+            return (
+              <div key={m.id} className={`absolute transition-transform ease-linear ${bubble ? "z-30" : isMe ? "z-20" : "z-10"}`}
+                style={{ width: tile, height: tile, transform: `translate(${p.x * tile}px, ${p.y * tile}px)`, transitionDuration: `${STEP_MS}ms` }}>
+                {bubble && (
+                  <div className="absolute bottom-full left-1/2 z-20 mb-4 w-max max-w-[170px] -translate-x-1/2 rounded-xl bg-white px-2.5 py-1.5 text-center text-sm font-medium text-neutral-900 shadow-lg after:absolute after:left-1/2 after:top-full after:-translate-x-1/2 after:border-[6px] after:border-transparent after:border-t-white after:content-['']">
+                    {bubble.text}
+                  </div>
+                )}
+                <span className={`absolute -top-3.5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full px-1.5 text-[10px] font-bold leading-4 text-white shadow ${hot ? "ring-2 ring-white" : ""}`}
+                  style={{ background: m.color }}>
+                  {isMe ? "Du" : m.display_name}{!online && " 💤"}
+                </span>
+                <div className={`flex h-full w-full items-center justify-center rounded-full border-[3px] border-white font-bold text-white shadow-[0_3px_0_rgba(0,0,0,.25)] ${isMe && path.length ? "animate-[bounce_.4s_infinite]" : ""} ${online ? "" : "opacity-70 grayscale-[.4]"}`}
+                  style={{ background: m.color, fontSize: tile * 0.45 }}>
+                  {m.display_name.slice(0, 1).toUpperCase()}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Aktion */}
+      <button disabled={!nearby} onClick={() => nearby && open(nearby)}
+        className={`flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-center text-sm font-semibold transition active:scale-[.99] ${
+          nearby ? "bg-accent text-white shadow" : "border border-dashed border-line text-muted"}`}>
+        {nearbyLabel
+          ? <><kbd className="hidden rounded bg-white/25 px-1.5 text-xs md:inline">E</kbd>{nearbyLabel}</>
+          : "Lauf zu einem Gegenstand oder Mitbewohner"}
+      </button>
+
+      <div className="flex items-start gap-3">
+        <DPad onStep={(dx, dy) => { setPath([]); pending.current = null; step(dx, dy); }} />
+        <div className="min-w-0 flex-1 space-y-2">
+          <form onSubmit={(e) => { e.preventDefault(); if (chat.trim()) { say(myId, chat.trim().slice(0, 80)); setChat(""); } }} className="flex gap-2">
+            <input className={`${inputCls} py-2 text-sm`} placeholder="Etwas sagen …" maxLength={80} value={chat} onChange={(e) => setChat(e.target.value)} />
+            <button className="rounded-xl bg-accent px-3 text-sm font-medium text-white">💬</button>
+          </form>
+          <div className="flex gap-1.5">
+            {["👋", "😂", "❤️", "🍕", "🎉"].map((em) => (
+              <button key={em} onClick={() => say(myId, em)} className="flex-1 rounded-xl border border-line bg-card py-1.5 text-lg transition hover:bg-line/40 active:scale-90">{em}</button>
+            ))}
+          </div>
+          <p className="text-xs text-muted">
+            Im Spiel: {[...onlineIds].map((id) => (id === myId ? "du" : members.find((m) => m.id === id)?.display_name)).filter(Boolean).join(", ")}.
+            {" "}Sprechblasen sehen nur die, die gerade online sind.
+          </p>
+        </div>
+      </div>
+      <p className="hidden text-xs text-muted md:block">
+        Laufen: Pfeiltasten / WASD oder hinklicken · Benutzen & Reden: <b>E</b>, Enter oder Leertaste · Schließen: Esc
+      </p>
+
+      {panel && (
+        <Sheet onClose={() => setPanel(null)}
+          title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : `${panel.obj.icon} ${panel.obj.label}`}>
+          {panel.type === "member" && targetMember ? (
+            <TalkDialog target={targetMember} online={onlineIds.has(targetMember.id)}
+              onEmote={(em, on) => say(em === "🐝" && on ? on : myId, em)} onClose={() => setPanel(null)} />
+          ) : panel.type === "object" ? (
+            (() => { const Comp = PANELS[panel.obj.action as Exclude<Action, "schlafen">]; return <Comp />; })()
+          ) : null}
+        </Sheet>
+      )}
+    </div>
+  );
+}
+
+function DPad({ onStep }: { onStep: (dx: number, dy: number) => void }) {
+  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const start = (dx: number, dy: number) => (e: React.PointerEvent) => {
+    e.preventDefault();
+    onStep(dx, dy);
+    stop();
+    timer.current = setInterval(() => onStep(dx, dy), STEP_MS);
+  };
+  const stop = () => { if (timer.current) clearInterval(timer.current); timer.current = null; };
+  useEffect(() => stop, []);
+  const btn = "flex h-11 w-11 items-center justify-center rounded-xl border border-line bg-card text-lg shadow-sm active:scale-90 active:bg-accent/15 touch-none";
+  const props = (dx: number, dy: number) => ({ onPointerDown: start(dx, dy), onPointerUp: stop, onPointerLeave: stop, onPointerCancel: stop, onContextMenu: (e: React.MouseEvent) => e.preventDefault() });
+  return (
+    <div className="grid shrink-0 grid-cols-3 gap-1 md:hidden" aria-label="Steuerkreuz">
+      <span /><button className={btn} aria-label="hoch" {...props(0, -1)}>▲</button><span />
+      <button className={btn} aria-label="links" {...props(-1, 0)}>◀</button><span />
+      <button className={btn} aria-label="rechts" {...props(1, 0)}>▶</button>
+      <span /><button className={btn} aria-label="runter" {...props(0, 1)}>▼</button><span />
+    </div>
+  );
+}
+
+function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-[2px] md:items-center md:p-6" onClick={onClose}>
+      <div className="flex max-h-[90dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl bg-bg shadow-2xl md:rounded-3xl"
+        onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={title}>
+        <div className="flex items-center justify-between border-b border-line px-4 py-3">
+          <span className="font-semibold">{title}</span>
+          <button onClick={onClose} className="rounded-full px-3 py-1 text-sm font-medium text-muted hover:bg-line/50" aria-label="Schließen">
+            Zurück ins Spiel ✕
+          </button>
+        </div>
+        <div className="overflow-y-auto px-4 pb-8 pt-4">{children}</div>
+      </div>
+    </div>
+  );
+}
