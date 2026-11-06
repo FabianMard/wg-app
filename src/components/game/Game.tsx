@@ -62,6 +62,7 @@ function catHideout(avoid: Pos[], far?: Pos): Pos {
 type Spot = Pos & { l?: boolean };
 type Bubble = { text: string; until: number };
 type SayPayload = { on: string; text: string };
+type MovePayload = { id: string; x: number; y: number; l?: boolean };
 
 export function Game() {
   const { members, myId, household, me, refresh } = useWG();
@@ -127,6 +128,8 @@ export function Game() {
     setCustom(meta);
   }
   const channel = useRef<RealtimeChannel | null>(null);
+  const joined = useRef(false); // erst senden, wenn die Live-Verbindung steht
+  const sendMoveRef = useRef<() => void>(() => {});
   const lastStep = useRef(0);
 
   // ── Bubbles ──
@@ -136,41 +139,71 @@ export function Game() {
   }, []);
   const say = useCallback((on: string, text: string) => {
     showBubble(on, text);
-    channel.current?.send({ type: "broadcast", event: "say", payload: { on, text } satisfies SayPayload });
+    if (joined.current) channel.current?.send({ type: "broadcast", event: "say", payload: { on, text } satisfies SayPayload });
   }, [showBubble]);
 
   // ── Live: wer ist im Spiel und wo? (Supabase Realtime Presence) ──
   useEffect(() => {
     const ch = supabase.channel(`spiel-${household.id}`, { config: { presence: { key: myId }, broadcast: { self: false } } });
+    // Presence = wer ist online. Die Position kommt v. a. über "move"-Nachrichten (schneller, nichts geht verloren).
     ch.on("presence", { event: "sync" }, () => {
       const state = ch.presenceState<Spot>();
-      const next: Record<string, Spot> = {};
-      for (const [id, metas] of Object.entries(state)) {
-        const m = metas[metas.length - 1];
-        if (id !== myId && m) next[id] = { x: m.x, y: m.y, l: m.l };
-      }
       setRemote((prev) => {
-        for (const [id, q] of Object.entries(next)) {
-          if (prev[id] && (prev[id].x !== q.x || prev[id].y !== q.y)) markMoving(id);
+        const next: Record<string, Spot> = {};
+        for (const [id, metas] of Object.entries(state)) {
+          const m = metas[metas.length - 1];
+          if (id === myId || !m) continue;
+          next[id] = prev[id] ?? { x: m.x, y: m.y, l: m.l };
         }
         return next;
       });
     })
+      .on("presence", { event: "join" }, ({ key }) => {
+        if (key !== myId) setTimeout(() => sendMoveRef.current(), 300);
+      })
+      .on("broadcast", { event: "move" }, ({ payload }) => {
+        const m = payload as MovePayload;
+        if (m.id === myId) return;
+        setRemote((prev) => {
+          const old = prev[m.id];
+          if (old && old.x === m.x && old.y === m.y && old.l === m.l) return prev;
+          return { ...prev, [m.id]: { x: m.x, y: m.y, l: m.l } };
+        });
+        markMoving(m.id);
+      })
       .on("broadcast", { event: "say" }, ({ payload }) => showBubble((payload as SayPayload).on, (payload as SayPayload).text))
       .subscribe((status) => {
-        if (status === "SUBSCRIBED") { setLive("live"); ch.track({ ...posRef.current, l: faceRef.current }); }
-        else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") setLive("offline");
+        if (status === "SUBSCRIBED") { joined.current = true; setLive("live"); ch.track({ ...posRef.current, l: faceRef.current }); }
+        else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") { joined.current = false; setLive("offline"); }
       });
     channel.current = ch;
-    return () => { channel.current = null; supabase.removeChannel(ch); };
+    return () => { joined.current = false; channel.current = null; supabase.removeChannel(ch); };
   }, [household.id, myId, showBubble, markMoving]);
 
-  useEffect(() => { channel.current?.track({ ...pos, l: faceLeft }); }, [pos, faceLeft]);
+  // Eigene Bewegung senden: als schnelle Nachricht (max. ~8/s, die letzte Position immer).
+  // Presence (wer ist online) NICHT bei jedem Schritt – sonst blockt Supabase ("presence rate limit").
+  const lastMove = useRef(0), moveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sendMove = useCallback(() => {
+    lastMove.current = Date.now();
+    if (joined.current) channel.current?.send({ type: "broadcast", event: "move", payload: { id: myId, ...posRef.current, l: faceRef.current } satisfies MovePayload });
+  }, [myId]);
+  useEffect(() => {
+    if (moveTimer.current) clearTimeout(moveTimer.current);
+    const wait = 120 - (Date.now() - lastMove.current);
+    if (wait <= 0) sendMove(); else moveTimer.current = setTimeout(sendMove, wait);
+  }, [pos, faceLeft, sendMove]);
+  useEffect(() => () => { if (moveTimer.current) clearTimeout(moveTimer.current); }, []);
+  useEffect(() => { sendMoveRef.current = sendMove; }, [sendMove]);
 
   // Regelmäßig neu melden – z. B. nachdem das Handy gesperrt war
   useEffect(() => {
-    const ping = () => channel.current?.track({ ...posRef.current, l: faceRef.current });
-    const id = setInterval(ping, 10_000);
+    let lastPing = 0;
+    const ping = () => {
+      if (!joined.current || Date.now() - lastPing < 5_000) return;
+      lastPing = Date.now();
+      channel.current?.track({ ...posRef.current, l: faceRef.current });
+    };
+    const id = setInterval(ping, 15_000);
     const onVis = () => { if (document.visibilityState === "visible") ping(); };
     document.addEventListener("visibilitychange", onVis);
     return () => { clearInterval(id); document.removeEventListener("visibilitychange", onVis); };
