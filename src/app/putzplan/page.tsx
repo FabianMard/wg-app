@@ -130,7 +130,7 @@ function AreaCard({ s, period, overdue, free, mine, praises, onToggle, onPraise,
   }
 
   return (
-    <Card className={`p-0 ${overdue ? "border-2 border-red-500 bg-red-500/5 shadow-[0_0_0_4px_rgba(239,68,68,.12)]" : mine ? "ring-2 ring-accent/40" : ""} ${s.done ? "border-emerald-500/40" : ""} ${s.done && free ? "opacity-80" : ""}`}>
+    <Card className={`p-0 ${overdue ? "border-2 border-red-500 bg-red-500/10 shadow-[0_0_0_4px_rgba(239,68,68,.12)]" : mine && !s.done ? "ring-2 ring-accent/40" : ""} ${s.done ? "border-emerald-500/50 bg-emerald-500/10" : ""}`}>
       {overdue && (
         <div className="flex items-center gap-2 rounded-t-2xl bg-red-500 px-4 py-2 text-sm font-semibold text-white">
           <span className="animate-pulse">⚠️</span>

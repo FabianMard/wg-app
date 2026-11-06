@@ -44,7 +44,9 @@ export default function Home() {
       </PageTitle>
       <Pinboard />
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Tile href="/putzplan" icon="🧽" title="Dein Putzbereich">
+        <Tile href="/putzplan" icon="🧽" title="Dein Putzbereich"
+          tone={mine.length && mine.some((s) => isOverdue(s, household.cleaning_start, period)) ? "red"
+            : mine.length && mine.every((s) => s.done) ? "green" : undefined}>
           {mine.length === 0 ? <Muted>Diese Runde nichts</Muted> : mine.map((s) => (
             <div key={s.area.id}>
               <Row label={`${s.area.icon} ${s.area.name}`} right={s.done ? "✓ erledigt" : `${s.doneCount}/${s.tasks.length}`} warn={isOverdue(s, household.cleaning_start, period)} />
@@ -89,14 +91,28 @@ export default function Home() {
           </div>
         </Tile>
       </div>
+      <Link href="/bericht" className="mt-3 flex items-center gap-3 rounded-2xl border border-line bg-card p-4 shadow-sm transition hover:border-accent/40">
+        <span className="text-2xl">📊</span>
+        <span className="flex-1">
+          <span className="block font-semibold">Monatsbericht</span>
+          <span className="block text-sm text-muted">Was war los in der WG? Putzen, Einkäufe, Kosten, Bienchen …</span>
+        </span>
+        <span className="text-muted">→</span>
+      </Link>
     </>
   );
 }
 
-function Tile({ href, icon, title, children, className = "" }: { href: string; icon: string; title: string; children: React.ReactNode; className?: string }) {
+const TONES = {
+  green: "border-emerald-500/50 bg-emerald-500/15 dark:bg-emerald-500/20",
+  red: "border-red-500/60 bg-red-500/15 dark:bg-red-500/20",
+};
+function Tile({ href, icon, title, children, className = "", tone }: {
+  href: string; icon: string; title: string; children: React.ReactNode; className?: string; tone?: keyof typeof TONES;
+}) {
   return (
     <Link href={href} className={`min-w-0 ${className}`}>
-      <Card className="h-full transition hover:border-accent/40">
+      <Card className={`h-full transition hover:border-accent/40 ${tone ? TONES[tone] : ""}`}>
         <div className="mb-2 flex items-center gap-2 text-sm font-semibold"><span>{icon}</span>{title}</div>
         <div className="space-y-1">{children}</div>
       </Card>
