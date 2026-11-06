@@ -11,6 +11,7 @@ import {
 } from "./map";
 import { TalkDialog } from "./TalkDialog";
 import { AvatarFigure, lookOf, Wardrobe, type AvatarLook } from "./avatar";
+import { SONGS, useGameMusic } from "./music";
 import { inputCls } from "@/components/ui";
 
 // Die echten App-Seiten – im Spiel öffnen sie sich als Fenster
@@ -66,6 +67,9 @@ export function Game() {
   }, []);
   const [bubbles, setBubbles] = useState<Record<string, Bubble>>({});
   const [chat, setChat] = useState("");
+  // Musik: standardmäßig aus, muss aktiv angemacht werden (wird nicht gespeichert)
+  const [song, setSong] = useState<string | null>(null);
+  useGameMusic(song);
   const channel = useRef<RealtimeChannel | null>(null);
   const lastStep = useRef(0);
 
@@ -319,6 +323,16 @@ export function Game() {
           <div className="flex gap-1.5">
             {["👋", "😂", "❤️", "🍕", "🎉"].map((em) => (
               <button key={em} onClick={() => say(myId, em)} className="flex-1 rounded-xl border border-line bg-card py-1.5 text-lg transition hover:bg-line/40 active:scale-90">{em}</button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="Musik">
+            <span className="text-xs font-medium text-muted">Musik:</span>
+            {[{ id: null, name: "🔇 Aus" }, ...SONGS.map((x) => ({ id: x.id, name: `🎵 ${x.name}` }))].map((x) => (
+              <button key={x.id ?? "aus"} role="radio" aria-checked={song === x.id} onClick={() => setSong(x.id)}
+                className={`rounded-full border px-2.5 py-1 text-xs font-medium transition active:scale-95 ${
+                  song === x.id ? "border-accent bg-accent text-white" : "border-line bg-card text-muted hover:text-fg"}`}>
+                {x.name}
+              </button>
             ))}
           </div>
           <p className="text-xs text-muted">

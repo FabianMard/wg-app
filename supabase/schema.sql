@@ -98,6 +98,8 @@ create table public.shopping_items (
   store_note   text,            -- bei "sonstiges": welcher Laden
   done         boolean not null default false,
   archived     boolean not null default false,  -- "Gekaufte entfernen" (bleibt für Vorschläge erhalten)
+  done_by      uuid references public.members on delete set null,  -- wer hat's eingekauft
+  done_at      timestamptz,
   added_by     uuid default public.my_member_id() references public.members on delete set null,
   created_at   timestamptz not null default now()
 );

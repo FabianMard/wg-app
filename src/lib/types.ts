@@ -40,6 +40,9 @@ export type ShoppingItem = {
   done: boolean;
   archived: boolean;
   added_by: string | null;
+  /** wer hat es eingekauft (abgehakt) – ab 006_eingekauft_von.sql */
+  done_by?: string | null;
+  done_at?: string | null;
   created_at: string;
 };
 

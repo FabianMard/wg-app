@@ -13,7 +13,7 @@ const fmtAdded = (iso: string) =>
   new Date(iso).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "numeric" });
 
 export default function Einkauf() {
-  const { household, member, refresh } = useWG();
+  const { household, member, refresh, myId } = useWG();
   const { rows: items, loaded, reload } = useRows<ShoppingItem>("shopping_items", "created_at");
   const [name, setName] = useState("");
   const [store, setStore] = useState<StoreId>("egal");
@@ -92,7 +92,11 @@ export default function Einkauf() {
     setName("");
   }
   async function toggle(i: ShoppingItem) {
-    await supabase.from("shopping_items").update({ done: !i.done }).eq("id", i.id);
+    const done = !i.done;
+    const { error } = await supabase.from("shopping_items")
+      .update({ done, done_by: done ? myId : null, done_at: done ? new Date().toISOString() : null }).eq("id", i.id);
+    // Ohne 006_eingekauft_von.sql gibt es done_by noch nicht – dann ohne abhaken
+    if (error) await supabase.from("shopping_items").update({ done }).eq("id", i.id);
     reload();
   }
   async function remove(i: ShoppingItem) {

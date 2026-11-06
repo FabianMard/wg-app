@@ -66,6 +66,15 @@ export default function Bericht() {
   const itemsMonth = items.filter((i) => inMonth(i.created_at));
   const boughtMonth = itemsMonth.filter((i) => i.done || i.archived);
   const itemTally = tally(itemsMonth.map((i) => i.added_by), members);
+  // Wer hat eingekauft? (abgehakt, nach Kaufdatum) – und wer hat für Einkäufe bezahlt?
+  const boughtByMonth = items.filter((i) => i.done_by && inMonth(i.done_at ?? i.created_at));
+  const buyerTally = tally(boughtByMonth.map((i) => i.done_by), members);
+  const shoppingSpend = members.map((m) => ({
+    m,
+    sum: expenses.filter((e) => !e.is_settlement && e.paid_by === m.id && inMonth(e.spent_on) && /^einkauf/i.test(e.title))
+      .reduce((s, e) => s + Number(e.amount), 0),
+  })).sort((a, b) => b.sum - a.sum);
+  const shoppingTotal = shoppingSpend.reduce((s, x) => s + x.sum, 0);
   const topItems = [...itemsMonth.reduce((m, i) => m.set(i.name.trim(), (m.get(i.name.trim()) ?? 0) + 1), new Map<string, number>())]
     .sort((a, b) => b[1] - a[1]).slice(0, 5);
   const storeCounts = [...itemsMonth.reduce((m, i) => m.set(i.store, (m.get(i.store) ?? 0) + 1), new Map<ShoppingItem["store"], number>())]
@@ -94,7 +103,8 @@ export default function Bericht() {
   const awards = [
     { icon: "🏆", title: "Putz-Champion", w: award(checkTally), unit: "Häkchen" },
     { icon: "🐝", title: "Bienenkönig*in", w: award(beeTally), unit: "Bienchen" },
-    { icon: "🛒", title: "Einkaufs-Profi", w: award(itemTally), unit: "Sachen eingetragen" },
+    { icon: "🛍️", title: "Einkaufs-Held*in", w: award(buyerTally), unit: "Sachen eingekauft" },
+    { icon: "🛒", title: "Listen-Profi", w: award(itemTally), unit: "Sachen eingetragen" },
     { icon: "✅", title: "To-do-Erlediger*in", w: award(todoTally), unit: "To-dos" },
     { icon: "💸", title: "Spendierhosen", w: paidBy[0]?.sum ? { m: paidBy[0].m, n: paidBy[0].sum } : null, unit: "€", money: true },
   ].filter((a) => a.w);
@@ -182,7 +192,20 @@ export default function Bericht() {
                 {storeCounts.length > 0 && (
                   <p className="text-sm"><span className="text-muted">Märkte: </span>{storeCounts.map(([s, c]) => `${storeById(s).label} ${c}`).join(" · ")}</p>
                 )}
+                {boughtByMonth.length > 0 && (
+                  <div className="border-t border-line pt-3">
+                    <p className="mb-2 text-xs font-medium text-muted">Wer hat eingekauft?</p>
+                    {buyerTally.map(({ m, n }) => <Bar key={m.id} m={m} value={n / boughtByMonth.length} label={`${n} ${n === 1 ? "Sache" : "Sachen"} gekauft`} />)}
+                  </div>
+                )}
+                {shoppingTotal > 0 && (
+                  <div className="border-t border-line pt-3">
+                    <p className="mb-2 text-xs font-medium text-muted">Für Einkäufe bezahlt</p>
+                    {shoppingSpend.map(({ m, sum }) => <Bar key={m.id} m={m} value={sum / shoppingTotal} label={euro(sum)} />)}
+                  </div>
+                )}
                 <div className="border-t border-line pt-3">
+                  <p className="mb-2 text-xs font-medium text-muted">Wer hat auf die Liste geschrieben?</p>
                   {itemTally.map(({ m, n }) => <Bar key={m.id} m={m} value={itemsMonth.length ? n / itemsMonth.length : 0} label={`${n} eingetragen`} />)}
                 </div>
               </Card>
