@@ -95,6 +95,16 @@ export type Note = {
   created_at: string;
 };
 
+export type Message = {
+  id: string;
+  household_id: string;
+  from_member: string;
+  to_member: string;
+  text: string;
+  read_at: string | null;
+  created_at: string;
+};
+
 export type Praise = {
   id: string;
   household_id: string;

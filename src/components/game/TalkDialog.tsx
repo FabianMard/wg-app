@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRows, useWG } from "@/lib/wg";
 import { supabase } from "@/lib/supabase";
-import type { ChoreArea, ChoreCheck, ChoreTask, Expense, Member, Praise, Todo } from "@/lib/types";
+import type { ChoreArea, ChoreCheck, ChoreTask, Expense, Member, Message, Praise, Todo } from "@/lib/types";
 import { areaStatuses, isOverdue, periodOf, phaseOf } from "@/lib/cleaning";
 import { computeBalances, suggestTransfers } from "@/lib/balances";
 import { euro, formatDate } from "@/lib/dates";
@@ -35,23 +35,38 @@ export function TalkDialog({ target, online, onEmote, onSay, onClose }: {
   const { rows: expenses } = useRows<Expense>("expenses", "created_at");
   const [topic, setTopic] = useState<Topic>("hallo");
   const [msg, setMsg] = useState("");
-  const [sent, setSent] = useState<string | null>(null);
-  const [pinned, setPinned] = useState(false);
+  const [chatErr, setChatErr] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
 
-  function send(e: React.FormEvent) {
+  // Gespeicherter Chat zwischen mir und dieser Person (nur wir beide können ihn lesen)
+  const { rows: allMessages, reload: reloadMessages } = useRows<Message>("messages", "created_at");
+  const chat = allMessages.filter((m) =>
+    (m.from_member === myId && m.to_member === target.id) || (m.from_member === target.id && m.to_member === myId));
+  const chatEnd = useRef<HTMLDivElement>(null);
+  useEffect(() => { chatEnd.current?.scrollIntoView({ block: "nearest" }); }, [chat.length]);
+
+  // Ungelesenes von der Person als gelesen markieren
+  const unreadIds = chat.filter((m) => m.from_member === target.id && !m.read_at).map((m) => m.id).join(",");
+  useEffect(() => {
+    if (!unreadIds) return;
+    supabase.from("messages").update({ read_at: new Date().toISOString() }).in("id", unreadIds.split(",")).then(() => reloadMessages());
+  }, [unreadIds, reloadMessages]);
+
+  async function send(e: React.FormEvent) {
     e.preventDefault();
-    const t = msg.trim().slice(0, 80);
-    if (!t) return;
-    onSay(t);
-    setSent(t);
-    setPinned(false);
+    const t = msg.trim().slice(0, 500);
+    if (!t || sending) return;
+    setChatErr(null);
+    setSending(true);
+    const { error } = await supabase.from("messages").insert({ household_id: household.id, to_member: target.id, text: t });
+    setSending(false);
+    if (error) {
+      setChatErr(error.message.includes("messages") ? "Datenbank-Update fehlt: Bitte supabase/010_chat.sql im SQL Editor ausführen." : error.message);
+      return;
+    }
+    onSay(t.slice(0, 80)); // zusätzlich als Sprechblase im Spiel
     setMsg("");
-  }
-  // Ist die Person nicht online, kann man die Nachricht stattdessen an die Pinnwand hängen
-  async function pin() {
-    if (!sent) return;
-    const { error } = await supabase.from("notes").insert({ household_id: household.id, text: `An ${target.display_name}: ${sent}`, color: "rosa" });
-    if (!error) setPinned(true);
+    reloadMessages();
   }
 
   const [greeting] = useState(() => GREETINGS[Math.floor(Math.random() * GREETINGS.length)]);
@@ -152,21 +167,40 @@ export function TalkDialog({ target, online, onEmote, onSay, onClose }: {
         <Choice onClick={() => setTopic("todos")} active={topic === "todos"}>✅ Was steht an?</Choice>
         <Choice onClick={() => { onEmote("👋", target.id); onClose(); }}>👋 Winken & tschüss</Choice>
       </div>
-      <form onSubmit={send} className="flex gap-2">
-        <input value={msg} onChange={(e) => setMsg(e.target.value)} maxLength={80} placeholder={`${target.display_name} etwas sagen …`}
-          className="w-full rounded-xl border border-line bg-card px-3 py-2.5 text-base outline-none focus:border-accent" aria-label={`Nachricht an ${target.display_name}`} />
-        <button className="rounded-xl bg-accent px-4 font-medium text-white" aria-label="Sagen">💬</button>
-      </form>
-      {sent && (
-        <div className="-mt-2 text-sm text-muted">
-          {online
-            ? <>💬 Du hast gesagt: „{sent}“</>
-            : pinned
-              ? <>📌 Hängt an der Pinnwand – {target.display_name} sieht es beim nächsten Öffnen.</>
-              : <>💤 {target.display_name} ist gerade nicht im Spiel und hört es nicht.{" "}
-                  <button onClick={pin} className="font-medium text-accent underline">Stattdessen an die Pinnwand hängen</button></>}
+      {/* Chatverlauf */}
+      <div className="rounded-2xl border border-line bg-card/60">
+        <div className="max-h-56 space-y-1.5 overflow-y-auto p-3">
+          {chat.length === 0 && <p className="py-2 text-center text-xs text-muted">Noch keine Nachrichten. Schreib {target.display_name} etwas!</p>}
+          {chat.map((m, i) => {
+            const mine = m.from_member === myId;
+            const day = new Date(m.created_at).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "numeric" });
+            const prevDay = i > 0 ? new Date(chat[i - 1].created_at).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "numeric" }) : null;
+            return (
+              <div key={m.id}>
+                {day !== prevDay && <p className="py-1 text-center text-[10px] font-medium uppercase tracking-wider text-muted">{day}</p>}
+                <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+                  <div className={`max-w-[80%] rounded-2xl px-3 py-1.5 text-sm ${mine ? "rounded-br-sm bg-accent text-white" : "rounded-bl-sm text-white"}`}
+                    style={mine ? undefined : { background: target.color }}>
+                    <p className="whitespace-pre-wrap break-words">{m.text}</p>
+                    <p className="mt-0.5 text-right text-[10px] opacity-75">
+                      {new Date(m.created_at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
+                      {mine && (m.read_at ? " ✓✓" : " ✓")}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          <div ref={chatEnd} />
         </div>
-      )}
+        <form onSubmit={send} className="flex gap-2 border-t border-line p-2">
+          <input value={msg} onChange={(e) => setMsg(e.target.value)} maxLength={500} placeholder={`Nachricht an ${target.display_name} …`}
+            className="w-full rounded-xl border border-line bg-card px-3 py-2 text-base outline-none focus:border-accent" aria-label={`Nachricht an ${target.display_name}`} />
+          <button disabled={sending || !msg.trim()} className="rounded-xl bg-accent px-4 font-medium text-white disabled:opacity-40" aria-label="Senden">➤</button>
+        </form>
+      </div>
+      {!online && chat.length > 0 && <p className="-mt-2 text-xs text-muted">💤 {target.display_name} ist gerade nicht im Spiel und liest es beim nächsten Öffnen.</p>}
+      {chatErr && <p className="-mt-2 text-sm text-red-600">{chatErr}</p>}
       <div className="flex justify-center gap-2">
         {["❤️", "😂", "🙏", "🍕", "☕"].map((e) => (
           <button key={e} onClick={() => onEmote(e, target.id)} title="Emote senden"

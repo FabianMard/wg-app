@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
-import { useWG } from "@/lib/wg";
-import type { Member } from "@/lib/types";
+import { useRows, useWG } from "@/lib/wg";
+import type { Member, Message } from "@/lib/types";
 import {
   BEDROOM_LABELS, COLS, findPath, floorColor, HOME_SPOTS, isAdjacent, isWalkable, MAP, neighbors,
   objectAt, OBJECTS, ROOM_LABELS, ROWS, type Action, type GameObject, type Pos,
@@ -101,6 +101,9 @@ export function Game() {
   }, []);
   const [bubbles, setBubbles] = useState<Record<string, Bubble>>({});
   const [chat, setChat] = useState("");
+  // Ungelesene Chat-Nachrichten an mich, pro Absender
+  const { rows: messages, reload: reloadMessages } = useRows<Message>("messages", "created_at");
+  const unreadFrom = (id: string) => messages.filter((m) => m.from_member === id && m.to_member === myId && !m.read_at).length;
   const [live, setLive] = useState<"verbinde" | "live" | "offline">("verbinde");
   // Musik: standardmäßig aus, muss aktiv angemacht werden (wird nicht gespeichert)
   const [song, setSong] = useState<string | null>(null);
@@ -312,7 +315,7 @@ export function Game() {
   // Tastatur
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (panel) { if (e.key === "Escape") setPanel(null); return; }
+      if (panel) { if (e.key === "Escape") { if (panel.type === "member") reloadMessages(); setPanel(null); } return; }
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       const dirs: Record<string, [number, number]> = {
@@ -324,7 +327,7 @@ export function Game() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [panel, nearby, open, step]);
+  }, [panel, nearby, open, step, reloadMessages]);
 
   // ── Kamera & Größe ──
   const viewRef = useRef<HTMLDivElement>(null);
@@ -360,7 +363,7 @@ export function Game() {
   const onlineIds = new Set([myId, ...Object.keys(remote)]);
   const targetMember = panel?.type === "member" ? members.find((m) => m.id === panel.id) : undefined;
   const nearbyLabel = nearby?.type === "cat" ? "🐈 Katze streicheln" : nearby?.type === "member"
-    ? `Mit ${members.find((m) => m.id === nearby.id)?.display_name} reden`
+    ? `Mit ${members.find((m) => m.id === nearby.id)?.display_name} reden${unreadFrom(nearby.id) ? ` (💬 ${unreadFrom(nearby.id)} neu)` : ""}`
     : nearby?.type === "object" ? `${nearby.obj.icon} ${nearby.obj.label}: ${nearby.obj.hint}` : null;
 
   return (
@@ -433,6 +436,7 @@ export function Game() {
                 <span className={`absolute left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full px-1.5 text-[10px] font-bold leading-4 text-white shadow ${hot ? "ring-2 ring-white" : ""}`}
                   style={{ background: m.color, top: -tile * 0.42 - 15 }}>
                   {isMe ? "Du" : m.display_name}{!online && " 💤"}
+                  {!isMe && unreadFrom(m.id) > 0 && <span className="ml-1 rounded-full bg-red-500 px-1 text-[9px]">💬{unreadFrom(m.id)}</span>}
                 </span>
                 <div className={`absolute bottom-0 left-1/2 -translate-x-1/2 ${moving[m.id] ? "animate-waddle" : ""} ${online ? "" : "opacity-75 grayscale-[.35]"}`}>
                   <AvatarFigure look={isMe && myLook ? myLook : lookOf(m)} size={tile * 1.12} flip={!!p.l} />
@@ -514,11 +518,11 @@ export function Game() {
       </div>
 
       {panel && (
-        <Sheet onClose={() => setPanel(null)}
+        <Sheet onClose={() => { if (panel.type === "member") reloadMessages(); setPanel(null); }} light={panel.type === "member"}
           title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : panel.type === "wardrobe" ? (panel.ownerId && panel.ownerId !== myId ? `👚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Kleiderschrank` : "👚 Dein Kleiderschrank") : panel.type === "object" ? `${panel.obj.icon} ${panel.obj.label}` : ""}>
           {panel.type === "member" && targetMember ? (
             <TalkDialog target={targetMember} online={onlineIds.has(targetMember.id)}
-              onEmote={(em, on) => say(em === "🐝" && on ? on : myId, em)} onSay={(text) => say(myId, text)} onClose={() => setPanel(null)} />
+              onEmote={(em, on) => say(em === "🐝" && on ? on : myId, em)} onSay={(text) => say(myId, text)} onClose={() => { reloadMessages(); setPanel(null); }} />
           ) : panel.type === "wardrobe" && me ? (
             <Wardrobe member={me} owner={members.find((m) => m.id === panel.ownerId)} firstTime={panel.first} onSaved={(look) => { setMyLook(look); refresh(); setPanel(null); say(myId, "✨"); }} />
           ) : panel.type === "object" ? (
@@ -530,10 +534,11 @@ export function Game() {
   );
 }
 
-function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+function Sheet({ title, onClose, children, light }: { title: string; onClose: () => void; children: React.ReactNode; light?: boolean }) {
+  // light = Gespräch: Spiel bleibt klar sichtbar (kein Abdunkeln/Weichzeichnen), Fenster nur unten
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-[2px] md:items-center md:p-6" onClick={onClose}>
-      <div className="flex max-h-[90dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl bg-bg shadow-2xl md:rounded-3xl"
+    <div className={`fixed inset-0 z-50 flex items-end justify-center ${light ? "bg-transparent" : "bg-black/40 backdrop-blur-[2px] md:items-center md:p-6"}`} onClick={onClose}>
+      <div className={`flex w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl bg-bg ${light ? "max-h-[62dvh] border-t border-line shadow-[0_-8px_30px_rgba(0,0,0,.18)]" : "max-h-[90dvh] shadow-2xl md:rounded-3xl"}`}
         onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={title}>
         <div className="flex items-center justify-between border-b border-line px-4 py-3">
           <span className="font-semibold">{title}</span>

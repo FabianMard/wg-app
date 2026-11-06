@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 import type { Household, Member } from "./types";
@@ -102,6 +102,9 @@ export function useWG(): WGContext {
 /** Lädt alle Zeilen einer Tabelle für die aktuelle WG und aktualisiert sie live. */
 export function useRows<T>(table: string, orderBy: string, ascending = true) {
   const { household } = useWG();
+  // Eigener Kanal je Verwendung: Zwei Komponenten mit derselben Liste dürfen sich keinen Kanal teilen
+  // (Supabase wirft sonst "cannot add postgres_changes callbacks after subscribe()").
+  const instance = useId().replace(/[^a-zA-Z0-9]/g, "");
   const [rows, setRows] = useState<T[]>([]);
   const [loaded, setLoaded] = useState(false);
 
@@ -114,11 +117,11 @@ export function useRows<T>(table: string, orderBy: string, ascending = true) {
 
   useEffect(() => {
     reload();
-    const ch = supabase.channel(`${table}-${household.id}-${orderBy}`)
+    const ch = supabase.channel(`${table}-${household.id}-${orderBy}-${instance}`)
       .on("postgres_changes", { event: "*", schema: "public", table }, () => reload())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
-  }, [reload, table, household.id, orderBy]);
+  }, [reload, table, household.id, orderBy, instance]);
 
   return { rows, loaded, reload };
 }
