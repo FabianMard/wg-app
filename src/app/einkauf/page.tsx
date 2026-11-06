@@ -13,37 +13,69 @@ const fmtAdded = (iso: string) =>
   new Date(iso).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "numeric" });
 
 export default function Einkauf() {
-  const { household, member } = useWG();
+  const { household, member, refresh } = useWG();
   const { rows: items, loaded, reload } = useRows<ShoppingItem>("shopping_items", "created_at");
   const [name, setName] = useState("");
   const [store, setStore] = useState<StoreId>("egal");
   const [note, setNote] = useState("");
   const [checkout, setCheckout] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
+  const [editFavs, setEditFavs] = useState(false);
+  const [newFav, setNewFav] = useState("");
+  const [favErr, setFavErr] = useState<string | null>(null);
+  // Sofort anzeigen, bevor die Datenbank antwortet (undefined = Wert aus der Datenbank nehmen)
+  const [favOverride, setFavOverride] = useState<string[] | null | undefined>(undefined);
 
   const visible = items.filter((i) => !i.archived);
   const open = visible.filter((i) => !i.done);
   const done = visible.filter((i) => i.done);
 
-  // Häufig gekaufte Artikel (aus allem, was je eingetragen wurde), ergänzt um Standardvorschläge
-  const suggestions = useMemo(() => {
-    const openNames = new Set(open.map((i) => i.name.toLowerCase()));
+  // Was bei euch oft gekauft wird (mind. 2×), häufigstes zuerst
+  const learned = useMemo(() => {
     const count = new Map<string, { name: string; n: number }>();
     for (const i of items) {
       const k = i.name.trim().toLowerCase();
       const e = count.get(k);
       count.set(k, { name: e?.name ?? i.name.trim(), n: (e?.n ?? 0) + 1 });
     }
-    const frequent = [...count.values()].filter((x) => x.n >= 2).sort((a, b) => b.n - a.n).map((x) => x.name);
-    const list = [...frequent, ...DEFAULT_SUGGESTIONS];
+    return [...count.values()].filter((x) => x.n >= 2).sort((a, b) => b.n - a.n).map((x) => x.name);
+  }, [items]);
+
+  const dedupe = (list: string[]) => {
     const seen = new Set<string>();
-    return list.filter((n) => {
-      const k = n.toLowerCase();
-      if (seen.has(k) || openNames.has(k)) return false;
-      seen.add(k);
-      return true;
-    }).slice(0, 14);
-  }, [items, open]);
+    return list.filter((n) => { const k = n.trim().toLowerCase(); if (!k || seen.has(k)) return false; seen.add(k); return true; });
+  };
+  // Automatische Liste, solange niemand sie bearbeitet hat
+  const autoFavs = useMemo(() => dedupe([...learned, ...DEFAULT_SUGGESTIONS]).slice(0, 14), [learned]);
+  const stored = favOverride !== undefined ? favOverride : household.shopping_favorites;
+  const favorites = stored ?? autoFavs;
+  const openNames = new Set(open.map((i) => i.name.trim().toLowerCase()));
+  const suggestions = favorites.filter((n) => !openNames.has(n.trim().toLowerCase()));
+  const notYetFav = learned.filter((n) => !favorites.some((f) => f.trim().toLowerCase() === n.trim().toLowerCase())).slice(0, 10);
+
+  async function saveFavs(list: string[] | null) {
+    setFavErr(null);
+    setFavOverride(list);
+    const { error } = await supabase.from("households").update({ shopping_favorites: list }).eq("id", household.id);
+    if (error) {
+      setFavOverride(undefined);
+      setFavErr(error.message.includes("shopping_favorites")
+        ? "Datenbank-Update fehlt: Bitte supabase/004_einkauf_favoriten.sql im SQL Editor ausführen."
+        : error.message);
+      return;
+    }
+    await refresh();
+    setFavOverride(undefined);
+  }
+  const addFav = (n: string) => { const t = n.trim(); if (t) saveFavs(dedupe([...favorites, t])); };
+  const removeFav = (n: string) => saveFavs(favorites.filter((f) => f !== n));
+  const moveFav = (n: string, dir: -1 | 1) => {
+    const i = favorites.indexOf(n), j = i + dir;
+    if (i < 0 || j < 0 || j >= favorites.length) return;
+    const next = [...favorites];
+    [next[i], next[j]] = [next[j], next[i]];
+    saveFavs(next);
+  };
 
   async function addNames(names: string[]) {
     if (!names.length) return;
@@ -102,15 +134,62 @@ export default function Einkauf() {
         </div>
 
         <div>
-          <p className="mb-1.5 text-xs font-medium text-muted">Oft gebraucht, antippen zum Hinzufügen</p>
-          <div className="flex flex-wrap gap-1.5">
-            {suggestions.map((s) => (
-              <button key={s} type="button" onClick={() => addNames([s])}
-                className="rounded-full bg-line/50 px-3 py-1 text-sm transition hover:bg-accent/15 hover:text-accent active:scale-95">
-                + {s}
-              </button>
-            ))}
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <p className="text-xs font-medium text-muted">{editFavs ? "Oft gebraucht bearbeiten" : "Oft gebraucht, antippen zum Hinzufügen"}</p>
+            <button type="button" onClick={() => { setEditFavs(!editFavs); setFavErr(null); }}
+              className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${editFavs ? "bg-accent text-white" : "text-accent hover:bg-accent/10"}`}>
+              {editFavs ? "Fertig" : "✏️ Bearbeiten"}
+            </button>
           </div>
+          {!editFavs ? (
+            <div className="flex flex-wrap gap-1.5">
+              {suggestions.map((s) => (
+                <button key={s} type="button" onClick={() => addNames([s])}
+                  className="rounded-full bg-line/50 px-3 py-1 text-sm transition hover:bg-accent/15 hover:text-accent active:scale-95">
+                  + {s}
+                </button>
+              ))}
+              {suggestions.length === 0 && <span className="text-sm text-muted">Alles schon auf der Liste 👍</span>}
+            </div>
+          ) : (
+            <div className="space-y-3 rounded-xl border border-dashed border-accent/40 p-3">
+              <ul className="space-y-1">
+                {favorites.map((f, i) => (
+                  <li key={f} className="flex items-center gap-1 rounded-lg bg-line/40 py-1 pl-3 pr-1 text-sm">
+                    <span className="min-w-0 flex-1 truncate">{f}</span>
+                    <button type="button" onClick={() => moveFav(f, -1)} disabled={i === 0} aria-label={`${f} nach oben`}
+                      className="rounded-md px-2 py-1 text-muted hover:bg-line disabled:opacity-25">↑</button>
+                    <button type="button" onClick={() => moveFav(f, 1)} disabled={i === favorites.length - 1} aria-label={`${f} nach unten`}
+                      className="rounded-md px-2 py-1 text-muted hover:bg-line disabled:opacity-25">↓</button>
+                    <button type="button" onClick={() => removeFav(f)} aria-label={`${f} entfernen`}
+                      className="rounded-md px-2 py-1 text-muted hover:bg-red-500/10 hover:text-red-600">✕</button>
+                  </li>
+                ))}
+                {favorites.length === 0 && <li className="text-sm text-muted">Noch nichts in der Liste.</li>}
+              </ul>
+              <form onSubmit={(e) => { e.preventDefault(); addFav(newFav); setNewFav(""); }} className="flex gap-2">
+                <input className={`${inputCls} py-2`} placeholder="Neuer Artikel, z. B. Hafermilch" value={newFav} onChange={(e) => setNewFav(e.target.value)} />
+                <button className="rounded-xl bg-accent px-4 font-medium text-white">+</button>
+              </form>
+              {notYetFav.length > 0 && (
+                <div>
+                  <p className="mb-1.5 text-xs text-muted">Kauft ihr oft, steht aber noch nicht drin:</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {notYetFav.map((n) => (
+                      <button key={n} type="button" onClick={() => addFav(n)}
+                        className="rounded-full border border-dashed border-line px-3 py-1 text-sm text-muted hover:border-accent hover:text-accent">+ {n}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {stored && (
+                <button type="button" onClick={() => saveFavs(null)} className="text-xs text-muted underline hover:text-fg">
+                  Zurücksetzen auf automatische Vorschläge
+                </button>
+              )}
+            </div>
+          )}
+          {favErr && <p className="mt-2 text-sm text-red-600">{favErr}</p>}
         </div>
       </Card>
 

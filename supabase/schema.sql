@@ -31,6 +31,8 @@ create table public.households (
   invite_code    text not null unique default upper(substr(md5(random()::text), 1, 6)),
   -- Montag, an dem die erste Putzrunde beginnt (Runden dauern 2 Wochen)
   cleaning_start date not null default date_trunc('week', now())::date,
+  -- "Oft gebraucht" in der Einkaufsliste (null = automatisch)
+  shopping_favorites text[],
   created_at     timestamptz not null default now()
 );
 
@@ -217,7 +219,7 @@ create policy "Lob zurücknehmen" on public.praises for delete using (from_membe
 
 -- ───────────── Live-Updates ─────────────
 alter publication supabase_realtime
-  add table public.members, public.chore_areas, public.chore_tasks, public.chore_checks,
+  add table public.households, public.members, public.chore_areas, public.chore_tasks, public.chore_checks,
             public.shopping_items, public.expenses, public.events, public.todos, public.praises;
 
 -- ───────────── Startdaten: eure WG ─────────────

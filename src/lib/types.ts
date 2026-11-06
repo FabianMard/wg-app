@@ -1,4 +1,11 @@
-export type Household = { id: string; name: string; invite_code: string; cleaning_start: string };
+export type Household = {
+  id: string;
+  name: string;
+  invite_code: string;
+  cleaning_start: string;
+  /** "Oft gebraucht" in der Einkaufsliste; null = automatisch */
+  shopping_favorites: string[] | null;
+};
 
 export type Member = {
   id: string;

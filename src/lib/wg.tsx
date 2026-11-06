@@ -59,6 +59,7 @@ export function WGProvider({ children }: { children: React.ReactNode }) {
     if (!householdId) return;
     const ch = supabase.channel(`members-${householdId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "members" }, () => refresh())
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "households" }, () => refresh())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [householdId, refresh]);

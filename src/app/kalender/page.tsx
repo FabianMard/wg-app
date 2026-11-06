@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRows, useWG } from "@/lib/wg";
 import type { CalEvent, ChoreArea, ChoreCheck, ChoreTask } from "@/lib/types";
@@ -48,7 +48,22 @@ export default function Kalender() {
     const r = periodRange(cs, p);
     return iso === r.due ? "Fällig" : null;
   };
-  const shift = (n: number) => setMonth(new Date(month.getFullYear(), month.getMonth() + n, 1));
+  const [slide, setSlide] = useState<"" | "next" | "prev">("");
+  const shift = (n: number) => {
+    setSlide(n > 0 ? "next" : "prev");
+    setMonth(new Date(month.getFullYear(), month.getMonth() + n, 1));
+  };
+
+  // Wischen: nach links = nächster Monat, nach rechts = vorheriger Monat
+  const touch = useRef<{ x: number; y: number } | null>(null);
+  const onTouchStart = (e: React.TouchEvent) => { touch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; };
+  const onTouchEnd = (e: React.TouchEvent) => {
+    const t = touch.current;
+    touch.current = null;
+    if (!t) return;
+    const dx = e.changedTouches[0].clientX - t.x, dy = e.changedTouches[0].clientY - t.y;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) shift(dx < 0 ? 1 : -1);
+  };
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
@@ -81,7 +96,8 @@ export default function Kalender() {
         <div className="grid grid-cols-7 border-t border-line text-center text-xs text-muted">
           {WEEKDAYS.map((w) => <div key={w} className="py-1">{w}</div>)}
         </div>
-        <div className="grid grid-cols-7 gap-px border-t border-line bg-line">
+        <div key={month.toISOString()} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
+          className={`grid touch-pan-y grid-cols-7 gap-px border-t border-line bg-line ${slide === "next" ? "animate-slide-next" : slide === "prev" ? "animate-slide-prev" : ""}`}>
           {days.map((iso) => {
             const inMonth = fromISO(iso).getMonth() === month.getMonth();
             const isToday = iso === todayISO();
@@ -177,7 +193,8 @@ export default function Kalender() {
           ))}
           <span className="hidden h-3 w-px bg-line sm:block" />
           <span>Balken = Putzwoche: {[...areas].sort((a, b) => a.sort - b.sort).map((a) => a.name).join(" · ")} (blass = erledigt)</span>
-          <span className="flex items-center gap-1"><span className="rounded bg-red-500/15 px-1 font-semibold text-red-700 dark:text-red-300">Feiertag</span>Sachsen</span>
+<span className="w-full md:hidden">👆 Nach links/rechts wischen, um den Monat zu wechseln</span>
+                    <span className="flex items-center gap-1"><span className="rounded bg-red-500/15 px-1 font-semibold text-red-700 dark:text-red-300">Feiertag</span>Sachsen</span>
           <span className="flex items-center gap-1"><span className="h-1 w-3 rounded bg-red-500" />Fällig (Ende Putzwoche)</span>
           <span className="flex items-center gap-1">
             <span className="h-2.5 w-5 rounded-full" style={{ background: "repeating-linear-gradient(135deg, #dc2626 0 3px, #f87171 3px 6px)" }} />überfällig, nachholen

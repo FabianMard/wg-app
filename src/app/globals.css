@@ -54,3 +54,9 @@ input[type="date"], input[type="time"], select { color-scheme: light dark; }
 @media (max-width: 767px) {
   input, select, textarea { font-size: max(16px, 1em) !important; }
 }
+
+/* Kalender: Monat wechseln mit Schiebe-Animation */
+@keyframes slide-next { from { transform: translateX(28%); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes slide-prev { from { transform: translateX(-28%); opacity: 0; } to { transform: none; opacity: 1; } }
+.animate-slide-next { animation: slide-next .22s ease-out; }
+.animate-slide-prev { animation: slide-prev .22s ease-out; }
