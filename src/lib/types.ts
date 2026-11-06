@@ -7,6 +7,7 @@ export type Member = {
   color: string;
   sort: number;
   user_id: string | null;
+  avatar: import("@/components/game/avatar").AvatarLook | null;
 };
 
 export type ChoreArea = { id: string; household_id: string; name: string; icon: string; sort: number };

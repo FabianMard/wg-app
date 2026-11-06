@@ -38,3 +38,10 @@ body {
 }
 
 input[type="date"], input[type="time"], select { color-scheme: light dark; }
+
+/* WG-Spiel: Watscheln beim Laufen */
+@keyframes waddle {
+  0%, 100% { transform: translate(-50%, 0) rotate(-4deg); }
+  50% { transform: translate(-50%, -2px) rotate(4deg); }
+}
+.animate-waddle { animation: waddle .26s ease-in-out infinite; }

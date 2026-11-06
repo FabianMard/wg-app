@@ -6,7 +6,7 @@ import type { ChoreArea, ChoreCheck, ChoreTask, Expense, Member, Praise, Todo } 
 import { areaStatuses, periodOf } from "@/lib/cleaning";
 import { computeBalances, suggestTransfers } from "@/lib/balances";
 import { euro, formatDate } from "@/lib/dates";
-import { Avatar } from "@/components/ui";
+import { AvatarFigure, lookOf } from "./avatar";
 import { beesOf, PraiseButton } from "@/components/Praise";
 
 type Topic = "hallo" | "loben" | "geld" | "todos";
@@ -97,7 +97,7 @@ export function TalkDialog({ target, online, onEmote, onClose }: {
   return (
     <div className="space-y-4">
       <div className="flex items-start gap-3">
-        <Avatar member={target} size={52} />
+        <div className="flex h-[72px] w-14 shrink-0 items-end justify-center"><AvatarFigure look={lookOf(target)} size={52} /></div>
         <div className="relative flex-1 rounded-2xl rounded-tl-sm border border-line bg-card p-3 text-[15px] leading-relaxed shadow-sm">
           <p className="mb-1 text-xs font-semibold" style={{ color: target.color }}>{target.display_name}</p>
           {line}

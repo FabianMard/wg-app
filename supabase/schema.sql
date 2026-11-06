@@ -42,6 +42,7 @@ create table public.members (
   color        text not null,
   sort         int  not null default 0,
   user_id      uuid unique references auth.users on delete set null,
+  avatar       jsonb,           -- Aussehen im WG-Spiel (Frisur, Kleidung, …)
   created_at   timestamptz not null default now()
 );
 

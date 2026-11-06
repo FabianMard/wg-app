@@ -12,6 +12,7 @@ Next.js + Supabase, installierbar als App auf dem Handy (PWA). Alle Änderungen 
    Das legt alles an: die WG, die Mitbewohner Verena, Stefan und Fabian und den Putzplan.
    Unten im Ergebnis steht der **Einladungscode** (`invite_code`).
    ⚠️ Das Skript löscht vorher alle bestehenden WG-Daten. Nur beim Einrichten ausführen!
+   Wer schon eine ältere Version eingerichtet hat: nur `supabase/003_avatare.sql` ausführen (Daten bleiben erhalten).
    **Zum Ausprobieren:** danach `supabase/demo_data.sql` ausführen. Das füllt die App mit Beispieldaten.
    Für den echten Start `schema.sql` einfach nochmal ausführen, dann ist alles wieder leer.
 4. Unter **Project Settings → API** die *Project URL* und den *publishable/anon key* kopieren.
@@ -46,6 +47,12 @@ Seite im Browser öffnen → iPhone: Teilen → „Zum Home-Bildschirm“, Andro
 - Jeder Bereich hat eine Checkliste. Erst wenn alles abgehakt ist, ist er erledigt.
   Die Liste lässt sich in der App bearbeiten („Liste bearbeiten“).
 - Erledigte Bereiche und To-dos können die anderen loben. Das gibt **fleißige Bienchen 🐝**.
+
+## WG-Spiel 🎮
+- Mit eigenem Avatar durch die Wohnung laufen (Pfeiltasten/WASD, Hinklicken oder Steuerkreuz).
+- Gegenstände öffnen die App (Kühlschrank → Einkauf, Kalender, Pinnwand → To-dos, Kasse → Kosten …).
+- Am eigenen **Kleiderschrank** Frisur, Kleidung und Accessoires ändern.
+- Mitbewohner ansprechen, loben, Sprechblasen und Emotes (live über Supabase Realtime).
 
 ## Märkte & Logos
 Die Märkte stehen in `src/lib/stores.ts`. Statt der farbigen Kürzel können echte Logos

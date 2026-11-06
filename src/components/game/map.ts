@@ -24,9 +24,10 @@ export const MAP = [
 export const COLS = MAP[0].length;
 export const ROWS = MAP.length;
 
-export type Action = "start" | "putzplan" | "einkauf" | "kosten" | "kalender" | "todos" | "wg" | "schlafen";
+export type Action = "start" | "putzplan" | "einkauf" | "kosten" | "kalender" | "todos" | "wg" | "schlafen" | "kleiderschrank";
 
-export type GameObject = { x: number; y: number; icon: string; label: string; action: Action; hint: string };
+/** owner = Index des Mitbewohners (members.sort), dem der Gegenstand gehört */
+export type GameObject = { x: number; y: number; icon: string; label: string; action: Action; hint: string; owner?: number };
 
 export const OBJECTS: GameObject[] = [
   // Küche
@@ -54,6 +55,9 @@ export const OBJECTS: GameObject[] = [
   { x: 1, y: 10, icon: "🛏️", label: "Bett", action: "schlafen", hint: "Kurz hinlegen 💤" },
   { x: 8, y: 10, icon: "🛏️", label: "Bett", action: "schlafen", hint: "Kurz hinlegen 💤" },
   { x: 21, y: 10, icon: "🛏️", label: "Bett", action: "schlafen", hint: "Kurz hinlegen 💤" },
+  { x: 6, y: 10, icon: "👚", label: "Kleiderschrank", action: "kleiderschrank", hint: "Umziehen & Accessoires", owner: 0 },
+  { x: 13, y: 10, icon: "👚", label: "Kleiderschrank", action: "kleiderschrank", hint: "Umziehen & Accessoires", owner: 1 },
+  { x: 15, y: 10, icon: "👚", label: "Kleiderschrank", action: "kleiderschrank", hint: "Umziehen & Accessoires", owner: 2 },
 ];
 
 /** Startplatz/Schlafplatz je Zimmer (Index = members.sort) */

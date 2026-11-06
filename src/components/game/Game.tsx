@@ -10,6 +10,7 @@ import {
   objectAt, OBJECTS, ROOM_LABELS, ROWS, type Action, type GameObject, type Pos,
 } from "./map";
 import { TalkDialog } from "./TalkDialog";
+import { AvatarFigure, lookOf, Wardrobe, type AvatarLook } from "./avatar";
 import { inputCls } from "@/components/ui";
 
 // Die echten App-Seiten – im Spiel öffnen sie sich als Fenster
@@ -21,7 +22,8 @@ import KalenderPage from "@/app/kalender/page";
 import TodosPage from "@/app/todos/page";
 import WGPage from "@/app/wg/page";
 
-const PANELS: Record<Exclude<Action, "schlafen">, React.ComponentType> = {
+type PageAction = Exclude<Action, "schlafen" | "kleiderschrank">;
+const PANELS: Record<PageAction, React.ComponentType> = {
   start: StartPage, putzplan: PutzplanPage, einkauf: EinkaufPage, kosten: KostenPage,
   kalender: KalenderPage, todos: TodosPage, wg: WGPage,
 };
@@ -30,11 +32,14 @@ const STEP_MS = 120;
 const BUBBLE_MS = 6000;
 
 type Target = { type: "object"; obj: GameObject } | { type: "member"; id: string };
+type Panel = Target | { type: "wardrobe"; first?: boolean };
+/** Position + Blickrichtung (l = schaut nach links) */
+type Spot = Pos & { l?: boolean };
 type Bubble = { text: string; until: number };
 type SayPayload = { on: string; text: string };
 
 export function Game() {
-  const { members, myId, household } = useWG();
+  const { members, myId, household, me, refresh } = useWG();
   const homeOf = useCallback((id: string) => {
     const i = members.findIndex((m) => m.id === id);
     return HOME_SPOTS[i] ?? { x: 11, y: 7 };
@@ -45,8 +50,20 @@ export function Game() {
   useEffect(() => { posRef.current = pos; }, [pos]);
   const [path, setPath] = useState<Pos[]>([]);
   const pending = useRef<Target | null>(null);
-  const [panel, setPanel] = useState<Target | null>(null);
-  const [remote, setRemote] = useState<Record<string, Pos>>({});
+  const [panel, setPanel] = useState<Panel | null>(null);
+  const [remote, setRemote] = useState<Record<string, Spot>>({});
+  const [faceLeft, setFaceLeft] = useState(false);
+  const faceRef = useRef(false);
+  useEffect(() => { faceRef.current = faceLeft; }, [faceLeft]);
+  // Eigenes Aussehen sofort anzeigen, auch bevor die Datenbank antwortet
+  const [myLook, setMyLook] = useState<AvatarLook | null>(null);
+  const [moving, setMoving] = useState<Record<string, boolean>>({});
+  const moveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const markMoving = useCallback((id: string) => {
+    setMoving((m) => (m[id] ? m : { ...m, [id]: true }));
+    clearTimeout(moveTimers.current[id]);
+    moveTimers.current[id] = setTimeout(() => setMoving((m) => ({ ...m, [id]: false })), 260);
+  }, []);
   const [bubbles, setBubbles] = useState<Record<string, Bubble>>({});
   const [chat, setChat] = useState("");
   const channel = useRef<RealtimeChannel | null>(null);
@@ -66,24 +83,43 @@ export function Game() {
   useEffect(() => {
     const ch = supabase.channel(`spiel-${household.id}`, { config: { presence: { key: myId }, broadcast: { self: false } } });
     ch.on("presence", { event: "sync" }, () => {
-      const state = ch.presenceState<Pos>();
-      const next: Record<string, Pos> = {};
+      const state = ch.presenceState<Spot>();
+      const next: Record<string, Spot> = {};
       for (const [id, metas] of Object.entries(state)) {
         const m = metas[metas.length - 1];
-        if (id !== myId && m) next[id] = { x: m.x, y: m.y };
+        if (id !== myId && m) next[id] = { x: m.x, y: m.y, l: m.l };
       }
-      setRemote(next);
+      setRemote((prev) => {
+        for (const [id, q] of Object.entries(next)) {
+          if (prev[id] && (prev[id].x !== q.x || prev[id].y !== q.y)) markMoving(id);
+        }
+        return next;
+      });
     })
       .on("broadcast", { event: "say" }, ({ payload }) => showBubble((payload as SayPayload).on, (payload as SayPayload).text))
-      .subscribe((status) => { if (status === "SUBSCRIBED") ch.track(posRef.current); });
+      .subscribe((status) => { if (status === "SUBSCRIBED") ch.track({ ...posRef.current, l: faceRef.current }); });
     channel.current = ch;
     return () => { channel.current = null; supabase.removeChannel(ch); };
-  }, [household.id, myId, showBubble]);
+  }, [household.id, myId, showBubble, markMoving]);
 
-  useEffect(() => { channel.current?.track(pos); }, [pos]);
+  useEffect(() => { channel.current?.track({ ...pos, l: faceLeft }); }, [pos, faceLeft]);
+
+  // Beim allerersten Mal: Avatar gestalten
+  const askedAvatar = useRef(false);
+  useEffect(() => {
+    if (me && !me.avatar && !askedAvatar.current) { askedAvatar.current = true; setPanel({ type: "wardrobe", first: true }); }
+  }, [me]);
+
+  // Eigene Position ändern (mit Blickrichtung & Laufanimation)
+  const moveTo = useCallback((n: Pos) => {
+    const dx = n.x - posRef.current.x;
+    if (dx) setFaceLeft(dx < 0);
+    setPos(n);
+    markMoving(myId);
+  }, [markMoving, myId]);
 
   // ── Positionen aller Mitbewohner ──
-  const memberPos = useCallback((m: Member): Pos => (m.id === myId ? pos : remote[m.id] ?? homeOf(m.id)), [myId, pos, remote, homeOf]);
+  const memberPos = useCallback((m: Member): Spot => (m.id === myId ? { ...pos, l: faceLeft } : remote[m.id] ?? homeOf(m.id)), [myId, pos, faceLeft, remote, homeOf]);
   const others = members.filter((m) => m.id !== myId);
   const memberAt = (p: Pos) => others.find((m) => { const q = memberPos(m); return q.x === p.x && q.y === p.y; });
   const blockedRef = useRef<(p: Pos) => boolean>(() => false);
@@ -105,8 +141,14 @@ export function Game() {
 
   const open = useCallback((t: Target) => {
     if (t.type === "object" && t.obj.action === "schlafen") { say(myId, "💤"); return; }
+    if (t.type === "object" && t.obj.action === "kleiderschrank") {
+      const owner = [...members].sort((a, b) => a.sort - b.sort)[t.obj.owner ?? -1];
+      if (owner?.id === myId) setPanel({ type: "wardrobe" });
+      else say(myId, owner ? `Das ist ${owner.display_name}s Schrank … Finger weg! 🙈` : "Leerer Schrank 🤷");
+      return;
+    }
     setPanel(t);
-  }, [say, myId]);
+  }, [say, myId, members]);
 
   // ── Laufen ──
   const step = useCallback((dx: number, dy: number) => {
@@ -115,8 +157,9 @@ export function Game() {
     lastStep.current = now;
     const p = posRef.current;
     const n = { x: p.x + dx, y: p.y + dy };
-    if (isWalkable(n.x, n.y) && !blockedRef.current(n)) setPos(n);
-  }, []);
+    if (dx) setFaceLeft(dx < 0);
+    if (isWalkable(n.x, n.y) && !blockedRef.current(n)) moveTo(n);
+  }, [moveTo]);
 
   useEffect(() => {
     if (!path.length) {
@@ -131,10 +174,10 @@ export function Game() {
     const id = setTimeout(() => {
       // Steht inzwischen jemand im Weg? Dann stehen bleiben.
       if (blockedRef.current(path[0])) { setPath([]); pending.current = null; return; }
-      setPos(path[0]); setPath(path.slice(1));
+      moveTo(path[0]); setPath(path.slice(1));
     }, STEP_MS);
     return () => clearTimeout(id);
-  }, [path, pos, open, memberPos, members]);
+  }, [path, pos, open, memberPos, members, moveTo]);
 
   // Tastatur
   useEffect(() => {
@@ -238,17 +281,18 @@ export function Game() {
               <div key={m.id} className={`absolute transition-transform ease-linear ${bubble ? "z-30" : isMe ? "z-20" : "z-10"}`}
                 style={{ width: tile, height: tile, transform: `translate(${p.x * tile}px, ${p.y * tile}px)`, transitionDuration: `${STEP_MS}ms` }}>
                 {bubble && (
-                  <div className="absolute bottom-full left-1/2 z-20 mb-4 w-max max-w-[170px] -translate-x-1/2 rounded-xl bg-white px-2.5 py-1.5 text-center text-sm font-medium text-neutral-900 shadow-lg after:absolute after:left-1/2 after:top-full after:-translate-x-1/2 after:border-[6px] after:border-transparent after:border-t-white after:content-['']">
+                  <div className="absolute bottom-full left-1/2 z-20 mb-6 w-max max-w-[170px] -translate-x-1/2 rounded-xl bg-white px-2.5 py-1.5 text-center text-sm font-medium text-neutral-900 shadow-lg after:absolute after:left-1/2 after:top-full after:-translate-x-1/2 after:border-[6px] after:border-transparent after:border-t-white after:content-['']">
                     {bubble.text}
                   </div>
                 )}
-                <span className={`absolute -top-3.5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full px-1.5 text-[10px] font-bold leading-4 text-white shadow ${hot ? "ring-2 ring-white" : ""}`}
-                  style={{ background: m.color }}>
+                {/* Leuchtring unter der Figur, wenn man sie ansprechen kann */}
+                {hot && <span className="absolute bottom-0 left-1/2 h-2 w-[90%] -translate-x-1/2 animate-pulse rounded-[50%] bg-white/80 ring-2 ring-accent" />}
+                <span className={`absolute left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full px-1.5 text-[10px] font-bold leading-4 text-white shadow ${hot ? "ring-2 ring-white" : ""}`}
+                  style={{ background: m.color, top: -tile * 0.42 - 15 }}>
                   {isMe ? "Du" : m.display_name}{!online && " 💤"}
                 </span>
-                <div className={`flex h-full w-full items-center justify-center rounded-full border-[3px] border-white font-bold text-white shadow-[0_3px_0_rgba(0,0,0,.25)] ${isMe && path.length ? "animate-[bounce_.4s_infinite]" : ""} ${online ? "" : "opacity-70 grayscale-[.4]"}`}
-                  style={{ background: m.color, fontSize: tile * 0.45 }}>
-                  {m.display_name.slice(0, 1).toUpperCase()}
+                <div className={`absolute bottom-0 left-1/2 -translate-x-1/2 ${moving[m.id] ? "animate-waddle" : ""} ${online ? "" : "opacity-75 grayscale-[.35]"}`}>
+                  <AvatarFigure look={isMe && myLook ? myLook : lookOf(m)} size={tile * 1.12} flip={!!p.l} />
                 </div>
               </div>
             );
@@ -289,12 +333,14 @@ export function Game() {
 
       {panel && (
         <Sheet onClose={() => setPanel(null)}
-          title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : `${panel.obj.icon} ${panel.obj.label}`}>
+          title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : panel.type === "wardrobe" ? "👚 Dein Kleiderschrank" : `${panel.obj.icon} ${panel.obj.label}`}>
           {panel.type === "member" && targetMember ? (
             <TalkDialog target={targetMember} online={onlineIds.has(targetMember.id)}
               onEmote={(em, on) => say(em === "🐝" && on ? on : myId, em)} onClose={() => setPanel(null)} />
+          ) : panel.type === "wardrobe" && me ? (
+            <Wardrobe member={me} firstTime={panel.first} onSaved={(look) => { setMyLook(look); refresh(); setPanel(null); say(myId, "✨"); }} />
           ) : panel.type === "object" ? (
-            (() => { const Comp = PANELS[panel.obj.action as Exclude<Action, "schlafen">]; return <Comp />; })()
+            (() => { const Comp = PANELS[panel.obj.action as PageAction]; return <Comp />; })()
           ) : null}
         </Sheet>
       )}
