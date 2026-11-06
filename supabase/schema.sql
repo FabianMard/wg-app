@@ -47,6 +47,7 @@ create table public.members (
   user_id      uuid unique references auth.users on delete set null,
   avatar       jsonb,           -- Aussehen im WG-Spiel (Frisur, Kleidung, …)
   photo_path   text,            -- Profilfoto im Storage-Bucket "pinnwand"
+  reading      jsonb,           -- "Ich lese gerade" (Titel, Autor, Fortschritt, Link)
   created_at   timestamptz not null default now()
 );
 

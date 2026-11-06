@@ -19,7 +19,11 @@ export type Member = {
   avatar: import("@/components/game/avatar").AvatarLook | null;
   /** Profilfoto im Storage-Bucket "pinnwand" (ab 008_profilfoto.sql) */
   photo_path?: string | null;
+  /** "Ich lese gerade" (ab 011_buecher.sql) */
+  reading?: Reading | null;
 };
+
+export type Reading = { title: string; author?: string; progress?: number; url?: string; updated_at?: string };
 
 export type ChoreArea = { id: string; household_id: string; name: string; icon: string; sort: number };
 export type ChoreTask = { id: string; household_id: string; area_id: string; title: string; sort: number };

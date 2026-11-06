@@ -24,7 +24,7 @@ export const MAP = [
 export const COLS = MAP[0].length;
 export const ROWS = MAP.length;
 
-export type Action = "start" | "putzplan" | "einkauf" | "kosten" | "kalender" | "todos" | "wg" | "schlafen" | "kleiderschrank" | "giessen";
+export type Action = "start" | "putzplan" | "einkauf" | "kosten" | "kalender" | "todos" | "wg" | "schlafen" | "kleiderschrank" | "giessen" | "buecher";
 
 /** owner = Index des Mitbewohners (members.sort), dem der Gegenstand gehört */
 export type GameObject = { x: number; y: number; icon: string; label: string; action: Action; hint: string; owner?: number };
@@ -62,6 +62,11 @@ export const OBJECTS: GameObject[] = [
   ] as const).map(([x, y, icon]) => ({ x, y, icon, label: "Pflanze", action: "giessen" as const, hint: "Gießen 💧" })),
   { x: 6, y: 10, icon: "👚", label: "Kleiderschrank", action: "kleiderschrank", hint: "Verenas Schrank – ausleihen erlaubt", owner: 0 },
   { x: 13, y: 10, icon: "👚", label: "Kleiderschrank", action: "kleiderschrank", hint: "Stefans Schrank – ausleihen erlaubt", owner: 1 },
+  // Fabians Bücher 📚 (Weg von der Tür zur Zimmermitte bleibt frei)
+  { x: 15, y: 12, icon: "📚", label: "Bücherregal", action: "buecher", hint: "Was liest Fabian gerade?", owner: 2 },
+  { x: 15, y: 13, icon: "📚", label: "Bücherregal", action: "buecher", hint: "Was liest Fabian gerade?", owner: 2 },
+  { x: 16, y: 14, icon: "📖", label: "Aufgeschlagenes Buch", action: "buecher", hint: "Was liest Fabian gerade?", owner: 2 },
+  { x: 21, y: 14, icon: "📕", label: "Bücherstapel", action: "buecher", hint: "Was liest Fabian gerade?", owner: 2 },
   { x: 15, y: 10, icon: "👚", label: "Kleiderschrank", action: "kleiderschrank", hint: "Fabians Schrank – ausleihen erlaubt", owner: 2 },
 ];
 

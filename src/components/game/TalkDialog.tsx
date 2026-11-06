@@ -116,6 +116,7 @@ export function TalkDialog({ target, online, onEmote, onSay, onClose }: {
               : <>Ich hab diese Woche Putzdienst: {myArea.area.icon} <b>{myArea.area.name}</b>, {myArea.doneCount} von {myArea.tasks.length} erledigt.</>
           : null}
         {" "}Ich hab übrigens schon <b>🐝 {beesOf(praises, target.id)}</b> Bienchen.
+        {target.reading?.title && <> Gerade lese ich übrigens <b>„{target.reading.title}“</b>{target.reading.author ? ` von ${target.reading.author}` : ""} 📖</>}
       </>
     );
   } else if (topic === "loben") {

@@ -10,6 +10,7 @@ import {
   objectAt, OBJECTS, ROOM_LABELS, ROWS, type Action, type GameObject, type Pos,
 } from "./map";
 import { TalkDialog } from "./TalkDialog";
+import { BookShelf } from "./BookShelf";
 import { AvatarFigure, lookOf, Wardrobe, type AvatarLook } from "./avatar";
 import {
   deleteCustomSong, formatTime, loadCustomMeta, parseTime, saveCustomMeta, saveCustomSong, SONGS,
@@ -26,7 +27,7 @@ import KalenderPage from "@/app/kalender/page";
 import TodosPage from "@/app/todos/page";
 import WGPage from "@/app/wg/page";
 
-type PageAction = Exclude<Action, "schlafen" | "kleiderschrank" | "giessen">;
+type PageAction = Exclude<Action, "schlafen" | "kleiderschrank" | "giessen" | "buecher">;
 const PANELS: Record<PageAction, React.ComponentType> = {
   start: StartPage, putzplan: PutzplanPage, einkauf: EinkaufPage, kosten: KostenPage,
   kalender: KalenderPage, todos: TodosPage, wg: WGPage,
@@ -36,7 +37,7 @@ const STEP_MS = 120;
 const BUBBLE_MS = 6000;
 
 type Target = { type: "object"; obj: GameObject } | { type: "member"; id: string } | { type: "cat" };
-type Panel = Target | { type: "wardrobe"; first?: boolean; ownerId?: string };
+type Panel = Target | { type: "wardrobe"; first?: boolean; ownerId?: string } | { type: "books"; ownerId: string };
 const CAT_LINES = ["Schnurrrr … 💕", "Miau! 😺", "*kuschelt sich an* 🐾", "Prrrrr 😻", "Mehr! Mehr! 🐱"];
 const CAT_SEE = 3; // so nah muss man sein, um die Katze zu entdecken
 const dist = (a: Pos, b: Pos) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
@@ -273,6 +274,11 @@ export function Game() {
     if (t.type === "object" && t.obj.action === "schlafen") { say(myId, "💤"); return; }
     if (t.type === "object" && t.obj.action === "giessen") {
       say(myId, ["💧 Gegossen!", "💧🌱 Wächst schon!", "Na, du Hübsche? 🌿", "💧 Prost!"][Math.floor(Math.random() * 4)]);
+      return;
+    }
+    if (t.type === "object" && t.obj.action === "buecher") {
+      const owner = [...members].sort((a, b) => a.sort - b.sort)[t.obj.owner ?? -1];
+      if (owner) setPanel({ type: "books", ownerId: owner.id });
       return;
     }
     if (t.type === "object" && t.obj.action === "kleiderschrank") {
@@ -519,10 +525,12 @@ export function Game() {
 
       {panel && (
         <Sheet onClose={() => { if (panel.type === "member") reloadMessages(); setPanel(null); }} light={panel.type === "member"}
-          title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : panel.type === "wardrobe" ? (panel.ownerId && panel.ownerId !== myId ? `👚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Kleiderschrank` : "👚 Dein Kleiderschrank") : panel.type === "object" ? `${panel.obj.icon} ${panel.obj.label}` : ""}>
+          title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : panel.type === "wardrobe" ? (panel.ownerId && panel.ownerId !== myId ? `👚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Kleiderschrank` : "👚 Dein Kleiderschrank") : panel.type === "object" ? `${panel.obj.icon} ${panel.obj.label}` : panel.type === "books" ? `📚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Bücher` : ""}>
           {panel.type === "member" && targetMember ? (
             <TalkDialog target={targetMember} online={onlineIds.has(targetMember.id)}
               onEmote={(em, on) => say(em === "🐝" && on ? on : myId, em)} onSay={(text) => say(myId, text)} onClose={() => { reloadMessages(); setPanel(null); }} />
+          ) : panel.type === "books" && members.find((m) => m.id === panel.ownerId) ? (
+            <BookShelf owner={members.find((m) => m.id === panel.ownerId)!} />
           ) : panel.type === "wardrobe" && me ? (
             <Wardrobe member={me} owner={members.find((m) => m.id === panel.ownerId)} firstTime={panel.first} onSaved={(look) => { setMyLook(look); refresh(); setPanel(null); say(myId, "✨"); }} />
           ) : panel.type === "object" ? (
