@@ -24,7 +24,7 @@ export const MAP = [
 export const COLS = MAP[0].length;
 export const ROWS = MAP.length;
 
-export type Action = "start" | "putzplan" | "einkauf" | "kosten" | "kalender" | "todos" | "wg" | "schlafen" | "kleiderschrank";
+export type Action = "start" | "putzplan" | "einkauf" | "kosten" | "kalender" | "todos" | "wg" | "schlafen" | "kleiderschrank" | "giessen";
 
 /** owner = Index des Mitbewohners (members.sort), dem der Gegenstand gehört */
 export type GameObject = { x: number; y: number; icon: string; label: string; action: Action; hint: string; owner?: number };
@@ -55,6 +55,11 @@ export const OBJECTS: GameObject[] = [
   { x: 1, y: 10, icon: "🛏️", label: "Bett", action: "schlafen", hint: "Kurz hinlegen 💤" },
   { x: 8, y: 10, icon: "🛏️", label: "Bett", action: "schlafen", hint: "Kurz hinlegen 💤" },
   { x: 21, y: 10, icon: "🛏️", label: "Bett", action: "schlafen", hint: "Kurz hinlegen 💤" },
+  // Verenas Dschungel 🌿 (Weg von der Tür zur Bettmitte bleibt frei)
+  ...([
+    [2, 10, "🌵"], [1, 12, "🪴"], [1, 13, "🌿"], [1, 14, "🌱"], [2, 14, "🌻"],
+    [5, 14, "🌷"], [6, 14, "🪴"], [6, 13, "🌿"], [6, 12, "🎋"], [5, 12, "🍀"],
+  ] as const).map(([x, y, icon]) => ({ x, y, icon, label: "Pflanze", action: "giessen" as const, hint: "Gießen 💧" })),
   { x: 6, y: 10, icon: "👚", label: "Kleiderschrank", action: "kleiderschrank", hint: "Verenas Schrank – ausleihen erlaubt", owner: 0 },
   { x: 13, y: 10, icon: "👚", label: "Kleiderschrank", action: "kleiderschrank", hint: "Stefans Schrank – ausleihen erlaubt", owner: 1 },
   { x: 15, y: 10, icon: "👚", label: "Kleiderschrank", action: "kleiderschrank", hint: "Fabians Schrank – ausleihen erlaubt", owner: 2 },

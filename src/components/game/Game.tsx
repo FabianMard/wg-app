@@ -26,7 +26,7 @@ import KalenderPage from "@/app/kalender/page";
 import TodosPage from "@/app/todos/page";
 import WGPage from "@/app/wg/page";
 
-type PageAction = Exclude<Action, "schlafen" | "kleiderschrank">;
+type PageAction = Exclude<Action, "schlafen" | "kleiderschrank" | "giessen">;
 const PANELS: Record<PageAction, React.ComponentType> = {
   start: StartPage, putzplan: PutzplanPage, einkauf: EinkaufPage, kosten: KostenPage,
   kalender: KalenderPage, todos: TodosPage, wg: WGPage,
@@ -268,6 +268,10 @@ export function Game() {
       return;
     }
     if (t.type === "object" && t.obj.action === "schlafen") { say(myId, "💤"); return; }
+    if (t.type === "object" && t.obj.action === "giessen") {
+      say(myId, ["💧 Gegossen!", "💧🌱 Wächst schon!", "Na, du Hübsche? 🌿", "💧 Prost!"][Math.floor(Math.random() * 4)]);
+      return;
+    }
     if (t.type === "object" && t.obj.action === "kleiderschrank") {
       const owner = [...members].sort((a, b) => a.sort - b.sort)[t.obj.owner ?? -1];
       setPanel({ type: "wardrobe", ownerId: owner?.id });
