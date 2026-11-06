@@ -30,6 +30,9 @@
   --font-sans: var(--font-geist-sans);
 }
 
+/* Nie seitlich scrollen: nichts darf breiter als der Bildschirm werden */
+html, body { overflow-x: clip; }
+
 body {
   background: var(--bg);
   color: var(--fg);
@@ -45,3 +48,9 @@ input[type="date"], input[type="time"], select { color-scheme: light dark; }
   50% { transform: translate(-50%, -2px) rotate(4deg); }
 }
 .animate-waddle { animation: waddle .26s ease-in-out infinite; }
+
+/* iPhones zoomen beim Antippen von Feldern mit < 16px Schrift hinein –
+   danach ist die Seite "zu breit". Darum auf dem Handy mindestens 16px. */
+@media (max-width: 767px) {
+  input, select, textarea { font-size: max(16px, 1em) !important; }
+}

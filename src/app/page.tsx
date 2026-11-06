@@ -44,7 +44,7 @@ export default function Home() {
         </span>
         <span className="text-xl">→</span>
       </Link>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Tile href="/putzplan" icon="🧽" title="Dein Putzbereich">
           {mine.length === 0 ? <Muted>Diese Runde nichts</Muted> : mine.map((s) => (
             <div key={s.area.id}>
@@ -94,7 +94,7 @@ export default function Home() {
 
 function Tile({ href, icon, title, children, className = "" }: { href: string; icon: string; title: string; children: React.ReactNode; className?: string }) {
   return (
-    <Link href={href} className={className}>
+    <Link href={href} className={`min-w-0 ${className}`}>
       <Card className="h-full transition hover:border-accent/40">
         <div className="mb-2 flex items-center gap-2 text-sm font-semibold"><span>{icon}</span>{title}</div>
         <div className="space-y-1">{children}</div>
