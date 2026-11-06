@@ -12,6 +12,8 @@ Next.js + Supabase, installierbar als App auf dem Handy (PWA). Alle Änderungen 
    Das legt alles an: die WG, die Mitbewohner Verena, Stefan und Fabian und den Putzplan.
    Unten im Ergebnis steht der **Einladungscode** (`invite_code`).
    ⚠️ Das Skript löscht vorher alle bestehenden WG-Daten. Nur beim Einrichten ausführen!
+   **Zum Ausprobieren:** danach `supabase/demo_data.sql` ausführen. Das füllt die App mit Beispieldaten.
+   Für den echten Start `schema.sql` einfach nochmal ausführen, dann ist alles wieder leer.
 4. Unter **Project Settings → API** die *Project URL* und den *publishable/anon key* kopieren.
 
 ### 2. Lokal starten
