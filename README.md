@@ -1,36 +1,48 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# WG-App
 
-## Getting Started
+Putzplan, Einkaufsliste, Kosten teilen, Kalender und To-dos für eure WG.
+Next.js + Supabase, installierbar als App auf dem Handy (PWA). Alle Änderungen erscheinen live bei allen Mitbewohnern.
 
-First, run the development server:
+## Einrichten (ca. 10 Minuten)
 
+### 1. Supabase-Projekt anlegen
+1. Auf [supabase.com](https://supabase.com) kostenlos registrieren und ein neues Projekt anlegen (Region z. B. Frankfurt).
+2. Im Projekt links **SQL Editor** öffnen, den Inhalt von `supabase/schema.sql` einfügen und **Run** klicken.
+3. Unter **Project Settings → API** die *Project URL* und den *anon public key* kopieren.
+
+### 2. Lokal starten
 ```bash
+cp .env.example .env.local   # Werte aus Schritt 1.3 eintragen
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
+Dann http://localhost:3000 öffnen, registrieren, WG gründen. Den Einladungscode (Avatar oben rechts) an die Mitbewohner schicken.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+> Supabase verlangt standardmäßig eine E-Mail-Bestätigung. Für schnelles Testen lässt sie sich unter
+> **Authentication → Sign In / Providers → Email → Confirm email** abschalten.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 3. Online stellen mit Vercel
+1. Projekt auf GitHub hochladen.
+2. Auf [vercel.com](https://vercel.com) mit GitHub anmelden → **Add New Project** → Repo auswählen.
+3. Unter *Environment Variables* `NEXT_PUBLIC_SUPABASE_URL` und `NEXT_PUBLIC_SUPABASE_ANON_KEY` eintragen → **Deploy**.
+4. In Supabase unter **Authentication → URL Configuration** die Vercel-Adresse als *Site URL* eintragen (damit die Bestätigungslinks stimmen).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Jeder weitere `git push` wird automatisch veröffentlicht.
 
-## Learn More
+### 4. Aufs Handy
+Seite im Browser öffnen → iPhone: Teilen → „Zum Home-Bildschirm“, Android: Menü → „App installieren“.
 
-To learn more about Next.js, take a look at the following resources:
+## Aufbau
+| Pfad | Inhalt |
+|---|---|
+| `supabase/schema.sql` | Tabellen, Zugriffsrechte (jede WG sieht nur ihre Daten), Live-Updates |
+| `src/lib/wg.tsx` | Login-Status, aktuelle WG, Hook `useRows()` zum Laden und Live-Aktualisieren |
+| `src/lib/balances.ts` | Salden und minimale Ausgleichszahlungen |
+| `src/components/Gate.tsx` | Anmelden, Registrieren, WG gründen/beitreten |
+| `src/app/*/page.tsx` | Die einzelnen Bereiche |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Ideen für später
+- Push-Benachrichtigungen („Du bist mit Bad putzen dran“)
+- Gekaufte Einkäufe direkt als Ausgabe eintragen
+- Wiederkehrende Kosten (Miete, Internet)
+- Putzplan-Statistik: wer hat wie oft geputzt
