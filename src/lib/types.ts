@@ -76,6 +76,16 @@ export type Todo = {
   created_at: string;
 };
 
+export type NoteColor = "gelb" | "rosa" | "gruen" | "blau" | "orange";
+export type Note = {
+  id: string;
+  household_id: string;
+  text: string;
+  color: NoteColor;
+  author: string | null;
+  created_at: string;
+};
+
 export type Praise = {
   id: string;
   household_id: string;

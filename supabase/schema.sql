@@ -11,7 +11,7 @@
 -- ════════════════════════════════════════════════════════════════════
 
 -- ───────────── Alte Version entfernen ─────────────
-drop table if exists public.praises, public.chore_checks, public.chore_tasks, public.chore_areas,
+drop table if exists public.notes, public.praises, public.chore_checks, public.chore_tasks, public.chore_areas,
   public.chores, public.shopping_items, public.expenses, public.events, public.todos,
   public.members, public.households cascade;
 drop function if exists public.is_member(uuid) cascade;
@@ -156,6 +156,16 @@ create table public.praises (
   check (from_member <> to_member)
 );
 
+-- ───────────── Pinnwand (Post-its) ─────────────
+create table public.notes (
+  id           uuid primary key default gen_random_uuid(),
+  household_id uuid not null references public.households on delete cascade,
+  text         text not null check (char_length(text) between 1 and 300),
+  color        text not null default 'gelb' check (color in ('gelb', 'rosa', 'gruen', 'blau', 'orange')),
+  author       uuid default public.my_member_id() references public.members on delete set null,
+  created_at   timestamptz not null default now()
+);
+
 -- ───────────── Beitritt per Link ─────────────
 create function public.household_preview(p_code text)
 returns json language sql security definer stable set search_path = public as $$
@@ -197,6 +207,7 @@ alter table public.expenses       enable row level security;
 alter table public.events         enable row level security;
 alter table public.todos          enable row level security;
 alter table public.praises        enable row level security;
+alter table public.notes          enable row level security;
 
 create policy "WG sehen"      on public.households for select using (is_member(id));
 create policy "WG umbenennen" on public.households for update using (is_member(id));
@@ -211,6 +222,7 @@ create policy "WG-Daten" on public.shopping_items for all using (is_member(house
 create policy "WG-Daten" on public.expenses       for all using (is_member(household_id)) with check (is_member(household_id));
 create policy "WG-Daten" on public.events         for all using (is_member(household_id)) with check (is_member(household_id));
 create policy "WG-Daten" on public.todos          for all using (is_member(household_id)) with check (is_member(household_id));
+create policy "WG-Daten" on public.notes          for all using (is_member(household_id)) with check (is_member(household_id));
 
 create policy "Lob sehen"     on public.praises for select using (is_member(household_id));
 create policy "Loben"         on public.praises for insert
@@ -220,7 +232,7 @@ create policy "Lob zurücknehmen" on public.praises for delete using (from_membe
 -- ───────────── Live-Updates ─────────────
 alter publication supabase_realtime
   add table public.households, public.members, public.chore_areas, public.chore_tasks, public.chore_checks,
-            public.shopping_items, public.expenses, public.events, public.todos, public.praises;
+            public.shopping_items, public.expenses, public.events, public.todos, public.praises, public.notes;
 
 -- ───────────── Startdaten: eure WG ─────────────
 do $$

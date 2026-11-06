@@ -184,22 +184,6 @@ export default function Kalender() {
           })}
         </div>
 
-        {/* Legende */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line px-3 py-2.5 text-xs text-muted">
-          {members.map((m) => (
-            <span key={m.id} className="flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ background: m.color }} />{m.display_name}
-            </span>
-          ))}
-          <span className="hidden h-3 w-px bg-line sm:block" />
-          <span>Balken = Putzwoche: {[...areas].sort((a, b) => a.sort - b.sort).map((a) => a.name).join(" · ")} (blass = erledigt)</span>
-<span className="w-full md:hidden">👆 Nach links/rechts wischen, um den Monat zu wechseln</span>
-                    <span className="flex items-center gap-1"><span className="rounded bg-red-500/15 px-1 font-semibold text-red-700 dark:text-red-300">Feiertag</span>Sachsen</span>
-          <span className="flex items-center gap-1"><span className="h-1 w-3 rounded bg-red-500" />Fällig (Ende Putzwoche)</span>
-          <span className="flex items-center gap-1">
-            <span className="h-2.5 w-5 rounded-full" style={{ background: "repeating-linear-gradient(135deg, #dc2626 0 3px, #f87171 3px 6px)" }} />überfällig, nachholen
-          </span>
-        </div>
       </Card>
 
       <SectionTitle>{formatDate(selected, { weekday: "long", day: "numeric", month: "long" })}</SectionTitle>

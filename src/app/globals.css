@@ -28,6 +28,7 @@
   --color-line: var(--line);
   --color-accent: var(--accent);
   --font-sans: var(--font-geist-sans);
+  --font-hand: var(--font-caveat);
 }
 
 /* Nie seitlich scrollen: nichts darf breiter als der Bildschirm werden */
