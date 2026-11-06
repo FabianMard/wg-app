@@ -67,10 +67,21 @@ async function ensureSession() {
   }
 }
 
+/**
+ * Code bereinigen: nur Buchstaben/Ziffern, Großbuchstaben.
+ * Die Codes bestehen nur aus 0-9 und A-F, daher sind O→0 und I/L→1 sichere Korrekturen.
+ * Fängt z. B. einen von WhatsApp angehängten Punkt oder Tippfehler ab.
+ */
+export function normalizeCode(raw: string) {
+  return raw.toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/O/g, "0").replace(/[IL]/g, "1");
+}
+
 function Setup() {
   const { refresh } = useWGState();
   const [code, setCode] = useState<string | null>(null);
-  const [preview, setPreview] = useState<Preview | null | "invalid">(null);
+  const [preview, setPreview] = useState<Preview | null | "invalid" | "error">(null);
+  const [rawCode, setRawCode] = useState("");
+  const [attempt, setAttempt] = useState(0);
   const [manualCode, setManualCode] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -78,18 +89,24 @@ function Setup() {
   // Einladungscode aus dem Link lesen: https://…/?code=ABC123
   useEffect(() => {
     const c = new URLSearchParams(window.location.search).get("code");
-    if (c) setCode(c.toUpperCase());
+    if (c) { setRawCode(c); setCode(normalizeCode(c)); }
   }, []);
 
   useEffect(() => {
     if (!code) return;
     setPreview(null);
+    setErr(null);
     supabase.rpc("household_preview", { p_code: code }).then(({ data, error }) => {
-      if (error) setErr(error.message.includes("household_preview")
-        ? "Datenbank fehlt: Bitte supabase/schema.sql im SQL Editor ausführen." : error.message);
+      if (error) {
+        // Verbindungs-/Serverfehler sind etwas anderes als ein falscher Code
+        setErr(error.message.includes("household_preview")
+          ? "Datenbank fehlt: Bitte supabase/schema.sql im SQL Editor ausführen." : error.message);
+        setPreview("error");
+        return;
+      }
       setPreview(data ?? "invalid");
-    });
-  }, [code]);
+    }, (e: unknown) => { setErr(e instanceof Error ? e.message : String(e)); setPreview("error"); });
+  }, [code, attempt]);
 
   async function claim(m: PreviewMember) {
     if (m.claimed && !confirm(`${m.display_name} ist schon auf einem anderen Gerät angemeldet.\n\nNeues Handy? Dann übernimmt dieses Gerät.`)) return;
@@ -112,7 +129,7 @@ function Setup() {
     return (
       <Centered>
         <Card>
-          <form onSubmit={(e) => { e.preventDefault(); setCode(manualCode.trim().toUpperCase()); }} className="space-y-2">
+          <form onSubmit={(e) => { e.preventDefault(); setRawCode(manualCode); setCode(normalizeCode(manualCode)); }} className="space-y-2">
             <label className="block text-sm font-medium" htmlFor="code">Einladungscode</label>
             <p className="text-sm text-muted">Öffne den Einladungslink aus eurer WG-Gruppe oder gib den Code ein.</p>
             <div className="flex gap-2">
@@ -130,16 +147,34 @@ function Setup() {
     return <Centered><p className="text-center text-muted">Lädt …</p>{err && <ErrorText>{err}</ErrorText>}</Centered>;
   }
 
+  if (preview === "error") {
+    return (
+      <Centered>
+        <Card>
+          <p className="font-semibold">Keine Verbindung zur WG-Datenbank.</p>
+          <p className="mt-1 text-sm text-muted">Prüf deine Internetverbindung und versuch es nochmal.</p>
+          {err && <p className="mt-2 break-words rounded-lg bg-line/40 px-2 py-1 font-mono text-xs text-muted">{err}</p>}
+          <button className={`${btnCls} mt-4 w-full`} onClick={() => setAttempt((a) => a + 1)}>Nochmal versuchen</button>
+        </Card>
+      </Centered>
+    );
+  }
+
   if (preview === "invalid") {
     return (
       <Centered>
         <Card>
-          <p className="font-semibold">Dieser Einladungscode ist ungültig.</p>
-          <p className="mt-1 text-sm text-muted">Frag in deiner WG nach dem aktuellen Link.</p>
-          <button className={`${btnCls} mt-4 w-full`} onClick={() => { setCode(null); window.history.replaceState(null, "", "/"); }}>
-            Anderen Code eingeben
-          </button>
-          {err && <ErrorText>{err}</ErrorText>}
+          <p className="font-semibold">Diesen Einladungscode gibt es nicht.</p>
+          <p className="mt-1 text-sm text-muted">
+            Geprüft: <b className="font-mono tracking-widest text-fg">{code || "–"}</b>
+            {rawCode && normalizeCode(rawCode) !== rawCode.trim().toUpperCase() && <> (eingegeben: „{rawCode}“)</>}
+          </p>
+          <p className="mt-1 text-sm text-muted">Tipp den Code nochmal ein oder frag in deiner WG nach dem aktuellen Link.</p>
+          <form onSubmit={(e) => { e.preventDefault(); setRawCode(manualCode); setCode(normalizeCode(manualCode)); }} className="mt-4 flex gap-2">
+            <input className={`${inputCls} uppercase tracking-widest`} placeholder="ABC123" value={manualCode}
+              onChange={(e) => setManualCode(e.target.value)} required aria-label="Einladungscode" />
+            <button className={btnCls}>Prüfen</button>
+          </form>
         </Card>
       </Centered>
     );
