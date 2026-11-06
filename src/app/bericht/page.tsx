@@ -12,6 +12,8 @@ import { Avatar, Card, SectionTitle } from "@/components/ui";
 
 const dayOf = (ts: string) => (ts.length <= 10 ? ts : toISO(new Date(ts)));
 
+const award = (list: { m: Member; n: number }[]) => (list[0]?.n ? list[0] : null);
+
 /** Zählt pro Mitbewohner und sortiert absteigend */
 function tally(ids: (string | null | undefined)[], members: Member[]) {
   const c = new Map<string, number>();
@@ -75,6 +77,12 @@ export default function Bericht() {
       .reduce((s, e) => s + Number(e.amount), 0),
   })).sort((a, b) => b.sum - a.sum);
   const shoppingTotal = shoppingSpend.reduce((s, x) => s + x.sum, 0);
+  // Einkaufs-Otto: wer am meisten eingekauft hat. Am liebsten nach abgehakten Sachen;
+  // gibt es die (noch) nicht, zählen die bezahlten Einkäufe unter Kosten.
+  const shoppingTrips = tally(expenses.filter((e) => !e.is_settlement && inMonth(e.spent_on) && /^einkauf/i.test(e.title)).map((e) => e.paid_by), members);
+  const otto = award(buyerTally)
+    ? { w: award(buyerTally), unit: "Sachen eingekauft" }
+    : { w: award(shoppingTrips), unit: shoppingTrips[0]?.n === 1 ? "Einkauf bezahlt" : "Einkäufe bezahlt" };
   const topItems = [...itemsMonth.reduce((m, i) => m.set(i.name.trim(), (m.get(i.name.trim()) ?? 0) + 1), new Map<string, number>())]
     .sort((a, b) => b[1] - a[1]).slice(0, 5);
   const storeCounts = [...itemsMonth.reduce((m, i) => m.set(i.store, (m.get(i.store) ?? 0) + 1), new Map<ShoppingItem["store"], number>())]
@@ -99,11 +107,10 @@ export default function Bericht() {
   const notesMonth = notes.filter((n) => inMonth(n.created_at));
 
   // ── Auszeichnungen ──
-  const award = (list: { m: Member; n: number }[]) => (list[0]?.n ? list[0] : null);
   const awards = [
     { icon: "🏆", title: "Putz-Champion", w: award(checkTally), unit: "Häkchen" },
     { icon: "🐝", title: "Bienenkönig*in", w: award(beeTally), unit: "Bienchen" },
-    { icon: "🛍️", title: "Einkaufs-Held*in", w: award(buyerTally), unit: "Sachen eingekauft" },
+    { icon: "🛍️", title: "Einkaufs-Otto", w: otto.w, unit: otto.unit },
     { icon: "🛒", title: "Listen-Profi", w: award(itemTally), unit: "Sachen eingetragen" },
     { icon: "✅", title: "To-do-Erlediger*in", w: award(todoTally), unit: "To-dos" },
     { icon: "💸", title: "Spendierhosen", w: paidBy[0]?.sum ? { m: paidBy[0].m, n: paidBy[0].sum } : null, unit: "€", money: true },
