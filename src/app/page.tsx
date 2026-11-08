@@ -8,7 +8,7 @@ import { beesOf } from "@/components/Praise";
 import { computeBalances } from "@/lib/balances";
 import { addDays, euro, formatDate, todayISO } from "@/lib/dates";
 import { holidayOn } from "@/lib/holidays";
-import { birthdayName, nextBirthdays, occurrencesBetween } from "@/lib/events";
+import { birthdayName, displayTitle, nextBirthdays, occurrencesBetween } from "@/lib/events";
 import { Avatar, Card, PageTitle } from "@/components/ui";
 import { Pinboard } from "@/components/Pinboard";
 
@@ -35,7 +35,7 @@ function ResidentHome() {
   // Termine + Feiertage der nächsten 7 Tage
   const holidays = Array.from({ length: 8 }, (_, i) => addDays(todayISO(), i))
     .filter((d) => holidayOn(d)).map((d) => ({ id: `fei-${d}`, title: `🎉 ${holidayOn(d)}`, day: d, time: null as string | null }));
-  const upcoming = [...holidays, ...occurrencesBetween(events, todayISO(), week).map((o) => ({ ...o.event, id: `${o.event.id}-${o.day}`, day: o.day }))]
+  const upcoming = [...holidays, ...occurrencesBetween(events, todayISO(), week).map((o) => ({ ...o.event, title: displayTitle(o.event), id: `${o.event.id}-${o.day}`, day: o.day }))]
     .sort((a, b) => (a.day + (a.time ?? "")).localeCompare(b.day + (b.time ?? ""))).slice(0, 5);
   const myTodos = todos.filter((t) => !t.done && (t.assignee === myId || !t.assignee));
 

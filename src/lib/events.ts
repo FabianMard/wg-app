@@ -87,3 +87,23 @@ export function birthdayName(title: string): string {
   if (s) return s[1].trim();
   return t || title;
 }
+
+/** Anzeigename: Geburtstage kurz als "🎂 Name" */
+export const displayTitle = (e: CalEvent) => (isBirthday(e) ? `🎂 ${birthdayName(e.title)}` : e.title);
+
+/** Nur für mich sichtbar? */
+export const isPrivate = (e: CalEvent, myId: string) => !!e.visible_to && e.visible_to.length > 0 && e.visible_to.every((id) => id === myId);
+
+/** Art eines Eintrags → Farbe im Kalender */
+export function eventKind(e: CalEvent, myId: string): "geburtstag" | "mehrtaegig" | "privat" | "normal" {
+  if (isBirthday(e)) return "geburtstag";
+  if (extraDays(e) > 0) return "mehrtaegig";
+  if (isPrivate(e, myId)) return "privat";
+  return "normal";
+}
+export const KIND_STYLE: Record<ReturnType<typeof eventKind>, { chip: string; bar: string }> = {
+  geburtstag: { chip: "bg-pink-500/15 text-pink-700 dark:text-pink-300", bar: "border-l-pink-500" },
+  mehrtaegig: { chip: "bg-violet-500/20 text-violet-700 dark:text-violet-300", bar: "border-l-violet-500" },
+  privat: { chip: "bg-neutral-500/15 text-neutral-600 dark:text-neutral-300", bar: "border-l-neutral-400" },
+  normal: { chip: "bg-accent/15 text-accent", bar: "border-l-[var(--accent)]" },
+};

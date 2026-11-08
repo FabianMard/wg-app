@@ -48,7 +48,7 @@ export const OBJECTS: GameObject[] = [
   { x: 19, y: 1, icon: "📺", label: "Fernseher", action: "watchlist", hint: "Watchlist: Was schauen wir?" },
   { x: 21, y: 3, icon: "📌", label: "Pinnwand", action: "pinnwand", hint: "Zettel & Fotos ansehen" },
   { x: 18, y: 3, icon: "💰", label: "Haushaltskasse", action: "kosten", hint: "Kosten & Ausgleich" },
-  { x: 15, y: 5, icon: "🪴", label: "Pflanze", action: "todos", hint: "Gießen? Ab auf die To-do-Liste" },
+  { x: 15, y: 5, icon: "🪴", label: "Pflanze", action: "giessen", hint: "Gießen 💧" },
   // Flur (Kalender hängt an der Wand)
   { x: 8, y: 6, icon: "📅", label: "Kalender", action: "kalender", hint: "Termine ansehen & eintragen" },
   { x: 21, y: 8, icon: "🧹", label: "Besen", action: "putzplan", hint: "Putzplan ansehen" },

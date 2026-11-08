@@ -7,7 +7,7 @@ import type { CalEvent, ChoreArea, ChoreCheck, ChoreTask, Expense, Member, Note,
 import { areaStatuses, periodRange } from "@/lib/cleaning";
 import { addDays, euro, formatDate, toISO } from "@/lib/dates";
 import { holidaysSachsen } from "@/lib/holidays";
-import { occurrencesBetween } from "@/lib/events";
+import { displayTitle, occurrencesBetween } from "@/lib/events";
 import { storeById } from "@/lib/stores";
 import { Avatar, Card, SectionTitle } from "@/components/ui";
 
@@ -99,7 +99,7 @@ export default function Bericht() {
 
   // ── Kalender, To-dos, Bienchen, Pinnwand ──
   // inkl. wiederkehrender Termine (z. B. Geburtstage)
-  const eventsMonth = occurrencesBetween(events, from, addDays(to, -1)).map((o) => ({ ...o.event, id: `${o.event.id}-${o.day}`, day: o.day }));
+  const eventsMonth = occurrencesBetween(events, from, addDays(to, -1)).map((o) => ({ ...o.event, title: displayTitle(o.event), id: `${o.event.id}-${o.day}`, day: o.day }));
   const holidays = holidaysSachsen(month.getFullYear()).filter((h) => inMonth(h.date));
   const todosCreated = todos.filter((t) => inMonth(t.created_at));
   const todosDone = todos.filter((t) => t.done && inMonth(t.done_at));

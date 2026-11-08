@@ -7,7 +7,7 @@ import type { CalEvent, ChoreArea, ChoreCheck, ChoreTask } from "@/lib/types";
 import { areaStatuses, isOverdue, periodOf, periodRange, type AreaStatus } from "@/lib/cleaning";
 import { formatDate, fromISO, toISO, todayISO } from "@/lib/dates";
 import { holidayOn } from "@/lib/holidays";
-import { occurrencesOn, RECURRENCE_LABEL, rangeLabel, type Occurrence } from "@/lib/events";
+import { birthdayName, displayTitle, eventKind, isPrivate, KIND_STYLE, occurrencesOn, RECURRENCE_LABEL, rangeLabel, type Occurrence } from "@/lib/events";
 import { addDays } from "@/lib/dates";
 import { Avatar, btnCls, Card, DeleteButton, inputCls, PageTitle, SectionTitle } from "@/components/ui";
 
@@ -72,6 +72,7 @@ export default function Kalender() {
     if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) shift(dx < 0 ? 1 : -1);
   };
 
+  const titleRef = useRef<HTMLInputElement>(null);
   function resetForm() {
     setTitle(""); setTime(""); setEndDay(""); setRecurrence("keine"); setAudience(null); setMore(false); setErr(null);
   }
@@ -84,7 +85,9 @@ export default function Kalender() {
       return;
     }
     const extended = endDay > selected || recurrence !== "keine" || audience !== null;
-    const row: Record<string, unknown> = { household_id: household.id, title: title.trim(), day: selected, time: time || null };
+    // Geburtstage einheitlich als "🎂 Name" speichern
+    const clean = title.trim().startsWith("🎂") ? `🎂 ${birthdayName(title.trim())}` : title.trim();
+    const row: Record<string, unknown> = { household_id: household.id, title: clean, day: selected, time: time || null };
     if (extended) {
       if (endDay > selected) row.end_day = endDay;
       row.recurrence = recurrence;
@@ -106,7 +109,8 @@ export default function Kalender() {
     setRecurrence("jaehrlich");
     setTime("");
     setEndDay("");
-    if (!title.startsWith("🎂")) setTitle(`🎂 ${title.trim() || "Geburtstag von "}`);
+    if (!title.startsWith("🎂")) setTitle(`🎂 ${title.trim()}`);
+    titleRef.current?.focus();
   }
   async function remove(ev: CalEvent) {
     const series = (ev.recurrence ?? "keine") !== "keine" || (ev.end_day && ev.end_day > ev.day);
@@ -114,8 +118,11 @@ export default function Kalender() {
     await supabase.from("events").delete().eq("id", ev.id);
     reload();
   }
-  const audienceLabel = (ev: CalEvent) =>
-    ev.visible_to?.length ? `👁 nur ${ev.visible_to.map((id) => (id === myId ? "du" : member(id)?.display_name ?? "?")).join(", ")}` : "";
+  const audienceLabel = (ev: CalEvent) => {
+    if (!ev.visible_to?.length) return "";
+    const others = ev.visible_to.filter((id) => id !== myId);
+    return others.length ? `👁 du, ${others.map((id) => member(id)?.display_name ?? "?").join(", ")}` : "🔒 nur du";
+  };
 
   const dayEvents = eventsOn(selected);
   const selHoliday = holidayOn(selected);
@@ -174,13 +181,12 @@ export default function Kalender() {
                     </span>
                   )}
                   {evs.slice(0, MAX_EVENTS_IN_TILE).map(({ event: e, dayNo, total }) => (
-                    <span key={e.id} title={e.title}
-                      className={`line-clamp-2 hyphens-auto break-words px-0.5 text-[9px] font-medium leading-[11px] md:truncate md:px-1 md:text-[11px] md:leading-4
-                        ${total > 1 ? "bg-violet-500/20 text-violet-700 dark:text-violet-300" : "bg-accent/15 text-accent"}
+                    <span key={e.id} title={displayTitle(e)}
+                      className={`truncate px-0.5 text-[9px] font-semibold leading-[13px] md:px-1 md:text-[11px] md:leading-4 ${KIND_STYLE[eventKind(e, myId)].chip}
                         ${total > 1 && dayNo > 1 ? "-ml-1 rounded-r md:-ml-1.5" : "rounded"} ${total > 1 && dayNo < total ? "-mr-1 rounded-l md:-mr-1.5" : ""}`}>
-                      {total > 1 && dayNo > 1
-                        ? <span className="opacity-60">↳ {e.title}</span>
-                        : <><span className="hidden md:inline">{e.time && `${e.time.slice(0, 5)} `}</span>{e.title}</>}
+                      {total > 1 && dayNo > 1 && fromISO(iso).getDay() !== 1
+                        ? <span className="opacity-0">.</span>
+                        : <>{isPrivate(e, myId) && "🔒"}<span className="hidden md:inline">{e.time && `${e.time.slice(0, 5)} `}</span>{displayTitle(e)}</>}
                     </span>
                   ))}
                   {evs.length > MAX_EVENTS_IN_TILE && (
@@ -235,7 +241,7 @@ export default function Kalender() {
       {!isGuest && (
         <form onSubmit={add} className="mb-3 space-y-2">
           <div className="flex gap-2">
-            <input className={inputCls} placeholder="Neuer Termin, z. B. WG-Party" value={title} onChange={(e) => setTitle(e.target.value)} />
+            <input ref={titleRef} className={inputCls} placeholder={title.startsWith("🎂") ? "🎂 Name" : "Neuer Termin, z. B. WG-Party"} value={title} onChange={(e) => setTitle(e.target.value)} />
             <input className={`${inputCls} w-28`} type="time" value={time} onChange={(e) => setTime(e.target.value)} aria-label="Uhrzeit (optional)" />
             <button className={btnCls}>+</button>
           </div>
@@ -264,7 +270,9 @@ export default function Kalender() {
               <div className="flex flex-wrap items-center gap-2">
                 <span className="w-24 text-muted">Sichtbar für</span>
                 <button type="button" onClick={() => setAudience(null)}
-                  className={`rounded-full border px-3 py-1 font-medium ${audience === null ? "border-accent bg-accent text-white" : "border-line text-muted"}`}>Alle</button>
+                  className={`rounded-full border px-3 py-1 font-medium ${audience === null ? "border-accent bg-accent text-white" : "border-line text-muted"}`}>👥 Alle</button>
+                <button type="button" onClick={() => setAudience([])}
+                  className={`rounded-full border px-3 py-1 font-medium ${audience !== null && audience.length === 0 ? "border-neutral-600 bg-neutral-600 text-white" : "border-line text-muted"}`}>🔒 Nur ich</button>
                 {everyone.filter((m) => m.id !== myId).map((m) => {
                   const on = audience?.includes(m.id) ?? false;
                   return (
@@ -277,7 +285,7 @@ export default function Kalender() {
                   );
                 })}
               </div>
-              {audience !== null && <p className="text-xs text-muted">Nur du{audience.length ? ` und ${audience.map((id) => member(id)?.display_name).join(", ")}` : ""} sehen diesen Eintrag.</p>}
+              {audience !== null && <p className="text-xs text-muted">{audience.length ? `Nur du und ${audience.map((id) => member(id)?.display_name).join(", ")} sehen diesen Eintrag.` : "🔒 Nur du siehst diesen Eintrag."}</p>}
             </Card>
           )}
           {err && <p className="text-sm text-red-600">{err}</p>}
@@ -292,15 +300,19 @@ export default function Kalender() {
           </Card>
         )}
         {dayEvents.map(({ event: ev, start, dayNo, total }) => (
-          <Card key={ev.id} className="flex items-center gap-3">
-            <span className="w-12 shrink-0 text-sm font-medium tabular-nums text-accent">{ev.time ? ev.time.slice(0, 5) : "ganzt."}</span>
+          <Card key={ev.id} className={`flex items-center gap-3 border-l-4 py-3 ${KIND_STYLE[eventKind(ev, myId)].bar}`}>
+            <span className="w-11 shrink-0 text-center text-sm font-semibold tabular-nums text-muted">
+              {ev.time ? ev.time.slice(0, 5) : total > 1 ? `${dayNo}/${total}` : <span className="text-xs font-medium">ganzt.</span>}
+            </span>
             <span className="min-w-0 flex-1">
-              <span className="block">{ev.title}</span>
-              <span className="flex flex-wrap gap-x-2 text-xs text-muted">
-                {total > 1 && <span>📆 {rangeLabel(start, total)} · Tag {dayNo}/{total}</span>}
-                {(ev.recurrence ?? "keine") !== "keine" && <span>🔁 {RECURRENCE_LABEL[ev.recurrence!]}</span>}
-                {audienceLabel(ev) && <span>{audienceLabel(ev)}</span>}
-              </span>
+              <span className="block truncate font-medium">{displayTitle(ev)}</span>
+              {(total > 1 || (ev.recurrence ?? "keine") !== "keine" || audienceLabel(ev)) && (
+                <span className="mt-1 flex flex-wrap gap-1">
+                  {total > 1 && <span className="rounded-full bg-line/60 px-2 py-0.5 text-[11px] text-muted">📆 {rangeLabel(start, total)}</span>}
+                  {(ev.recurrence ?? "keine") !== "keine" && <span className="rounded-full bg-line/60 px-2 py-0.5 text-[11px] text-muted">🔁 {RECURRENCE_LABEL[ev.recurrence!]}</span>}
+                  {audienceLabel(ev) && <span className="rounded-full bg-line/60 px-2 py-0.5 text-[11px] text-muted">{audienceLabel(ev)}</span>}
+                </span>
+              )}
             </span>
             {!isGuest && <DeleteButton onClick={() => remove(ev)} />}
           </Card>
