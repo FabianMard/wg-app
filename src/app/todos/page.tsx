@@ -49,14 +49,26 @@ function TodoList() {
   return (
     <>
       <Card className="mb-5">
-        <form onSubmit={add} className="grid gap-2 sm:grid-cols-[1fr_auto_auto_auto]">
-          <input className={inputCls} placeholder="Neues To-do" value={title} onChange={(e) => setTitle(e.target.value)} />
-          <select className={inputCls} value={assignee} onChange={(e) => setAssignee(e.target.value)}>
-            <option value="">Alle / egal</option>
-            {members.map((m) => <option key={m.id} value={m.id}>{m.display_name}</option>)}
-          </select>
-          <input className={inputCls} type="date" value={due} onChange={(e) => setDue(e.target.value)} aria-label="Fällig am" />
-          <button className={btnCls}>Hinzufügen</button>
+        <form onSubmit={add} className="space-y-2">
+          <div className="flex gap-2">
+            <input className={inputCls} placeholder="Neues To-do" value={title} onChange={(e) => setTitle(e.target.value)} />
+            <button className={`${btnCls} shrink-0`} aria-label="Hinzufügen">+</button>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="min-w-0">
+              <span className="mb-1 block text-xs font-medium text-muted">👤 Wer?</span>
+              <select className={`${inputCls} py-2`} value={assignee} onChange={(e) => setAssignee(e.target.value)}>
+                <option value="">Alle / egal</option>
+                {members.map((m) => <option key={m.id} value={m.id}>{m.display_name}</option>)}
+              </select>
+            </label>
+            <label className="min-w-0">
+              <span className="mb-1 flex items-center justify-between text-xs font-medium text-muted">
+                📅 Fällig bis {due && <button type="button" onClick={() => setDue("")} className="underline">löschen</button>}
+              </span>
+              <input className={`${inputCls} min-w-0 py-2 ${due ? "" : "text-muted"}`} type="date" value={due} onChange={(e) => setDue(e.target.value)} aria-label="Fällig bis (optional)" />
+            </label>
+          </div>
         </form>
       </Card>
 

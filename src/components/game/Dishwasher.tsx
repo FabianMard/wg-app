@@ -6,25 +6,26 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * Minispiel: Spülmaschine einräumen – so schnell und so richtig wie möglich.
  * Geschirr kommt nacheinander, man tippt auf den passenden Korb.
  */
-type Basket = "oben" | "unten" | "besteck";
-const ITEMS: { icon: string; name: string; basket: Basket }[] = [
-  { icon: "🍽️", name: "Teller", basket: "unten" },
-  { icon: "🥘", name: "Topf", basket: "unten" },
-  { icon: "🍳", name: "Pfanne", basket: "unten" },
-  { icon: "🥗", name: "Salatschüssel", basket: "unten" },
-  { icon: "🥛", name: "Glas", basket: "oben" },
-  { icon: "☕", name: "Tasse", basket: "oben" },
-  { icon: "🍷", name: "Weinglas", basket: "oben" },
-  { icon: "🥣", name: "Müslischale", basket: "oben" },
-  { icon: "🍴", name: "Besteck", basket: "besteck" },
-  { icon: "🥄", name: "Löffel", basket: "besteck" },
-  { icon: "🔪", name: "Messer", basket: "besteck" },
-  { icon: "🥢", name: "Stäbchen", basket: "besteck" },
+// Aufbau wie in der WG: Besteckschublade oben, darunter Ober- und Unterkorb – jeweils mit Fächern zum Sortieren
+type Slot = "messer" | "gabeln" | "loeffel" | "glaeser" | "tassen" | "schuesseln" | "teller" | "toepfe";
+const RACKS: { id: string; label: string; slots: { id: Slot; label: string; icon: string }[] }[] = [
+  { id: "schublade", label: "Besteckschublade (oben)", slots: [
+    { id: "messer", label: "Messer", icon: "🔪" }, { id: "gabeln", label: "Gabeln", icon: "🍴" }, { id: "loeffel", label: "Löffel", icon: "🥄" }] },
+  { id: "oberkorb", label: "Oberkorb", slots: [
+    { id: "glaeser", label: "Gläser", icon: "🥛" }, { id: "tassen", label: "Tassen", icon: "☕" }, { id: "schuesseln", label: "Schüsseln", icon: "🥣" }] },
+  { id: "unterkorb", label: "Unterkorb", slots: [
+    { id: "teller", label: "Teller", icon: "🍽️" }, { id: "toepfe", label: "Töpfe & Pfannen", icon: "🥘" }] },
 ];
-const BASKETS: { id: Basket; label: string; hint: string }[] = [
-  { id: "oben", label: "Oberkorb", hint: "Gläser, Tassen, Schalen" },
-  { id: "unten", label: "Unterkorb", hint: "Teller, Töpfe, Pfannen" },
-  { id: "besteck", label: "Besteckkorb", hint: "Besteck" },
+const rackOf = (slot: Slot) => RACKS.find((r) => r.slots.some((x) => x.id === slot))!.id;
+const ITEMS: { icon: string; name: string; slot: Slot }[] = [
+  { icon: "🔪", name: "Messer", slot: "messer" }, { icon: "🔪", name: "Buttermesser", slot: "messer" },
+  { icon: "🍴", name: "Gabel", slot: "gabeln" }, { icon: "🍴", name: "Kuchengabel", slot: "gabeln" },
+  { icon: "🥄", name: "Löffel", slot: "loeffel" }, { icon: "🥄", name: "Teelöffel", slot: "loeffel" },
+  { icon: "🥛", name: "Glas", slot: "glaeser" }, { icon: "🍷", name: "Weinglas", slot: "glaeser" }, { icon: "🍺", name: "Bierglas", slot: "glaeser" },
+  { icon: "☕", name: "Tasse", slot: "tassen" }, { icon: "🍵", name: "Teetasse", slot: "tassen" },
+  { icon: "🥣", name: "Müslischale", slot: "schuesseln" }, { icon: "🥗", name: "Salatschüssel", slot: "schuesseln" },
+  { icon: "🍽️", name: "Teller", slot: "teller" }, { icon: "🍽️", name: "Kleiner Teller", slot: "teller" },
+  { icon: "🥘", name: "Topf", slot: "toepfe" }, { icon: "🍳", name: "Pfanne", slot: "toepfe" },
 ];
 const DURATION = 30;
 const BEST_KEY = "wg-spiel-spuelmaschine-rekord";
@@ -39,7 +40,7 @@ export function Dishwasher({ onResult }: { onResult?: (score: number, best: bool
   const [combo, setCombo] = useState(0);
   const [right, setRight] = useState(0);
   const [wrong, setWrong] = useState(0);
-  const [flash, setFlash] = useState<null | { ok: boolean; basket: Basket }>(null);
+  const [flash, setFlash] = useState<null | { ok: boolean; slot: Slot }>(null);
   const [best, setBest] = useState(() => { try { return Number(localStorage.getItem(BEST_KEY)) || 0; } catch { return 0; } });
   const [newBest, setNewBest] = useState(false);
   const shownAt = useRef(0);
@@ -65,37 +66,28 @@ export function Dishwasher({ onResult }: { onResult?: (score: number, best: bool
     return () => clearTimeout(t);
   }, [phase, timeLeft, finish]);
 
-  function choose(b: Basket) {
+  function choose(slot: Slot) {
     if (phase !== "spiel") return;
-    const ok = item.basket === b;
+    const ok = item.slot === slot;
     if (ok) {
       // schneller = mehr Punkte, Serie gibt Bonus
       const ms = Date.now() - shownAt.current;
-      const speed = ms < 600 ? 5 : ms < 1000 ? 3 : ms < 1600 ? 1 : 0;
-      const gained = 10 + speed + Math.min(combo, 10);
-      scoreRef.current += gained;
-      setScore(scoreRef.current); setCombo((c) => c + 1); setRight((r) => r + 1);
+      const speed = ms < 700 ? 5 : ms < 1100 ? 3 : ms < 1700 ? 1 : 0;
+      scoreRef.current += 10 + speed + Math.min(combo, 10);
+      setCombo((c) => c + 1); setRight((r) => r + 1);
     } else {
-      scoreRef.current = Math.max(0, scoreRef.current - 8);
-      setScore(scoreRef.current); setCombo(0); setWrong((w) => w + 1);
+      // richtiger Korb, falsches Fach: kleiner Abzug – ganz falscher Korb: großer Abzug
+      scoreRef.current = Math.max(0, scoreRef.current - (rackOf(slot) === rackOf(item.slot) ? 4 : 8));
+      setCombo(0); setWrong((w) => w + 1);
     }
-    setFlash({ ok, basket: b });
+    setScore(scoreRef.current);
+    setFlash({ ok, slot });
     setTimeout(() => setFlash(null), 180);
-    // nie zweimal dasselbe Teil hintereinander (ohne Schleife)
-    const pool = ITEMS.filter((x) => x.icon !== item.icon);
+    // nie zweimal dasselbe Teil hintereinander
+    const pool = ITEMS.filter((x) => x.name !== item.name);
     setItem(pool[Math.floor(Math.random() * pool.length)]);
     shownAt.current = Date.now();
   }
-
-  // Tastatur: 1 = oben, 2 = unten, 3 = Besteck
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const map: Record<string, Basket> = { "1": "oben", "2": "unten", "3": "besteck" };
-      if (map[e.key]) { e.preventDefault(); choose(map[e.key]); }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
 
   const accuracy = right + wrong ? Math.round((right / (right + wrong)) * 100) : 0;
 
@@ -105,10 +97,10 @@ export function Dishwasher({ onResult }: { onResult?: (score: number, best: bool
         <p className="text-5xl">🍽️🫧</p>
         <p className="font-semibold">Räum die Spülmaschine ein – so schnell und so richtig wie möglich!</p>
         <ul className="mx-auto max-w-xs space-y-1 text-left text-sm text-muted">
-          <li>⬆️ <b>Oberkorb:</b> Gläser, Tassen, Schalen</li>
-          <li>⬇️ <b>Unterkorb:</b> Teller, Töpfe, Pfannen</li>
-          <li>🍴 <b>Besteckkorb:</b> Besteck</li>
-          <li>⏱️ {DURATION} Sekunden · schnell = Bonus · Serie = Bonus · falsch = Abzug</li>
+          <li>🍴 <b>Besteckschublade (oben):</b> Messer · Gabeln · Löffel – getrennt!</li>
+          <li>⬆️ <b>Oberkorb:</b> Gläser · Tassen · Schüsseln</li>
+          <li>⬇️ <b>Unterkorb:</b> Teller · Töpfe &amp; Pfannen</li>
+          <li>⏱️ {DURATION} Sekunden · schnell und Serie = Bonus · falsches Fach = Abzug</li>
         </ul>
         {best > 0 && <p className="text-sm">🏆 Dein Rekord: <b>{best}</b></p>}
         <button onClick={start} className="w-full rounded-2xl bg-accent py-3 text-lg font-semibold text-white active:scale-[.98]">Los geht&apos;s!</button>
@@ -143,18 +135,22 @@ export function Dishwasher({ onResult }: { onResult?: (score: number, best: bool
         <span key={item.icon + score + wrong} className="animate-[pop_.15s_ease-out] text-6xl">{item.icon}</span>
         <span className="mt-1 text-sm text-muted">{item.name}</span>
       </div>
-      {/* Spülmaschine mit drei Körben */}
+      {/* Spülmaschine: Besteckschublade oben, Ober- und Unterkorb mit Fächern */}
       <div className="space-y-2 rounded-2xl bg-neutral-300 p-2 dark:bg-neutral-700">
-        {BASKETS.map((b, i) => (
-          <button key={b.id} onClick={() => choose(b.id)}
-            className={`flex w-full items-center justify-between rounded-xl border-2 border-dashed px-4 py-4 text-left transition active:scale-[.98] ${
-              flash?.basket === b.id ? (flash.ok ? "border-emerald-500 bg-emerald-100 dark:bg-emerald-900/40" : "border-red-500 bg-red-100 dark:bg-red-900/40") : "border-neutral-400 bg-neutral-100 dark:bg-neutral-800"}`}>
-            <span>
-              <span className="block font-semibold text-neutral-800 dark:text-neutral-100">{b.label}</span>
-              <span className="block text-xs text-neutral-500 dark:text-neutral-400">{b.hint}</span>
-            </span>
-            <kbd className="hidden rounded bg-neutral-300 px-1.5 text-xs text-neutral-600 md:inline">{i + 1}</kbd>
-          </button>
+        {RACKS.map((r) => (
+          <div key={r.id} className="rounded-xl bg-neutral-200/80 p-1.5 dark:bg-neutral-800/80">
+            <p className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{r.label}</p>
+            <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${r.slots.length}, minmax(0, 1fr))` }}>
+              {r.slots.map((x) => (
+                <button key={x.id} onClick={() => choose(x.id)}
+                  className={`flex flex-col items-center rounded-lg border-2 border-dashed px-1 py-2.5 transition active:scale-95 ${
+                    flash?.slot === x.id ? (flash.ok ? "border-emerald-500 bg-emerald-100 dark:bg-emerald-900/40" : "border-red-500 bg-red-100 dark:bg-red-900/40") : "border-neutral-400 bg-neutral-50 dark:bg-neutral-900"}`}>
+                  <span className="text-xl opacity-50">{x.icon}</span>
+                  <span className="text-xs font-semibold text-neutral-700 dark:text-neutral-200">{x.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
         ))}
       </div>
     </div>
