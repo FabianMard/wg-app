@@ -28,11 +28,29 @@ export function parseSpotify(input: string): { url: string; embed: string; type:
   return { type: m[1], url: `https://open.spotify.com/${m[1]}/${m[2]}`, embed: `https://open.spotify.com/embed/${m[1]}/${m[2]}` };
 }
 
+/** Spotify-Link aus beliebigem Text fischen (z. B. "Hör dir das an: https://open.spotify.com/…") */
+export function findSpotifyLink(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const m = text.match(/https?:\/\/open\.spotify\.com\/[^\s"'<>]+/) ?? text.match(/spotify:(?:playlist|album|track|artist|show|episode):[A-Za-z0-9]+/);
+  return m ? m[0] : null;
+}
+
 /** Gemeinsame Musikliste mit Spotify-Playlisten. Gäste (mit Freigabe) können nur hören. */
-export function MusicList() {
+export function MusicList({ initialLink }: { initialLink?: string } = {}) {
   const { household, member, isGuest } = useWG();
   const { rows, loaded, reload } = useRows<Playlist>("playlists", "created_at", false);
-  const [link, setLink] = useState("");
+  const [link, setLink] = useState(initialLink ?? "");
+  const [clipMsg, setClipMsg] = useState<string | null>(null);
+  async function pasteFromClipboard() {
+    setClipMsg(null);
+    try {
+      const found = findSpotifyLink(await navigator.clipboard.readText());
+      if (found) setLink(found);
+      else setClipMsg("In der Zwischenablage ist kein Spotify-Link. In Spotify: ··· → Teilen → Link kopieren.");
+    } catch {
+      setClipMsg("Einfügen wurde nicht erlaubt – lange ins Feld tippen und „Einsetzen“ wählen.");
+    }
+  }
   const [title, setTitle] = useState("");
   const [mood, setMood] = useState<Playlist["mood"]>("party");
   const [filter, setFilter] = useState<Playlist["mood"] | null>(null);
@@ -78,11 +96,25 @@ export function MusicList() {
       {!isGuest && (
         <Card className="mb-5">
           <form onSubmit={add} className="space-y-3">
+            {/* 1. Spotify öffnen, Playlist teilen → Link kopieren  2. hier einfügen */}
+            <div className="grid grid-cols-2 gap-2">
+              <a href="https://open.spotify.com/collection/playlists" target="_blank" rel="noopener noreferrer"
+                className="flex items-center justify-center gap-1.5 rounded-xl bg-[#1db954] px-3 py-2.5 text-sm font-semibold text-white active:scale-[.98]">
+                ① Spotify öffnen
+              </a>
+              <button type="button" onClick={pasteFromClipboard}
+                className="flex items-center justify-center gap-1.5 rounded-xl border border-line bg-card px-3 py-2.5 text-sm font-semibold active:scale-[.98]">
+                ② 📋 Link einfügen
+              </button>
+            </div>
+            <p className="text-xs text-muted">In Spotify bei der Playlist: <b>···</b> → <b>Teilen</b> → <b>Link kopieren</b>, dann hier zurück und ② tippen.</p>
+            {clipMsg && <p className="text-xs text-amber-700 dark:text-amber-300">{clipMsg}</p>}
             <div className="flex gap-2">
-              <input className={inputCls} placeholder="Spotify-Link einfügen" value={link} onChange={(e) => setLink(e.target.value)} inputMode="url" />
+              <input className={inputCls} placeholder="…oder Spotify-Link hier einfügen" value={link} onChange={(e) => setLink(e.target.value)} inputMode="url" />
               <button className={btnCls} disabled={busy || !link.trim()}>+</button>
             </div>
-            {link && !parsed && <p className="text-xs text-amber-700 dark:text-amber-300">In Spotify: ··· → Teilen → Link kopieren, dann hier einfügen.</p>}
+            {link && !parsed && <p className="text-xs text-amber-700 dark:text-amber-300">Das sieht nicht nach einem Spotify-Link aus.</p>}
+            {parsed && <p className="text-xs font-medium text-[#1db954]">✓ Spotify-{parsed.type === "playlist" ? "Playlist" : parsed.type === "album" ? "Album" : "Link"} erkannt – Stimmung wählen und ＋ tippen</p>}
             {parsed && (
               <input className={`${inputCls} py-2 text-sm`} placeholder="Name (optional – wird sonst von Spotify geholt)" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} />
             )}
