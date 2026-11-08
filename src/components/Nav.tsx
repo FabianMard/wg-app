@@ -17,8 +17,30 @@ export const NAV = [
   { href: "/spiel", label: "Spiel", icon: "🎮" },
 ];
 
+/** Menü für Gäste: nur, was freigegeben ist */
+function useNav() {
+  const { isGuest, can } = useWG();
+  if (!isGuest) return NAV;
+  return [
+    { href: "/", label: "Start", icon: "🏠" },
+    { href: "/spiel", label: "Spiel", icon: "🎮" },
+    ...(can("kalender") ? [{ href: "/kalender", label: "Kalender", icon: "📅" }] : []),
+    ...(can("pinnwand") ? [{ href: "/pinnwand", label: "Pinnwand", icon: "📌" }] : []),
+    ...(can("watchlist") ? [{ href: "/watchlist", label: "Watchlist", icon: "📺" }] : []),
+  ];
+}
+
+/** Welche Seiten darf ein Gast öffnen? */
+export function guestMayOpen(path: string, can: (a: "kalender" | "pinnwand" | "watchlist") => boolean) {
+  if (path === "/" || path === "/spiel") return true;
+  if (path.startsWith("/kalender")) return can("kalender");
+  if (path.startsWith("/pinnwand")) return can("pinnwand");
+  if (path.startsWith("/watchlist")) return can("watchlist");
+  return false;
+}
+
 export function Header() {
-  const { household, me } = useWG();
+  const { household, me, isGuest } = useWG();
   const wgPhoto = useSignedUrl(household.photo_path);
   return (
     <header className="sticky top-0 z-20 border-b border-line bg-bg/85 backdrop-blur">
@@ -35,7 +57,9 @@ export function Header() {
         </nav>
         <div className="flex items-center gap-2">
           <OnlineNow />
-          <Link href="/wg" aria-label="WG-Einstellungen"><Avatar member={me} size={32} /></Link>
+          {isGuest
+            ? <span className="flex items-center gap-1.5"><span className="rounded-full bg-amber-400/20 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300">Gast</span><Avatar member={me} size={32} /></span>
+            : <Link href="/wg" aria-label="WG-Einstellungen"><Avatar member={me} size={32} /></Link>}
         </div>
       </div>
     </header>
@@ -44,7 +68,7 @@ export function Header() {
 
 function DesktopLinks() {
   const path = usePathname();
-  return NAV.map((n) => (
+  return useNav().map((n) => (
     <Link key={n.href} href={n.href}
       className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${path === n.href ? "bg-accent/10 text-accent" : "text-muted hover:text-fg"}`}>
       {n.label}
@@ -54,10 +78,11 @@ function DesktopLinks() {
 
 export function BottomNav() {
   const path = usePathname();
+  const nav = useNav();
   return (
     <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
-      <div className="mx-auto grid max-w-3xl grid-cols-7">
-        {NAV.map((n) => {
+      <div className="mx-auto grid max-w-3xl" style={{ gridTemplateColumns: `repeat(${nav.length}, minmax(0, 1fr))` }}>
+        {nav.map((n) => {
           const active = path === n.href;
           return (
             <Link key={n.href} href={n.href}

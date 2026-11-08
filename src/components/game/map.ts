@@ -24,7 +24,8 @@ export const MAP = [
 export const COLS = MAP[0].length;
 export const ROWS = MAP.length;
 
-export type Action = "start" | "putzplan" | "einkauf" | "kosten" | "kalender" | "todos" | "wg" | "schlafen" | "kleiderschrank" | "giessen" | "buecher";
+export type Action = "start" | "putzplan" | "einkauf" | "kosten" | "kalender" | "todos" | "wg" | "watchlist" | "pinnwand"
+  | "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine";
 
 /** owner = Index des Mitbewohners (members.sort), dem der Gegenstand gehört */
 export type GameObject = { x: number; y: number; icon: string; label: string; action: Action; hint: string; owner?: number };
@@ -34,6 +35,7 @@ export const OBJECTS: GameObject[] = [
   { x: 1, y: 1, icon: "🧊", label: "Kühlschrank", action: "einkauf", hint: "Was fehlt? Einkaufsliste öffnen" },
   { x: 3, y: 1, icon: "🍳", label: "Herd", action: "putzplan", hint: "Putzplan Küche ansehen" },
   { x: 5, y: 1, icon: "🚰", label: "Spüle", action: "putzplan", hint: "Putzplan ansehen" },
+  { x: 6, y: 1, icon: "🫧", label: "Spülmaschine", action: "spuelmaschine", hint: "Minispiel: schnell einräumen!" },
   { x: 7, y: 1, icon: "🗑️", label: "Mülleimer", action: "putzplan", hint: "Putzplan ansehen" },
   { x: 4, y: 3, icon: "🍽️", label: "Esstisch", action: "kosten", hint: "Wer hat was bezahlt? Kosten öffnen" },
   // Bad
@@ -43,8 +45,8 @@ export const OBJECTS: GameObject[] = [
   { x: 13, y: 5, icon: "🧺", label: "Waschmaschine", action: "putzplan", hint: "Putzplan ansehen" },
   // Wohnzimmer
   { x: 16, y: 1, icon: "🛋️", label: "Sofa", action: "start", hint: "Hinsetzen und Überblick holen" },
-  { x: 19, y: 1, icon: "📺", label: "Fernseher", action: "start", hint: "WG-Übersicht anschauen" },
-  { x: 21, y: 3, icon: "📌", label: "Pinnwand", action: "todos", hint: "To-dos ansehen" },
+  { x: 19, y: 1, icon: "📺", label: "Fernseher", action: "watchlist", hint: "Watchlist: Was schauen wir?" },
+  { x: 21, y: 3, icon: "📌", label: "Pinnwand", action: "pinnwand", hint: "Zettel & Fotos ansehen" },
   { x: 18, y: 3, icon: "💰", label: "Haushaltskasse", action: "kosten", hint: "Kosten & Ausgleich" },
   { x: 15, y: 5, icon: "🪴", label: "Pflanze", action: "todos", hint: "Gießen? Ab auf die To-do-Liste" },
   // Flur (Kalender hängt an der Wand)

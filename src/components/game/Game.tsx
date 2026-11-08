@@ -26,10 +26,18 @@ import KostenPage from "@/app/kosten/page";
 import KalenderPage from "@/app/kalender/page";
 import TodosPage from "@/app/todos/page";
 import WGPage from "@/app/wg/page";
+import { Pinboard } from "@/components/Pinboard";
+import { Watchlist } from "@/components/Watchlist";
+import { Dishwasher } from "./Dishwasher";
 
-type PageAction = Exclude<Action, "schlafen" | "kleiderschrank" | "giessen" | "buecher">;
+type PageAction = Exclude<Action, "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine">;
+const WatchlistPanel = () => <Watchlist />;
+const PinnwandPanel = () => <Pinboard />;
+/** Was Gäste im Spiel nie öffnen dürfen */
+const RESIDENT_ONLY: Action[] = ["start", "putzplan", "einkauf", "kosten", "todos", "wg"];
 const PANELS: Record<PageAction, React.ComponentType> = {
   start: StartPage, putzplan: PutzplanPage, einkauf: EinkaufPage, kosten: KostenPage,
+  watchlist: WatchlistPanel, pinnwand: PinnwandPanel,
   kalender: KalenderPage, todos: TodosPage, wg: WGPage,
 };
 
@@ -37,7 +45,7 @@ const STEP_MS = 120;
 const BUBBLE_MS = 6000;
 
 type Target = { type: "object"; obj: GameObject } | { type: "member"; id: string } | { type: "cat" };
-type Panel = Target | { type: "wardrobe"; first?: boolean; ownerId?: string } | { type: "books"; ownerId: string };
+type Panel = Target | { type: "wardrobe"; first?: boolean; ownerId?: string } | { type: "books"; ownerId: string } | { type: "dishwasher" };
 const CAT_LINES = ["Schnurrrr … 💕", "Miau! 😺", "*kuschelt sich an* 🐾", "Prrrrr 😻", "Mehr! Mehr! 🐱"];
 const CAT_SEE = 3; // so nah muss man sein, um die Katze zu entdecken
 const dist = (a: Pos, b: Pos) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
@@ -66,10 +74,11 @@ type SayPayload = { on: string; text: string };
 type MovePayload = { id: string; x: number; y: number; l?: boolean };
 
 export function Game() {
-  const { members, myId, household, me, refresh } = useWG();
+  const { members, everyone, myId, household, me, refresh, isGuest, can } = useWG();
   const homeOf = useCallback((id: string) => {
     const i = members.findIndex((m) => m.id === id);
-    return HOME_SPOTS[i] ?? { x: 11, y: 7 };
+    // Gäste starten im Flur an der Haustür
+    return HOME_SPOTS[i] ?? { x: 2, y: 8 };
   }, [members]);
 
   // Dort weitermachen, wo man aufgehört hat (pro Gerät gespeichert)
@@ -229,7 +238,9 @@ export function Game() {
 
   // ── Positionen aller Mitbewohner ──
   const memberPos = useCallback((m: Member): Spot => (m.id === myId ? { ...pos, l: faceLeft } : remote[m.id] ?? homeOf(m.id)), [myId, pos, faceLeft, remote, homeOf]);
-  const others = members.filter((m) => m.id !== myId);
+  // Mitbewohner immer; Gäste nur, wenn sie gerade im Spiel sind (oder ich selbst)
+  const people = everyone.filter((m) => m.role !== "gast" || m.id === myId || remote[m.id]);
+  const others = people.filter((m) => m.id !== myId);
   const memberAt = (p: Pos) => others.find((m) => { const q = memberPos(m); return q.x === p.x && q.y === p.y; });
   // ── Versteckte Katze ──
   const [cat, setCat] = useState<Pos>(() => catHideout([...HOME_SPOTS], pos));
@@ -254,7 +265,7 @@ export function Game() {
     }
     return null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pos, remote, members, cat]);
+  }, [pos, remote, everyone, cat]);
 
   const open = useCallback((t: Target) => {
     if (t.type === "cat") {
@@ -271,6 +282,12 @@ export function Game() {
       }, 2600);
       return;
     }
+    if (t.type === "object" && isGuest) {
+      const a = t.obj.action;
+      const blocked = RESIDENT_ONLY.includes(a) || ((a === "kalender" || a === "pinnwand" || a === "watchlist") && !can(a));
+      if (blocked) { say(myId, "🔒 Nur für Mitbewohner"); return; }
+    }
+    if (t.type === "object" && t.obj.action === "spuelmaschine") { setPanel({ type: "dishwasher" }); return; }
     if (t.type === "object" && t.obj.action === "schlafen") { say(myId, "💤"); return; }
     if (t.type === "object" && t.obj.action === "giessen") {
       say(myId, ["💧 Gegossen!", "💧🌱 Wächst schon!", "Na, du Hübsche? 🌿", "💧 Prost!"][Math.floor(Math.random() * 4)]);
@@ -287,7 +304,7 @@ export function Game() {
       return;
     }
     setPanel(t);
-  }, [say, myId, members, catHappy, pets, showBubble]);
+  }, [say, myId, members, catHappy, pets, showBubble, isGuest, can]);
 
   // ── Laufen ──
   const step = useCallback((dx: number, dy: number) => {
@@ -305,7 +322,7 @@ export function Game() {
       const t = pending.current;
       if (t) {
         pending.current = null;
-        const tp = t.type === "object" ? t.obj : t.type === "cat" ? cat : memberPos(members.find((m) => m.id === t.id)!);
+        const tp = t.type === "object" ? t.obj : t.type === "cat" ? cat : memberPos(everyone.find((m) => m.id === t.id)!);
         if (isAdjacent(pos, tp)) open(t);
       }
       return;
@@ -316,7 +333,7 @@ export function Game() {
       moveTo(path[0]); setPath(path.slice(1));
     }, STEP_MS);
     return () => clearTimeout(id);
-  }, [path, pos, open, memberPos, members, moveTo, cat]);
+  }, [path, pos, open, memberPos, everyone, moveTo, cat]);
 
   // Tastatur
   useEffect(() => {
@@ -367,9 +384,9 @@ export function Game() {
 
   const memberColors = [...members].sort((a, b) => a.sort - b.sort).map((m) => m.color);
   const onlineIds = new Set([myId, ...Object.keys(remote)]);
-  const targetMember = panel?.type === "member" ? members.find((m) => m.id === panel.id) : undefined;
+  const targetMember = panel?.type === "member" ? everyone.find((m) => m.id === panel.id) : undefined;
   const nearbyLabel = nearby?.type === "cat" ? "🐈 Katze streicheln" : nearby?.type === "member"
-    ? `Mit ${members.find((m) => m.id === nearby.id)?.display_name} reden${unreadFrom(nearby.id) ? ` (💬 ${unreadFrom(nearby.id)} neu)` : ""}`
+    ? `Mit ${everyone.find((m) => m.id === nearby.id)?.display_name} reden${unreadFrom(nearby.id) ? ` (💬 ${unreadFrom(nearby.id)} neu)` : ""}`
     : nearby?.type === "object" ? `${nearby.obj.icon} ${nearby.obj.label}: ${nearby.obj.hint}` : null;
 
   return (
@@ -423,7 +440,7 @@ export function Game() {
             </div>
           )}
           {/* Mitbewohner */}
-          {members.map((m) => {
+          {people.map((m) => {
             const p = memberPos(m);
             const isMe = m.id === myId;
             const online = onlineIds.has(m.id);
@@ -525,10 +542,12 @@ export function Game() {
 
       {panel && (
         <Sheet onClose={() => { if (panel.type === "member") reloadMessages(); setPanel(null); }} light={panel.type === "member"}
-          title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : panel.type === "wardrobe" ? (panel.ownerId && panel.ownerId !== myId ? `👚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Kleiderschrank` : "👚 Dein Kleiderschrank") : panel.type === "object" ? `${panel.obj.icon} ${panel.obj.label}` : panel.type === "books" ? `📚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Bücher` : ""}>
+          title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : panel.type === "wardrobe" ? (panel.ownerId && panel.ownerId !== myId ? `👚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Kleiderschrank` : "👚 Dein Kleiderschrank") : panel.type === "object" ? `${panel.obj.icon} ${panel.obj.label}` : panel.type === "books" ? `📚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Bücher` : panel.type === "dishwasher" ? "🫧 Spülmaschine einräumen" : ""}>
           {panel.type === "member" && targetMember ? (
             <TalkDialog target={targetMember} online={onlineIds.has(targetMember.id)}
               onEmote={(em, on) => say(em === "🐝" && on ? on : myId, em)} onSay={(text) => say(myId, text)} onClose={() => { reloadMessages(); setPanel(null); }} />
+          ) : panel.type === "dishwasher" ? (
+            <Dishwasher onResult={(score, best) => say(myId, best ? `🏆 ${score} Punkte – neuer Rekord!` : `🍽️ ${score} Punkte!`)} />
           ) : panel.type === "books" && members.find((m) => m.id === panel.ownerId) ? (
             <BookShelf owner={members.find((m) => m.id === panel.ownerId)!} />
           ) : panel.type === "wardrobe" && me ? (

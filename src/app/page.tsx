@@ -8,10 +8,11 @@ import { beesOf } from "@/components/Praise";
 import { computeBalances } from "@/lib/balances";
 import { addDays, euro, formatDate, todayISO } from "@/lib/dates";
 import { holidayOn } from "@/lib/holidays";
+import { birthdayName, nextBirthdays, occurrencesBetween } from "@/lib/events";
 import { Avatar, Card, PageTitle } from "@/components/ui";
 import { Pinboard } from "@/components/Pinboard";
 
-export default function Home() {
+function ResidentHome() {
   const { me, myId, members, household } = useWG();
   const { rows: areas } = useRows<ChoreArea>("chore_areas", "sort");
   const { rows: tasks } = useRows<ChoreTask>("chore_tasks", "sort");
@@ -30,10 +31,11 @@ export default function Home() {
   const balance = computeBalances(expenses, members.map((m) => m.id))[myId] ?? 0;
   const ranking = [...members].sort((a, b) => beesOf(praises, b.id) - beesOf(praises, a.id));
   const week = addDays(todayISO(), 7);
+  const birthdays = nextBirthdays(events, todayISO(), 3);
   // Termine + Feiertage der nächsten 7 Tage
   const holidays = Array.from({ length: 8 }, (_, i) => addDays(todayISO(), i))
     .filter((d) => holidayOn(d)).map((d) => ({ id: `fei-${d}`, title: `🎉 ${holidayOn(d)}`, day: d, time: null as string | null }));
-  const upcoming = [...holidays, ...events.filter((e) => e.day >= todayISO() && e.day <= week)]
+  const upcoming = [...holidays, ...occurrencesBetween(events, todayISO(), week).map((o) => ({ ...o.event, id: `${o.event.id}-${o.day}`, day: o.day }))]
     .sort((a, b) => (a.day + (a.time ?? "")).localeCompare(b.day + (b.time ?? ""))).slice(0, 5);
   const myTodos = todos.filter((t) => !t.done && (t.assignee === myId || !t.assignee));
 
@@ -74,6 +76,14 @@ export default function Home() {
           {upcoming.length === 0 ? <Muted>Keine Termine</Muted> : upcoming.map((e) => (
             <Row key={e.id} label={e.title} right={formatDate(e.day) + (e.time ? `, ${e.time.slice(0, 5)}` : "")} />
           ))}
+        </Tile>
+        <Tile href="/kalender" icon="🎂" title="Nächste Geburtstage" className="sm:col-span-2">
+          {birthdays.length === 0
+            ? <Muted>Noch keine Geburtstage eingetragen – im Kalender mit „🎂 Geburtstag“.</Muted>
+            : birthdays.map((b) => (
+              <Row key={b.event.id} label={`🎂 ${birthdayName(b.event.title)}`}
+                right={`${formatDate(b.day)} · ${b.inDays === 0 ? "heute! 🎉" : b.inDays === 1 ? "morgen" : `in ${b.inDays} Tagen`}`} warn={b.inDays <= 1} />
+            ))}
         </Tile>
         <Tile href="/todos" icon="✅" title="Offene To-dos" className="sm:col-span-2">
           {myTodos.length === 0 ? <Muted>Nichts offen</Muted> : myTodos.slice(0, 5).map((t) => (
@@ -126,3 +136,37 @@ const Row = ({ label, right, warn }: { label: string; right: string; warn?: bool
     <span className={`shrink-0 ${warn ? "font-medium text-red-600" : "text-muted"}`}>{right}</span>
   </div>
 );
+
+export default function Home() {
+  const { isGuest } = useWG();
+  return isGuest ? <GuestHome /> : <ResidentHome />;
+}
+
+/** Startseite für Gäste: nur das, was freigegeben ist */
+function GuestHome() {
+  const { me, household, can } = useWG();
+  const tiles = [
+    { href: "/spiel", icon: "🎮", title: "WG-Spiel", text: "Lauf durch die Wohnung und sag Hallo" },
+    ...(can("kalender") ? [{ href: "/kalender", icon: "📅", title: "Kalender", text: "Was steht an?" }] : []),
+    ...(can("pinnwand") ? [{ href: "/pinnwand", icon: "📌", title: "Pinnwand", text: "Zettel und Fotos der WG" }] : []),
+    ...(can("watchlist") ? [{ href: "/watchlist", icon: "📺", title: "Watchlist", text: "Was schauen wir als Nächstes?" }] : []),
+  ];
+  return (
+    <>
+      <PageTitle sub={`Du bist als Gast in ${household.name} 👋`}>Hallo {me?.display_name}!</PageTitle>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {tiles.map((t) => (
+          <Link key={t.href} href={t.href} className="min-w-0">
+            <Card className="flex h-full items-center gap-3 transition hover:border-accent/40">
+              <span className="text-3xl">{t.icon}</span>
+              <span className="min-w-0">
+                <span className="block font-semibold">{t.title}</span>
+                <span className="block text-sm text-muted">{t.text}</span>
+              </span>
+            </Card>
+          </Link>
+        ))}
+      </div>
+    </>
+  );
+}

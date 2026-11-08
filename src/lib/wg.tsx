@@ -11,8 +11,17 @@ type WGContext = {
   /** ID des eigenen Mitbewohners (members.id) */
   myId: string;
   household: Household;
+  /** nur Mitbewohner (für Putzplan, Kosten, Rotation …) */
   members: Member[];
+  /** Gäste dieser WG (Mitbewohner sehen alle, Gäste nur sich selbst) */
+  guests: Member[];
+  /** alle Personen (Mitbewohner + Gäste) */
+  everyone: Member[];
   me: Member | undefined;
+  /** bin ich ein Gast? */
+  isGuest: boolean;
+  /** darf ich diesen Bereich sehen? (Mitbewohner immer) */
+  can: (area: import("./types").GuestArea) => boolean;
   member: (id: string | null | undefined) => Member | undefined;
   refresh: () => Promise<void>;
 };
@@ -36,10 +45,16 @@ export function WGProvider({ children }: { children: React.ReactNode }) {
     const { data: mine } = await supabase
       .from("members").select("household_id").eq("user_id", session.user.id).maybeSingle();
     if (!mine) return setState({ status: "no-household", session });
-    const [{ data: household }, { data: members }] = await Promise.all([
-      supabase.from("households").select("*").eq("id", mine.household_id).single(),
+    const [{ data: hh }, { data: members }] = await Promise.all([
+      supabase.from("households").select("*").eq("id", mine.household_id).maybeSingle(),
       supabase.from("members").select("*").eq("household_id", mine.household_id).order("sort"),
     ]);
+    let household = hh as Household | null;
+    // Gäste dürfen die WG-Zeile nicht direkt lesen (dort steht der Einladungscode) → eingeschränkte Infos per RPC
+    if (!household) {
+      const { data: g } = await supabase.rpc("guest_household");
+      if (g) household = { ...(g as Household), invite_code: "", shopping_favorites: null };
+    }
     if (!household) return setState({ status: "no-household", session });
     setState({ status: "ready", session, household, members: members ?? [] });
   }, []);
@@ -66,15 +81,21 @@ export function WGProvider({ children }: { children: React.ReactNode }) {
 
   let ctx: WGContext | null = null;
   if (state.status === "ready") {
-    const me = state.members.find((m) => m.user_id === state.session.user.id);
+    const all = state.members;
+    const me = all.find((m) => m.user_id === state.session.user.id);
+    const isGuest = me?.role === "gast";
     ctx = {
       session: state.session,
       userId: state.session.user.id,
       myId: me?.id ?? "",
       household: state.household,
-      members: state.members,
+      members: all.filter((m) => m.role !== "gast"),
+      guests: all.filter((m) => m.role === "gast"),
+      everyone: all,
       me,
-      member: (id) => state.members.find((m) => m.id === id),
+      isGuest,
+      can: (area) => !isGuest || !!me?.permissions?.[area],
+      member: (id) => all.find((m) => m.id === id),
       refresh,
     };
   }

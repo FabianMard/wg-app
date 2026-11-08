@@ -74,3 +74,6 @@ input[type="date"], input[type="time"], select { color-scheme: light dark; }
   h2 { break-after: avoid; page-break-after: avoid; }
   @page { margin: 14mm; }
 }
+
+/* Minispiel: neues Geschirr "ploppt" herein */
+@keyframes pop { from { transform: scale(.6); opacity: .3; } to { transform: scale(1); opacity: 1; } }

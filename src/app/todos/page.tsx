@@ -7,10 +7,11 @@ import type { Praise, Todo } from "@/lib/types";
 import { daysUntil, formatDate } from "@/lib/dates";
 import { Avatar, btnCls, Card, Check, DeleteButton, Empty, inputCls, PageTitle } from "@/components/ui";
 import { PraiseButton } from "@/components/Praise";
+import { Watchlist } from "@/components/Watchlist";
 
 type Filter = "offen" | "meine" | "erledigt";
 
-export default function Todos() {
+function TodoList() {
   const { household, members, member, myId } = useWG();
   const { rows: todos, loaded, reload } = useRows<Todo>("todos", "created_at", false);
   const { rows: praises, reload: reloadPraises } = useRows<Praise>("praises", "created_at");
@@ -47,7 +48,6 @@ export default function Todos() {
 
   return (
     <>
-      <PageTitle sub="Alles, was einmalig erledigt werden muss: Handwerker anrufen, Nebenkosten prüfen …">To-dos</PageTitle>
       <Card className="mb-5">
         <form onSubmit={add} className="grid gap-2 sm:grid-cols-[1fr_auto_auto_auto]">
           <input className={inputCls} placeholder="Neues To-do" value={title} onChange={(e) => setTitle(e.target.value)} />
@@ -93,6 +93,27 @@ export default function Todos() {
           );
         })}
       </Card>
+    </>
+  );
+}
+
+type Tab = "todos" | "watchlist";
+
+export default function Todos() {
+  const [tab, setTab] = useState<Tab>(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tab") === "watchlist" ? "watchlist" : "todos");
+  return (
+    <>
+      <PageTitle sub={tab === "todos" ? "Alles, was einmalig erledigt werden muss: Handwerker anrufen, Nebenkosten prüfen …" : "Was wollen wir zusammen schauen?"}>
+        {tab === "todos" ? "To-dos" : "Watchlist"}
+      </PageTitle>
+      <div className="mb-5 grid grid-cols-2 gap-1 rounded-xl bg-line/50 p-1 text-sm font-semibold">
+        {([["todos", "✅ To-dos"], ["watchlist", "📺 Watchlist"]] as [Tab, string][]).map(([id, label]) => (
+          <button key={id} onClick={() => { setTab(id); window.history.replaceState(null, "", id === "watchlist" ? "?tab=watchlist" : location.pathname); }}
+            className={`rounded-lg py-2 transition ${tab === id ? "bg-card shadow-sm" : "text-muted"}`}>{label}</button>
+        ))}
+      </div>
+      {tab === "todos" ? <TodoList /> : <Watchlist />}
     </>
   );
 }

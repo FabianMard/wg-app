@@ -3,7 +3,10 @@
 import { useEffect, useState } from "react";
 import { isConfigured, supabase } from "@/lib/supabase";
 import { useWGState } from "@/lib/wg";
-import { BottomNav, Header } from "./Nav";
+import { BottomNav, guestMayOpen, Header } from "./Nav";
+import { usePathname } from "next/navigation";
+import Link from "next/link";
+import { useWG } from "@/lib/wg";
 import { btnCls, Card, inputCls } from "./ui";
 
 export function Gate({ children }: { children: React.ReactNode }) {
@@ -18,9 +21,23 @@ export function Gate({ children }: { children: React.ReactNode }) {
   return (
     <>
       <Header />
-      <main className="mx-auto max-w-3xl px-4 pb-28 pt-6 md:pb-12">{children}</main>
+      <main className="mx-auto max-w-3xl px-4 pb-28 pt-6 md:pb-12"><GuestGuard>{children}</GuestGuard></main>
       <BottomNav />
     </>
+  );
+}
+
+/** Gäste sehen nur freigegebene Seiten (die Datenbank sperrt den Rest zusätzlich) */
+function GuestGuard({ children }: { children: React.ReactNode }) {
+  const { isGuest, can } = useWG();
+  const path = usePathname();
+  if (!isGuest || guestMayOpen(path, can)) return <>{children}</>;
+  return (
+    <Card className="mt-6 text-center">
+      <p className="text-4xl">🔒</p>
+      <p className="mt-2 font-semibold">Dieser Bereich ist nur für Mitbewohner.</p>
+      <Link href="/" className={`${btnCls} mt-4`}>Zur Startseite</Link>
+    </Card>
   );
 }
 
@@ -76,7 +93,58 @@ export function normalizeCode(raw: string) {
   return raw.toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/O/g, "0").replace(/[IL]/g, "1");
 }
 
+/** Gast-Link: https://…/?gast=GABC1234 */
+function GuestJoin({ code }: { code: string }) {
+  const { refresh } = useWGState();
+  const [info, setInfo] = useState<{ wg: string; name: string; color: string } | null | "invalid">(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    supabase.rpc("guest_preview", { p_code: code }).then(({ data, error }) => {
+      if (error) setErr(error.message);
+      setInfo(data ?? "invalid");
+    });
+  }, [code]);
+  async function join() {
+    setBusy(true);
+    setErr(null);
+    try {
+      await ensureSession();
+      const { error } = await supabase.rpc("claim_guest", { p_code: code });
+      if (error) throw new Error(error.message);
+      window.history.replaceState(null, "", "/");
+      await refresh();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  if (info === null) return <Centered><p className="text-center text-muted">Lädt …</p>{err && <ErrorText>{err}</ErrorText>}</Centered>;
+  if (info === "invalid") {
+    return <Centered><Card><p className="font-semibold">Dieser Gast-Link ist nicht (mehr) gültig.</p><p className="mt-1 text-sm text-muted">Frag in der WG nach einem neuen Link.</p>{err && <ErrorText>{err}</ErrorText>}</Card></Centered>;
+  }
+  return (
+    <Centered>
+      <Card className="space-y-4 text-center">
+        <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-full text-2xl font-bold text-white" style={{ background: info.color }}>
+          {info.name.slice(0, 1).toUpperCase()}
+        </span>
+        <p>Hallo <b>{info.name}</b>! 👋<br />Du bist als Gast in <b>{info.wg}</b> eingeladen.</p>
+        <button onClick={join} disabled={busy} className={`${btnCls} w-full`}>Als Gast beitreten</button>
+        {err && <ErrorText>{err}</ErrorText>}
+      </Card>
+    </Centered>
+  );
+}
+
 function Setup() {
+  const [guestCode] = useState(() => (typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("gast")));
+  if (guestCode) return <GuestJoin code={guestCode.trim().toUpperCase()} />;
+  return <ResidentSetup />;
+}
+
+function ResidentSetup() {
   const { refresh } = useWGState();
   const [code, setCode] = useState<string | null>(null);
   const [preview, setPreview] = useState<Preview | null | "invalid" | "error">(null);

@@ -26,7 +26,7 @@ export function TalkDialog({ target, online, onEmote, onSay, onClose }: {
   onSay: (text: string) => void;
   onClose: () => void;
 }) {
-  const { me, myId, members, household } = useWG();
+  const { me, myId, members, household, isGuest } = useWG();
   const { rows: areas } = useRows<ChoreArea>("chore_areas", "sort");
   const { rows: tasks } = useRows<ChoreTask>("chore_tasks", "sort");
   const { rows: checks } = useRows<ChoreCheck>("chore_checks", "done_at");
@@ -115,7 +115,8 @@ export function TalkDialog({ target, online, onEmote, onSay, onClose }: {
               ? <>Ups … {myArea.area.icon} <b>{myArea.area.name}</b> hätte ich letzte Woche machen sollen, ich hol das nach! 😅 ({myArea.doneCount} von {myArea.tasks.length})</>
               : <>Ich hab diese Woche Putzdienst: {myArea.area.icon} <b>{myArea.area.name}</b>, {myArea.doneCount} von {myArea.tasks.length} erledigt.</>
           : null}
-        {" "}Ich hab übrigens schon <b>🐝 {beesOf(praises, target.id)}</b> Bienchen.
+        {!isGuest && target.role !== "gast" && <>{" "}Ich hab übrigens schon <b>🐝 {beesOf(praises, target.id)}</b> Bienchen.</>}
+        {target.role === "gast" && <> Ich bin heute zu Besuch! 👋</>}
         {target.reading?.title && <> Gerade lese ich übrigens <b>„{target.reading.title}“</b>{target.reading.author ? ` von ${target.reading.author}` : ""} 📖</>}
       </>
     );
@@ -162,7 +163,7 @@ export function TalkDialog({ target, online, onEmote, onSay, onClose }: {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className={`grid grid-cols-2 gap-2 ${isGuest || target.role === "gast" ? "hidden" : ""}`}>
         <Choice onClick={() => setTopic("loben")} active={topic === "loben"}>🐝 Loben</Choice>
         <Choice onClick={() => setTopic("geld")} active={topic === "geld"}>💶 Wer schuldet wem?</Choice>
         <Choice onClick={() => setTopic("todos")} active={topic === "todos"}>✅ Was steht an?</Choice>

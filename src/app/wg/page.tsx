@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { useRows, useWG } from "@/lib/wg";
 import type { Praise } from "@/lib/types";
 import { beesOf } from "@/components/Praise";
+import { GuestManager } from "@/components/GuestManager";
 import { Avatar, btnCls, btnGhostCls, Card, inputCls, PageTitle, SectionTitle } from "@/components/ui";
 
 // Gut unterscheidbare Farben, die auch mit weißer Schrift lesbar sind
@@ -202,6 +203,9 @@ export default function WGSettings() {
         <p className="mt-2 text-xs text-muted">Blasse Farben mit Buchstaben sind schon vergeben.</p>
         {colorErr && <p className="mt-2 text-sm text-red-600">{colorErr}</p>}
       </Card>
+
+      <SectionTitle>Gäste</SectionTitle>
+      <GuestManager />
 
       <SectionTitle>Mitbewohner ({members.length})</SectionTitle>
       <Card className="divide-y divide-line p-0">

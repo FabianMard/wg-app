@@ -55,7 +55,7 @@ function Pin({ color = "#ef4444" }: { color?: string }) {
 }
 
 export function Pinboard() {
-  const { household, member, myId } = useWG();
+  const { household, member, myId, isGuest } = useWG();
   const { rows: notes, loaded, reload } = useRows<Note>("notes", "created_at", false);
   const [writing, setWriting] = useState(false);
   const [text, setText] = useState("");
@@ -146,7 +146,7 @@ export function Pinboard() {
     <section aria-label="Pinnwand" className="mb-4 rounded-2xl border-[6px] border-[#8b5a2b] p-3 pt-4 shadow-[inset_0_2px_6px_rgba(0,0,0,.25)]" style={CORK}>
       <div className="mb-3 flex items-center justify-between">
         <h2 className="rounded bg-white/85 px-2 py-0.5 font-hand text-2xl font-bold leading-none text-neutral-800 shadow-sm">📌 Pinnwand</h2>
-        {!writing && (
+        {!writing && !isGuest && (
           <button onClick={() => setWriting(true)}
             className="rounded-full bg-white/90 px-3 py-1 text-sm font-semibold text-neutral-800 shadow transition hover:bg-white active:scale-95">
             + Zettel
@@ -198,8 +198,8 @@ export function Pinboard() {
               <span className="truncate">
                 {by ? (by.id === myId ? "du" : by.display_name) : "?"} · {new Date(n.created_at).toLocaleDateString("de-DE", { day: "numeric", month: "numeric" })}
               </span>
-              <button onClick={() => remove(n)} aria-label={n.image_path ? "Foto abnehmen" : "Zettel abnehmen"} title="Abnehmen"
-                className="rounded px-1 text-neutral-500 hover:bg-black/10 hover:text-neutral-800">✕</button>
+              {!isGuest && <button onClick={() => remove(n)} aria-label={n.image_path ? "Foto abnehmen" : "Zettel abnehmen"} title="Abnehmen"
+                className="rounded px-1 text-neutral-500 hover:bg-black/10 hover:text-neutral-800">✕</button>}
             </p>
           );
           if (n.image_path) {
@@ -231,7 +231,10 @@ export function Pinboard() {
           );
         })}
 
-        {loaded && notes.length === 0 && !writing && (
+        {loaded && notes.length === 0 && !writing && isGuest && (
+          <p className="col-span-2 py-6 text-center font-hand text-2xl text-white/90 sm:col-span-3">Noch keine Zettel.</p>
+        )}
+        {loaded && notes.length === 0 && !writing && !isGuest && (
           <button onClick={() => setWriting(true)}
             className="col-span-2 rounded-lg border-2 border-dashed border-white/60 py-6 text-center font-hand text-2xl text-white/90 sm:col-span-3">
             Noch leer. Pinn den ersten Zettel an!

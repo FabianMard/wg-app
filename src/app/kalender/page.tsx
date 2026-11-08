@@ -7,13 +7,15 @@ import type { CalEvent, ChoreArea, ChoreCheck, ChoreTask } from "@/lib/types";
 import { areaStatuses, isOverdue, periodOf, periodRange, type AreaStatus } from "@/lib/cleaning";
 import { formatDate, fromISO, toISO, todayISO } from "@/lib/dates";
 import { holidayOn } from "@/lib/holidays";
+import { occurrencesOn, RECURRENCE_LABEL, rangeLabel, type Occurrence } from "@/lib/events";
+import { addDays } from "@/lib/dates";
 import { Avatar, btnCls, Card, DeleteButton, inputCls, PageTitle, SectionTitle } from "@/components/ui";
 
 const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 const MAX_EVENTS_IN_TILE = 2;
 
 export default function Kalender() {
-  const { household, members } = useWG();
+  const { household, members, everyone, myId, member, isGuest } = useWG();
   const { rows: events, reload } = useRows<CalEvent>("events", "day");
   const { rows: areas } = useRows<ChoreArea>("chore_areas", "sort");
   const { rows: tasks } = useRows<ChoreTask>("chore_tasks", "sort");
@@ -22,6 +24,12 @@ export default function Kalender() {
   const [selected, setSelected] = useState(todayISO());
   const [title, setTitle] = useState("");
   const [time, setTime] = useState("");
+  // Erweiterte Optionen
+  const [more, setMore] = useState(false);
+  const [endDay, setEndDay] = useState("");
+  const [recurrence, setRecurrence] = useState<NonNullable<CalEvent["recurrence"]>>("keine");
+  const [audience, setAudience] = useState<string[] | null>(null); // null = alle
+  const [err, setErr] = useState<string | null>(null);
 
   const cs = household.cleaning_start;
 
@@ -39,8 +47,7 @@ export default function Kalender() {
     };
   }, [areas, tasks, checks, members]);
 
-  const eventsOn = (iso: string) =>
-    events.filter((e) => e.day === iso).sort((a, b) => (a.time ?? "").localeCompare(b.time ?? ""));
+  const eventsOn = (iso: string): Occurrence[] => occurrencesOn(events, iso);
   // Ende der Putzwoche (Sonntag) markieren
   const milestone = (iso: string): "Fällig" | null => {
     const p = periodOf(cs, iso);
@@ -65,17 +72,50 @@ export default function Kalender() {
     if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) shift(dx < 0 ? 1 : -1);
   };
 
+  function resetForm() {
+    setTitle(""); setTime(""); setEndDay(""); setRecurrence("keine"); setAudience(null); setMore(false); setErr(null);
+  }
   async function add(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
-    await supabase.from("events").insert({ household_id: household.id, title: title.trim(), day: selected, time: time || null });
-    setTitle(""); setTime("");
+    setErr(null);
+    if (endDay && endDay < selected) {
+      setErr(`Das Ende (${formatDate(endDay)}) liegt vor dem Start (${formatDate(selected)}). Bitte anpassen oder „eintägig“ wählen.`);
+      return;
+    }
+    const extended = endDay > selected || recurrence !== "keine" || audience !== null;
+    const row: Record<string, unknown> = { household_id: household.id, title: title.trim(), day: selected, time: time || null };
+    if (extended) {
+      if (endDay > selected) row.end_day = endDay;
+      row.recurrence = recurrence;
+      // Wer es einträgt, sieht es immer
+      row.visible_to = audience === null ? null : [...new Set([...audience, myId])];
+    }
+    const { error } = await supabase.from("events").insert(row);
+    if (error) {
+      setErr(/end_day|recurrence|visible_to/.test(error.message)
+        ? "Für Wiederholung/mehrere Tage/Sichtbarkeit fehlt ein Datenbank-Update: supabase/012_gaeste_kalender_watchlist.sql ausführen."
+        : error.message);
+      return;
+    }
+    resetForm();
     reload();
   }
+  function birthday() {
+    setMore(true);
+    setRecurrence("jaehrlich");
+    setTime("");
+    setEndDay("");
+    if (!title.startsWith("🎂")) setTitle(`🎂 ${title.trim() || "Geburtstag von "}`);
+  }
   async function remove(ev: CalEvent) {
+    const series = (ev.recurrence ?? "keine") !== "keine" || (ev.end_day && ev.end_day > ev.day);
+    if (!confirm(series ? `„${ev.title}“ komplett löschen (alle Tage/Wiederholungen)?` : `„${ev.title}“ löschen?`)) return;
     await supabase.from("events").delete().eq("id", ev.id);
     reload();
   }
+  const audienceLabel = (ev: CalEvent) =>
+    ev.visible_to?.length ? `👁 nur ${ev.visible_to.map((id) => (id === myId ? "du" : member(id)?.display_name ?? "?")).join(", ")}` : "";
 
   const dayEvents = eventsOn(selected);
   const selHoliday = holidayOn(selected);
@@ -133,9 +173,14 @@ export default function Kalender() {
                       {holiday}
                     </span>
                   )}
-                  {evs.slice(0, MAX_EVENTS_IN_TILE).map((e) => (
-                    <span key={e.id} className="line-clamp-2 hyphens-auto break-words rounded bg-accent/15 px-0.5 text-[9px] font-medium leading-[11px] text-accent md:truncate md:px-1 md:text-[11px] md:leading-4">
-                      <span className="hidden md:inline">{e.time && `${e.time.slice(0, 5)} `}</span>{e.title}
+                  {evs.slice(0, MAX_EVENTS_IN_TILE).map(({ event: e, dayNo, total }) => (
+                    <span key={e.id} title={e.title}
+                      className={`line-clamp-2 hyphens-auto break-words px-0.5 text-[9px] font-medium leading-[11px] md:truncate md:px-1 md:text-[11px] md:leading-4
+                        ${total > 1 ? "bg-violet-500/20 text-violet-700 dark:text-violet-300" : "bg-accent/15 text-accent"}
+                        ${total > 1 && dayNo > 1 ? "-ml-1 rounded-r md:-ml-1.5" : "rounded"} ${total > 1 && dayNo < total ? "-mr-1 rounded-l md:-mr-1.5" : ""}`}>
+                      {total > 1 && dayNo > 1
+                        ? <span className="opacity-60">↳ {e.title}</span>
+                        : <><span className="hidden md:inline">{e.time && `${e.time.slice(0, 5)} `}</span>{e.title}</>}
                     </span>
                   ))}
                   {evs.length > MAX_EVENTS_IN_TILE && (
@@ -187,11 +232,57 @@ export default function Kalender() {
       </Card>
 
       <SectionTitle>{formatDate(selected, { weekday: "long", day: "numeric", month: "long" })}</SectionTitle>
-      <form onSubmit={add} className="mb-3 flex gap-2">
-        <input className={inputCls} placeholder="Neuer Termin, z. B. WG-Party" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <input className={`${inputCls} w-28`} type="time" value={time} onChange={(e) => setTime(e.target.value)} aria-label="Uhrzeit (optional)" />
-        <button className={btnCls}>+</button>
-      </form>
+      {!isGuest && (
+        <form onSubmit={add} className="mb-3 space-y-2">
+          <div className="flex gap-2">
+            <input className={inputCls} placeholder="Neuer Termin, z. B. WG-Party" value={title} onChange={(e) => setTitle(e.target.value)} />
+            <input className={`${inputCls} w-28`} type="time" value={time} onChange={(e) => setTime(e.target.value)} aria-label="Uhrzeit (optional)" />
+            <button className={btnCls}>+</button>
+          </div>
+          <div className="flex flex-wrap gap-2 text-sm">
+            <button type="button" onClick={() => setMore(!more)} className="rounded-full border border-line px-3 py-1 font-medium text-muted hover:text-fg">
+              {more ? "▾ Weniger Optionen" : "▸ Mehr Optionen"}
+            </button>
+            <button type="button" onClick={birthday} className="rounded-full border border-line px-3 py-1 font-medium text-muted hover:text-fg">🎂 Geburtstag</button>
+            <button type="button" onClick={() => { setMore(true); setEndDay(addDays(selected, 6)); setTitle(title || "🏖️ Urlaub "); }}
+              className="rounded-full border border-line px-3 py-1 font-medium text-muted hover:text-fg">🏖️ Urlaub</button>
+          </div>
+          {more && (
+            <Card className="space-y-3 text-sm">
+              <label className="flex flex-wrap items-center gap-2">
+                <span className="w-24 text-muted">Bis (inkl.)</span>
+                <input type="date" className={`${inputCls} w-auto py-1.5`} value={endDay} onChange={(e) => setEndDay(e.target.value)} />
+                {endDay > selected && <span className="text-xs text-muted">{rangeLabel(selected, Math.round((new Date(endDay).getTime() - new Date(selected).getTime()) / 86_400_000) + 1)}</span>}
+                {endDay && <button type="button" onClick={() => setEndDay("")} className="text-xs text-muted underline">eintägig</button>}
+              </label>
+              <label className="flex flex-wrap items-center gap-2">
+                <span className="w-24 text-muted">Wiederholen</span>
+                <select className={`${inputCls} w-auto py-1.5`} value={recurrence} onChange={(e) => setRecurrence(e.target.value as typeof recurrence)}>
+                  {Object.entries(RECURRENCE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+              </label>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="w-24 text-muted">Sichtbar für</span>
+                <button type="button" onClick={() => setAudience(null)}
+                  className={`rounded-full border px-3 py-1 font-medium ${audience === null ? "border-accent bg-accent text-white" : "border-line text-muted"}`}>Alle</button>
+                {everyone.filter((m) => m.id !== myId).map((m) => {
+                  const on = audience?.includes(m.id) ?? false;
+                  return (
+                    <button type="button" key={m.id}
+                      onClick={() => setAudience(on ? (audience ?? []).filter((x) => x !== m.id) : [...(audience ?? []), m.id])}
+                      className="rounded-full border px-3 py-1 font-medium"
+                      style={on ? { background: m.color, borderColor: m.color, color: "white" } : { borderColor: "var(--line)", color: "var(--muted)" }}>
+                      {m.display_name}{m.role === "gast" && " (Gast)"}
+                    </button>
+                  );
+                })}
+              </div>
+              {audience !== null && <p className="text-xs text-muted">Nur du{audience.length ? ` und ${audience.map((id) => member(id)?.display_name).join(", ")}` : ""} sehen diesen Eintrag.</p>}
+            </Card>
+          )}
+          {err && <p className="text-sm text-red-600">{err}</p>}
+        </form>
+      )}
       <div className="space-y-2">
         {selHoliday && (
           <Card className="flex items-center gap-3 border-red-500/30 bg-red-500/5">
@@ -200,11 +291,18 @@ export default function Kalender() {
             <span className="text-xs text-muted">Feiertag Sachsen</span>
           </Card>
         )}
-        {dayEvents.map((ev) => (
+        {dayEvents.map(({ event: ev, start, dayNo, total }) => (
           <Card key={ev.id} className="flex items-center gap-3">
-            <span className="w-12 text-sm font-medium tabular-nums text-accent">{ev.time ? ev.time.slice(0, 5) : "ganzt."}</span>
-            <span className="flex-1">{ev.title}</span>
-            <DeleteButton onClick={() => remove(ev)} />
+            <span className="w-12 shrink-0 text-sm font-medium tabular-nums text-accent">{ev.time ? ev.time.slice(0, 5) : "ganzt."}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block">{ev.title}</span>
+              <span className="flex flex-wrap gap-x-2 text-xs text-muted">
+                {total > 1 && <span>📆 {rangeLabel(start, total)} · Tag {dayNo}/{total}</span>}
+                {(ev.recurrence ?? "keine") !== "keine" && <span>🔁 {RECURRENCE_LABEL[ev.recurrence!]}</span>}
+                {audienceLabel(ev) && <span>{audienceLabel(ev)}</span>}
+              </span>
+            </span>
+            {!isGuest && <DeleteButton onClick={() => remove(ev)} />}
           </Card>
         ))}
         {dayEvents.length === 0 && !selHoliday && <p className="text-sm text-muted">Keine Termine.</p>}

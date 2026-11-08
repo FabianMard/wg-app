@@ -5,8 +5,9 @@ import Link from "next/link";
 import { useRows, useWG } from "@/lib/wg";
 import type { CalEvent, ChoreArea, ChoreCheck, ChoreTask, Expense, Member, Note, Praise, ShoppingItem, Todo } from "@/lib/types";
 import { areaStatuses, periodRange } from "@/lib/cleaning";
-import { euro, formatDate, toISO } from "@/lib/dates";
+import { addDays, euro, formatDate, toISO } from "@/lib/dates";
 import { holidaysSachsen } from "@/lib/holidays";
+import { occurrencesBetween } from "@/lib/events";
 import { storeById } from "@/lib/stores";
 import { Avatar, Card, SectionTitle } from "@/components/ui";
 
@@ -97,7 +98,8 @@ export default function Bericht() {
   const biggest = [...spending].sort((a, b) => Number(b.amount) - Number(a.amount))[0];
 
   // ── Kalender, To-dos, Bienchen, Pinnwand ──
-  const eventsMonth = events.filter((e) => inMonth(e.day)).sort((a, b) => a.day.localeCompare(b.day));
+  // inkl. wiederkehrender Termine (z. B. Geburtstage)
+  const eventsMonth = occurrencesBetween(events, from, addDays(to, -1)).map((o) => ({ ...o.event, id: `${o.event.id}-${o.day}`, day: o.day }));
   const holidays = holidaysSachsen(month.getFullYear()).filter((h) => inMonth(h.date));
   const todosCreated = todos.filter((t) => inMonth(t.created_at));
   const todosDone = todos.filter((t) => t.done && inMonth(t.done_at));

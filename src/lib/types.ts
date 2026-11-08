@@ -21,6 +21,33 @@ export type Member = {
   photo_path?: string | null;
   /** "Ich lese gerade" (ab 011_buecher.sql) */
   reading?: Reading | null;
+  /** ab 012: Mitbewohner oder Gast */
+  role?: "mitbewohner" | "gast";
+  /** Freigaben eines Gastes */
+  permissions?: Partial<Record<GuestArea, boolean>>;
+  /** persönlicher Gast-Code (nur für Mitbewohner sichtbar) */
+  guest_code?: string | null;
+};
+
+/** Bereiche, die man Gästen freigeben kann */
+export type GuestArea = "kalender" | "pinnwand" | "watchlist";
+export const GUEST_AREAS: { id: GuestArea; label: string; icon: string }[] = [
+  { id: "kalender", label: "Kalender", icon: "📅" },
+  { id: "pinnwand", label: "Pinnwand", icon: "📌" },
+  { id: "watchlist", label: "Watchlist", icon: "📺" },
+];
+
+export type WatchItem = {
+  id: string;
+  household_id: string;
+  title: string;
+  kind: "film" | "serie" | "doku" | "anderes";
+  platform: string | null;
+  note: string | null;
+  fans: string[];
+  watched: boolean;
+  added_by: string | null;
+  created_at: string;
 };
 
 export type Reading = { title: string; author?: string; progress?: number; url?: string; updated_at?: string };
@@ -73,6 +100,12 @@ export type CalEvent = {
   day: string;
   time: string | null;
   note: string | null;
+  /** ab 012: letzter Tag bei mehrtägigen Einträgen */
+  end_day?: string | null;
+  recurrence?: "keine" | "woechentlich" | "monatlich" | "jaehrlich";
+  /** null = alle; sonst nur diese Personen (+ wer es eingetragen hat) */
+  visible_to?: string[] | null;
+  created_by?: string | null;
 };
 
 export type Todo = {

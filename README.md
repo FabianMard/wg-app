@@ -13,7 +13,7 @@ Next.js + Supabase, installierbar als App auf dem Handy (PWA). Alle Änderungen 
    Unten im Ergebnis steht der **Einladungscode** (`invite_code`).
    ⚠️ Das Skript löscht vorher alle bestehenden WG-Daten. Nur beim Einrichten ausführen!
    Wer schon eine ältere Version eingerichtet hat: nur die fehlenden Zusatz-Skripte ausführen
-   (`003_avatare.sql`, `004_einkauf_favoriten.sql`, `005_pinnwand.sql`, `006_eingekauft_von.sql`, `007_pinnwand_fotos.sql`, `008_profilfoto.sql`, `009_wg_foto.sql`, `010_chat.sql`, `011_buecher.sql` – Daten bleiben erhalten).
+   (`003_avatare.sql`, `004_einkauf_favoriten.sql`, `005_pinnwand.sql`, `006_eingekauft_von.sql`, `007_pinnwand_fotos.sql`, `008_profilfoto.sql`, `009_wg_foto.sql`, `010_chat.sql`, `011_buecher.sql`, `012_gaeste_kalender_watchlist.sql` – Daten bleiben erhalten).
    **Zum Ausprobieren:** danach `supabase/demo_data.sql` ausführen. Das füllt die App mit Beispieldaten.
    Für den echten Start `schema.sql` einfach nochmal ausführen, dann ist alles wieder leer.
 4. Unter **Project Settings → API** die *Project URL* und den *publishable/anon key* kopieren.
@@ -56,6 +56,12 @@ Seite im Browser öffnen → iPhone: Teilen → „Zum Home-Bildschirm“, Andro
 - Gegenstände öffnen die App (Kühlschrank → Einkauf, Kalender, Pinnwand → To-dos, Kasse → Kosten …).
 - Am eigenen **Kleiderschrank** Frisur, Kleidung und Accessoires ändern.
 - Mitbewohner ansprechen, loben, Sprechblasen und Emotes (live über Supabase Realtime).
+
+## Gäste
+- Mitbewohner laden Gäste auf der WG-Seite ein; jeder Gast bekommt einen eigenen Link (`/?gast=…`).
+- Pro Gast einstellbar: Kalender, Pinnwand, Watchlist (nur lesen). Putzplan, Einkauf, Kosten, To-dos bleiben privat –
+  das erzwingt die Datenbank (Row Level Security), nicht nur die Oberfläche.
+- Gäste laufen im Spiel mit herum und können mit den Mitbewohnern chatten.
 
 ## Märkte & Logos
 Die Märkte stehen in `src/lib/stores.ts`. Statt der farbigen Kürzel können echte Logos
