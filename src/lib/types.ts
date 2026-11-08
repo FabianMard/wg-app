@@ -30,12 +30,23 @@ export type Member = {
 };
 
 /** Bereiche, die man Gästen freigeben kann */
-export type GuestArea = "kalender" | "pinnwand" | "watchlist";
+export type GuestArea = "kalender" | "pinnwand" | "watchlist" | "musik";
 export const GUEST_AREAS: { id: GuestArea; label: string; icon: string }[] = [
   { id: "kalender", label: "Kalender", icon: "📅" },
   { id: "pinnwand", label: "Pinnwand", icon: "📌" },
   { id: "watchlist", label: "Watchlist", icon: "📺" },
+  { id: "musik", label: "Musik", icon: "🎵" },
 ];
+
+export type Playlist = {
+  id: string;
+  household_id: string;
+  title: string;
+  url: string;
+  mood: "party" | "putzen" | "chillen" | "kochen" | "sport" | "sonstiges";
+  added_by: string | null;
+  created_at: string;
+};
 
 export type WatchItem = {
   id: string;

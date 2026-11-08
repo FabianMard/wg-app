@@ -8,6 +8,7 @@ import { daysUntil, formatDate } from "@/lib/dates";
 import { Avatar, btnCls, Card, Check, DeleteButton, Empty, inputCls, PageTitle } from "@/components/ui";
 import { PraiseButton } from "@/components/Praise";
 import { Watchlist } from "@/components/Watchlist";
+import { MusicList } from "@/components/MusicList";
 
 type Filter = "offen" | "meine" | "erledigt";
 
@@ -109,23 +110,23 @@ function TodoList() {
   );
 }
 
-type Tab = "todos" | "watchlist";
+type Tab = "todos" | "watchlist" | "musik";
 
 export default function Todos() {
   const [tab, setTab] = useState<Tab>(() =>
-    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tab") === "watchlist" ? "watchlist" : "todos");
+    (typeof window !== "undefined" && (["watchlist", "musik"] as Tab[]).find((t) => t === new URLSearchParams(window.location.search).get("tab"))) || "todos");
   return (
     <>
-      <PageTitle sub={tab === "todos" ? "Alles, was einmalig erledigt werden muss: Handwerker anrufen, Nebenkosten prüfen …" : "Was wollen wir zusammen schauen?"}>
-        {tab === "todos" ? "To-dos" : "Watchlist"}
+      <PageTitle sub={tab === "todos" ? "Alles, was einmalig erledigt werden muss: Handwerker anrufen, Nebenkosten prüfen …" : tab === "watchlist" ? "Was wollen wir zusammen schauen?" : "Unsere Spotify-Playlisten"}>
+        {tab === "todos" ? "To-dos" : tab === "watchlist" ? "Watchlist" : "Musik"}
       </PageTitle>
-      <div className="mb-5 grid grid-cols-2 gap-1 rounded-xl bg-line/50 p-1 text-sm font-semibold">
-        {([["todos", "✅ To-dos"], ["watchlist", "📺 Watchlist"]] as [Tab, string][]).map(([id, label]) => (
-          <button key={id} onClick={() => { setTab(id); window.history.replaceState(null, "", id === "watchlist" ? "?tab=watchlist" : location.pathname); }}
+      <div className="mb-5 grid grid-cols-3 gap-1 rounded-xl bg-line/50 p-1 text-sm font-semibold">
+        {([["todos", "✅ To-dos"], ["watchlist", "📺 Watchlist"], ["musik", "🎵 Musik"]] as [Tab, string][]).map(([id, label]) => (
+          <button key={id} onClick={() => { setTab(id); window.history.replaceState(null, "", id === "todos" ? location.pathname : `?tab=${id}`); }}
             className={`rounded-lg py-2 transition ${tab === id ? "bg-card shadow-sm" : "text-muted"}`}>{label}</button>
         ))}
       </div>
-      {tab === "todos" ? <TodoList /> : <Watchlist />}
+      {tab === "todos" ? <TodoList /> : tab === "watchlist" ? <Watchlist /> : <MusicList />}
     </>
   );
 }

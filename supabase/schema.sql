@@ -11,7 +11,7 @@
 -- ════════════════════════════════════════════════════════════════════
 
 -- ───────────── Alte Version entfernen ─────────────
-drop table if exists public.watchlist, public.messages, public.notes, public.praises, public.chore_checks, public.chore_tasks, public.chore_areas,
+drop table if exists public.playlists, public.watchlist, public.messages, public.notes, public.praises, public.chore_checks, public.chore_tasks, public.chore_areas,
   public.chores, public.shopping_items, public.expenses, public.events, public.todos,
   public.members, public.households cascade;
 drop function if exists public.is_member(uuid) cascade;
@@ -562,6 +562,32 @@ begin
   if not exists (select 1 from pg_publication_tables
                  where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'watchlist') then
     alter publication supabase_realtime add table public.watchlist;
+  end if;
+end $$;
+
+-- ════════ Musikliste (siehe 013) ════════
+create table if not exists public.playlists (
+  id           uuid primary key default gen_random_uuid(),
+  household_id uuid not null references public.households on delete cascade,
+  title        text not null check (char_length(title) between 1 and 120),
+  url          text not null check (url like 'https://open.spotify.com/%'),
+  mood         text not null default 'sonstiges' check (mood in ('party', 'putzen', 'chillen', 'kochen', 'sport', 'sonstiges')),
+  added_by     uuid default public.my_member_id() references public.members on delete set null,
+  created_at   timestamptz not null default now()
+);
+alter table public.playlists enable row level security;
+
+drop policy if exists "Musik sehen" on public.playlists;
+drop policy if exists "Musik schreiben" on public.playlists;
+-- Mitbewohner alles; Gäste nur lesen, wenn "musik" freigegeben ist
+create policy "Musik sehen"     on public.playlists for select using (can_see(household_id, 'musik'));
+create policy "Musik schreiben" on public.playlists for all using (is_resident(household_id)) with check (is_resident(household_id));
+
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables
+                 where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'playlists') then
+    alter publication supabase_realtime add table public.playlists;
   end if;
 end $$;
 

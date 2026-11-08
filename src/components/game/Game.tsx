@@ -28,16 +28,18 @@ import TodosPage from "@/app/todos/page";
 import WGPage from "@/app/wg/page";
 import { Pinboard } from "@/components/Pinboard";
 import { Watchlist } from "@/components/Watchlist";
+import { MusicList } from "@/components/MusicList";
 import { Dishwasher } from "./Dishwasher";
 
 type PageAction = Exclude<Action, "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine">;
 const WatchlistPanel = () => <Watchlist />;
 const PinnwandPanel = () => <Pinboard />;
+const MusikPanel = () => <MusicList />;
 /** Was Gäste im Spiel nie öffnen dürfen */
 const RESIDENT_ONLY: Action[] = ["start", "putzplan", "einkauf", "kosten", "todos", "wg"];
 const PANELS: Record<PageAction, React.ComponentType> = {
   start: StartPage, putzplan: PutzplanPage, einkauf: EinkaufPage, kosten: KostenPage,
-  watchlist: WatchlistPanel, pinnwand: PinnwandPanel,
+  watchlist: WatchlistPanel, pinnwand: PinnwandPanel, musik: MusikPanel,
   kalender: KalenderPage, todos: TodosPage, wg: WGPage,
 };
 
@@ -293,7 +295,7 @@ export function Game() {
     }
     if (t.type === "object" && isGuest) {
       const a = t.obj.action;
-      const blocked = RESIDENT_ONLY.includes(a) || ((a === "kalender" || a === "pinnwand" || a === "watchlist") && !can(a));
+      const blocked = RESIDENT_ONLY.includes(a) || ((a === "kalender" || a === "pinnwand" || a === "watchlist" || a === "musik") && !can(a));
       if (blocked) { say(myId, "🔒 Nur für Mitbewohner"); return; }
     }
     if (t.type === "object" && t.obj.action === "spuelmaschine") { setPanel({ type: "dishwasher" }); return; }

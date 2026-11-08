@@ -24,7 +24,7 @@ export const MAP = [
 export const COLS = MAP[0].length;
 export const ROWS = MAP.length;
 
-export type Action = "start" | "putzplan" | "einkauf" | "kosten" | "kalender" | "todos" | "wg" | "watchlist" | "pinnwand"
+export type Action = "start" | "putzplan" | "einkauf" | "kosten" | "kalender" | "todos" | "wg" | "watchlist" | "pinnwand" | "musik"
   | "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine";
 
 /** owner = Index des Mitbewohners (members.sort), dem der Gegenstand gehört */
@@ -46,6 +46,7 @@ export const OBJECTS: GameObject[] = [
   // Wohnzimmer
   { x: 16, y: 1, icon: "🛋️", label: "Sofa", action: "start", hint: "Hinsetzen und Überblick holen" },
   { x: 19, y: 1, icon: "📺", label: "Fernseher", action: "watchlist", hint: "Watchlist: Was schauen wir?" },
+  { x: 21, y: 1, icon: "📻", label: "Musikanlage", action: "musik", hint: "Unsere Spotify-Playlisten" },
   { x: 21, y: 3, icon: "📌", label: "Pinnwand", action: "pinnwand", hint: "Zettel & Fotos ansehen" },
   { x: 18, y: 3, icon: "💰", label: "Haushaltskasse", action: "kosten", hint: "Kosten & Ausgleich" },
   { x: 15, y: 5, icon: "🪴", label: "Pflanze", action: "giessen", hint: "Gießen 💧" },

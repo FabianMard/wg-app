@@ -150,6 +150,7 @@ function GuestHome() {
     ...(can("kalender") ? [{ href: "/kalender", icon: "📅", title: "Kalender", text: "Was steht an?" }] : []),
     ...(can("pinnwand") ? [{ href: "/pinnwand", icon: "📌", title: "Pinnwand", text: "Zettel und Fotos der WG" }] : []),
     ...(can("watchlist") ? [{ href: "/watchlist", icon: "📺", title: "Watchlist", text: "Was schauen wir als Nächstes?" }] : []),
+    ...(can("musik") ? [{ href: "/musik", icon: "🎵", title: "Musik", text: "Unsere Spotify-Playlisten" }] : []),
   ];
   return (
     <>

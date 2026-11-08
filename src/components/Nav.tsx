@@ -27,15 +27,17 @@ function useNav() {
     ...(can("kalender") ? [{ href: "/kalender", label: "Kalender", icon: "📅" }] : []),
     ...(can("pinnwand") ? [{ href: "/pinnwand", label: "Pinnwand", icon: "📌" }] : []),
     ...(can("watchlist") ? [{ href: "/watchlist", label: "Watchlist", icon: "📺" }] : []),
+    ...(can("musik") ? [{ href: "/musik", label: "Musik", icon: "🎵" }] : []),
   ];
 }
 
 /** Welche Seiten darf ein Gast öffnen? */
-export function guestMayOpen(path: string, can: (a: "kalender" | "pinnwand" | "watchlist") => boolean) {
+export function guestMayOpen(path: string, can: (a: "kalender" | "pinnwand" | "watchlist" | "musik") => boolean) {
   if (path === "/" || path === "/spiel") return true;
   if (path.startsWith("/kalender")) return can("kalender");
   if (path.startsWith("/pinnwand")) return can("pinnwand");
   if (path.startsWith("/watchlist")) return can("watchlist");
+  if (path.startsWith("/musik")) return can("musik");
   return false;
 }
 
