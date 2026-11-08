@@ -10,7 +10,7 @@ import { Avatar } from "./ui";
  * Meldet sich nur einmal an – kein Dauerfeuer, also kein Rate-Limit-Problem.
  */
 export function OnlineNow() {
-  const { household, myId, members } = useWG();
+  const { household, myId, everyone } = useWG();
   const [online, setOnline] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
 
@@ -20,12 +20,16 @@ export function OnlineNow() {
     ch.on("presence", { event: "sync" }, () => setOnline(Object.keys(ch.presenceState())))
       .subscribe((status) => { if (status === "SUBSCRIBED") ch.track({ seit: Date.now() }); });
     // Nach dem Entsperren des Handys wieder melden
-    const onVis = () => { if (document.visibilityState === "visible") ch.track({ seit: Date.now() }); };
+    // Im Hintergrund / beim Schließen sofort als offline melden, beim Zurückkommen wieder online
+    const onVis = () => { if (document.visibilityState === "visible") ch.track({ seit: Date.now() }); else ch.untrack(); };
+    const leave = () => ch.untrack();
     document.addEventListener("visibilitychange", onVis);
-    return () => { document.removeEventListener("visibilitychange", onVis); supabase.removeChannel(ch); };
+    window.addEventListener("pagehide", leave);
+    return () => { document.removeEventListener("visibilitychange", onVis); window.removeEventListener("pagehide", leave); supabase.removeChannel(ch); };
   }, [household.id, myId]);
 
-  const others = members.filter((m) => m.id !== myId && online.includes(m.id));
+  // Mitbewohner und Gäste
+  const others = everyone.filter((m) => m.id !== myId && online.includes(m.id));
   if (!others.length) return null;
 
   const names = others.map((m) => m.display_name).join(", ");
@@ -52,7 +56,7 @@ export function OnlineNow() {
           {others.map((m) => (
             <div key={m.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5">
               <Avatar member={m} size={24} />
-              <span className="flex-1 text-sm">{m.display_name}</span>
+              <span className="flex-1 text-sm">{m.display_name}{m.role === "gast" && <span className="text-xs text-muted"> · Gast</span>}</span>
               <span className="h-2 w-2 rounded-full bg-emerald-500" />
             </div>
           ))}

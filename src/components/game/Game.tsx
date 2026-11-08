@@ -142,6 +142,7 @@ export function Game() {
   }
   const channel = useRef<RealtimeChannel | null>(null);
   const joined = useRef(false); // erst senden, wenn die Live-Verbindung steht
+  const present = useRef(new Set<string>()); // wer laut Presence gerade im Spiel ist
   const sendMoveRef = useRef<() => void>(() => {});
   const lastStep = useRef(0);
 
@@ -161,6 +162,7 @@ export function Game() {
     // Presence = wer ist online. Die Position kommt v. a. über "move"-Nachrichten (schneller, nichts geht verloren).
     ch.on("presence", { event: "sync" }, () => {
       const state = ch.presenceState<Spot>();
+      present.current = new Set(Object.keys(state));
       setRemote((prev) => {
         const next: Record<string, Spot> = {};
         for (const [id, metas] of Object.entries(state)) {
@@ -176,7 +178,8 @@ export function Game() {
       })
       .on("broadcast", { event: "move" }, ({ payload }) => {
         const m = payload as MovePayload;
-        if (m.id === myId) return;
+        // Nachzügler von jemandem, der das Spiel schon verlassen hat, ignorieren
+        if (m.id === myId || !present.current.has(m.id)) return;
         setRemote((prev) => {
           const old = prev[m.id];
           if (old && old.x === m.x && old.y === m.y && old.l === m.l) return prev;
@@ -217,9 +220,15 @@ export function Game() {
       channel.current?.track({ ...posRef.current, l: faceRef.current });
     };
     const id = setInterval(ping, 15_000);
-    const onVis = () => { if (document.visibilityState === "visible") ping(); };
+    // App im Hintergrund / geschlossen → sofort abmelden (sonst merkt Supabase es erst nach bis zu einer Minute)
+    const leave = () => { if (joined.current) channel.current?.untrack(); };
+    const onVis = () => {
+      if (document.visibilityState === "visible") { lastPing = 0; ping(); }
+      else leave();
+    };
     document.addEventListener("visibilitychange", onVis);
-    return () => { clearInterval(id); document.removeEventListener("visibilitychange", onVis); };
+    window.addEventListener("pagehide", leave);
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", onVis); window.removeEventListener("pagehide", leave); };
   }, []);
 
   // Beim allerersten Mal: Avatar gestalten
