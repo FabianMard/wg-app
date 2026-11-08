@@ -24,8 +24,10 @@ export default function Kalender() {
   const [selected, setSelected] = useState(todayISO());
   const [title, setTitle] = useState("");
   const [time, setTime] = useState("");
-  // Erweiterte Optionen
-  const [more, setMore] = useState(false);
+  // Neuer Eintrag: Art bestimmt, welche Felder es gibt
+  type Kind = "termin" | "geburtstag" | "urlaub";
+  const [formOpen, setFormOpen] = useState(false);
+  const [kind, setKind] = useState<Kind>("termin");
   const [endDay, setEndDay] = useState("");
   const [recurrence, setRecurrence] = useState<NonNullable<CalEvent["recurrence"]>>("keine");
   const [audience, setAudience] = useState<string[] | null>(null); // null = alle
@@ -74,43 +76,44 @@ export default function Kalender() {
 
   const titleRef = useRef<HTMLInputElement>(null);
   function resetForm() {
-    setTitle(""); setTime(""); setEndDay(""); setRecurrence("keine"); setAudience(null); setMore(false); setErr(null);
+    setTitle(""); setTime(""); setEndDay(""); setRecurrence("keine"); setAudience(null); setErr(null); setFormOpen(false); setKind("termin");
+  }
+  function openForm(k: Kind) {
+    setKind(k); setErr(null); setFormOpen(true);
+    if (k === "urlaub" && (!endDay || endDay <= selected)) setEndDay(addDays(selected, 6));
+    setTimeout(() => titleRef.current?.focus(), 50);
   }
   async function add(e: React.FormEvent) {
     e.preventDefault();
-    if (!title.trim()) return;
     setErr(null);
-    if (endDay && endDay < selected) {
-      setErr(`Das Ende (${formatDate(endDay)}) liegt vor dem Start (${formatDate(selected)}). Bitte anpassen oder „eintägig“ wählen.`);
-      return;
+    const t = title.trim();
+    if (!t && kind !== "urlaub") return setErr(kind === "geburtstag" ? "Wessen Geburtstag? Bitte einen Namen eintragen." : "Bitte einen Titel eintragen.");
+    if (kind === "urlaub" && (!endDay || endDay <= selected)) {
+      return setErr(`Bitte ein Ende nach dem ${formatDate(selected)} wählen.`);
     }
-    const extended = endDay > selected || recurrence !== "keine" || audience !== null;
-    // Geburtstage einheitlich als "🎂 Name" speichern
-    const clean = title.trim().startsWith("🎂") ? `🎂 ${birthdayName(title.trim())}` : title.trim();
-    const row: Record<string, unknown> = { household_id: household.id, title: clean, day: selected, time: time || null };
-    if (extended) {
-      if (endDay > selected) row.end_day = endDay;
-      row.recurrence = recurrence;
+    // Felder je Art: Geburtstag = ganztägig + jährlich, Urlaub = ganztägig + mehrere Tage
+    const row: Record<string, unknown> = {
+      household_id: household.id,
+      title: kind === "geburtstag" ? `🎂 ${birthdayName(t)}` : kind === "urlaub" ? (t || "🏖️ Urlaub") : t,
+      day: selected,
+      time: kind === "termin" ? time || null : null,
+    };
+    const rec = kind === "geburtstag" ? "jaehrlich" : kind === "termin" ? recurrence : "keine";
+    if (kind !== "termin" || rec !== "keine" || audience !== null) {
+      row.recurrence = rec;
+      if (kind === "urlaub") row.end_day = endDay;
       // Wer es einträgt, sieht es immer
       row.visible_to = audience === null ? null : [...new Set([...audience, myId])];
     }
     const { error } = await supabase.from("events").insert(row);
     if (error) {
       setErr(/end_day|recurrence|visible_to/.test(error.message)
-        ? "Für Wiederholung/mehrere Tage/Sichtbarkeit fehlt ein Datenbank-Update: supabase/012_gaeste_kalender_watchlist.sql ausführen."
+        ? "Dafür fehlt ein Datenbank-Update: supabase/012_gaeste_kalender_watchlist.sql ausführen."
         : error.message);
       return;
     }
     resetForm();
     reload();
-  }
-  function birthday() {
-    setMore(true);
-    setRecurrence("jaehrlich");
-    setTime("");
-    setEndDay("");
-    if (!title.startsWith("🎂")) setTitle(`🎂 ${title.trim()}`);
-    titleRef.current?.focus();
   }
   async function remove(ev: CalEvent) {
     const series = (ev.recurrence ?? "keine") !== "keine" || (ev.end_day && ev.end_day > ev.day);
@@ -238,37 +241,68 @@ export default function Kalender() {
       </Card>
 
       <SectionTitle>{formatDate(selected, { weekday: "long", day: "numeric", month: "long" })}</SectionTitle>
-      {!isGuest && (
-        <form onSubmit={add} className="mb-3 space-y-2">
-          <div className="flex gap-2">
-            <input ref={titleRef} className={inputCls} placeholder={title.startsWith("🎂") ? "🎂 Name" : "Neuer Termin, z. B. WG-Party"} value={title} onChange={(e) => setTitle(e.target.value)} />
-            <input className={`${inputCls} w-28`} type="time" value={time} onChange={(e) => setTime(e.target.value)} aria-label="Uhrzeit (optional)" />
-            <button className={btnCls}>+</button>
-          </div>
-          <div className="flex flex-wrap gap-2 text-sm">
-            <button type="button" onClick={() => setMore(!more)} className="rounded-full border border-line px-3 py-1 font-medium text-muted hover:text-fg">
-              {more ? "▾ Weniger Optionen" : "▸ Mehr Optionen"}
+      {!isGuest && !formOpen && (
+        <div className="mb-3 grid grid-cols-3 gap-2">
+          {([["termin", "📅", "Termin"], ["geburtstag", "🎂", "Geburtstag"], ["urlaub", "🏖️", "Urlaub"]] as [Kind, string, string][]).map(([k, icon, label]) => (
+            <button key={k} type="button" onClick={() => openForm(k)}
+              className="flex flex-col items-center gap-0.5 rounded-2xl border border-dashed border-line bg-card py-3 text-sm font-medium text-muted transition hover:border-accent hover:text-accent active:scale-95">
+              <span className="text-xl">{icon}</span>+ {label}
             </button>
-            <button type="button" onClick={birthday} className="rounded-full border border-line px-3 py-1 font-medium text-muted hover:text-fg">🎂 Geburtstag</button>
-            <button type="button" onClick={() => { setMore(true); setEndDay(addDays(selected, 6)); setTitle(title || "🏖️ Urlaub "); }}
-              className="rounded-full border border-line px-3 py-1 font-medium text-muted hover:text-fg">🏖️ Urlaub</button>
-          </div>
-          {more && (
-            <Card className="space-y-3 text-sm">
-              <label className="flex flex-wrap items-center gap-2">
-                <span className="w-24 text-muted">Bis (inkl.)</span>
-                <input type="date" className={`${inputCls} w-auto py-1.5`} value={endDay} onChange={(e) => setEndDay(e.target.value)} />
-                {endDay > selected && <span className="text-xs text-muted">{rangeLabel(selected, Math.round((new Date(endDay).getTime() - new Date(selected).getTime()) / 86_400_000) + 1)}</span>}
-                {endDay && <button type="button" onClick={() => setEndDay("")} className="text-xs text-muted underline">eintägig</button>}
-              </label>
-              <label className="flex flex-wrap items-center gap-2">
-                <span className="w-24 text-muted">Wiederholen</span>
-                <select className={`${inputCls} w-auto py-1.5`} value={recurrence} onChange={(e) => setRecurrence(e.target.value as typeof recurrence)}>
-                  {Object.entries(RECURRENCE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                </select>
-              </label>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="w-24 text-muted">Sichtbar für</span>
+          ))}
+        </div>
+      )}
+      {!isGuest && formOpen && (
+        <Card className="mb-3">
+          <form onSubmit={add} className="space-y-4">
+            {/* Art */}
+            <div className="grid grid-cols-3 gap-1 rounded-xl bg-line/50 p-1 text-sm font-medium">
+              {([["termin", "📅 Termin"], ["geburtstag", "🎂 Geburtstag"], ["urlaub", "🏖️ Urlaub"]] as [Kind, string][]).map(([k, label]) => (
+                <button key={k} type="button" onClick={() => openForm(k)}
+                  className={`rounded-lg py-1.5 transition ${kind === k ? "bg-card shadow-sm" : "text-muted"}`}>{label}</button>
+              ))}
+            </div>
+
+            {/* Titel / Name */}
+            <label className="block">
+              <span className="mb-1 block text-xs font-semibold text-muted">{kind === "geburtstag" ? "Name" : kind === "urlaub" ? "Wer / wohin? (optional)" : "Was?"}</span>
+              <div className="flex items-center gap-2">
+                {kind === "geburtstag" && <span className="text-2xl">🎂</span>}
+                <input ref={titleRef} className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={80}
+                  placeholder={kind === "geburtstag" ? "z. B. Verena" : kind === "urlaub" ? "z. B. 🏖️ Stefan in Italien" : "z. B. WG-Party"} />
+              </div>
+            </label>
+
+            {/* Wann */}
+            <div>
+              <span className="mb-1 block text-xs font-semibold text-muted">Wann?</span>
+              {kind === "termin" && (
+                <div className="grid grid-cols-2 gap-2">
+                  <span className="flex items-center rounded-xl border border-line bg-bg px-3 py-2 text-sm">📅 {formatDate(selected)}</span>
+                  <input className={`${inputCls} py-2`} type="time" value={time} onChange={(e) => setTime(e.target.value)} aria-label="Uhrzeit (optional)" />
+                  <select className={`${inputCls} col-span-2 py-2`} value={recurrence} onChange={(e) => setRecurrence(e.target.value as typeof recurrence)} aria-label="Wiederholen">
+                    {Object.entries(RECURRENCE_LABEL).map(([k, v]) => <option key={k} value={k}>🔁 {v}</option>)}
+                  </select>
+                </div>
+              )}
+              {kind === "geburtstag" && (
+                <p className="rounded-xl border border-line bg-bg px-3 py-2 text-sm">📅 {formatDate(selected, { day: "numeric", month: "long" })} · ganztägig · 🔁 jedes Jahr</p>
+              )}
+              {kind === "urlaub" && (
+                <div className="grid grid-cols-[auto_1fr] items-center gap-2 text-sm">
+                  <span className="text-muted">von</span>
+                  <span className="rounded-xl border border-line bg-bg px-3 py-2">{formatDate(selected)}</span>
+                  <span className="text-muted">bis</span>
+                  <input type="date" className={`${inputCls} py-2`} value={endDay} onChange={(e) => setEndDay(e.target.value)} aria-label="Bis (inklusive)" />
+                  {endDay > selected && <span className="col-span-2 text-xs text-muted">ganztägig · {Math.round((new Date(endDay).getTime() - new Date(selected).getTime()) / 86_400_000) + 1} Tage</span>}
+                </div>
+              )}
+              <p className="mt-1 text-xs text-muted">Anderer Tag? Einfach oben im Kalender antippen.</p>
+            </div>
+
+            {/* Sichtbarkeit */}
+            <div>
+              <span className="mb-1 block text-xs font-semibold text-muted">Wer sieht das?</span>
+              <div className="flex flex-wrap gap-1.5 text-sm">
                 <button type="button" onClick={() => setAudience(null)}
                   className={`rounded-full border px-3 py-1 font-medium ${audience === null ? "border-accent bg-accent text-white" : "border-line text-muted"}`}>👥 Alle</button>
                 <button type="button" onClick={() => setAudience([])}
@@ -285,11 +319,18 @@ export default function Kalender() {
                   );
                 })}
               </div>
-              {audience !== null && <p className="text-xs text-muted">{audience.length ? `Nur du und ${audience.map((id) => member(id)?.display_name).join(", ")} sehen diesen Eintrag.` : "🔒 Nur du siehst diesen Eintrag."}</p>}
-            </Card>
-          )}
-          {err && <p className="text-sm text-red-600">{err}</p>}
-        </form>
+              {audience !== null && (
+                <p className="mt-1 text-xs text-muted">{audience.length ? `Nur du und ${audience.map((id) => member(id)?.display_name).join(", ")}.` : "🔒 Nur du siehst diesen Eintrag."}</p>
+              )}
+            </div>
+
+            {err && <p className="text-sm text-red-600">{err}</p>}
+            <div className="flex gap-2">
+              <button className={`${btnCls} flex-1`}>Eintragen</button>
+              <button type="button" onClick={resetForm} className="rounded-xl border border-line px-4 text-sm">Abbrechen</button>
+            </div>
+          </form>
+        </Card>
       )}
       <div className="space-y-2">
         {selHoliday && (
