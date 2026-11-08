@@ -277,8 +277,20 @@ export default function Kalender() {
               <span className="mb-1 block text-xs font-semibold text-muted">Wann?</span>
               {kind === "termin" && (
                 <div className="grid grid-cols-2 gap-2">
-                  <span className="flex items-center rounded-xl border border-line bg-bg px-3 py-2 text-sm">📅 {formatDate(selected)}</span>
-                  <input className={`${inputCls} py-2`} type="time" value={time} onChange={(e) => setTime(e.target.value)} aria-label="Uhrzeit (optional)" />
+                  <label className="min-w-0">
+                    <span className="mb-1 block text-[11px] font-medium text-muted">📅 Tag</span>
+                    <span className="flex h-[42px] items-center rounded-xl border border-line bg-bg px-3 text-sm">{formatDate(selected)}</span>
+                  </label>
+                  <label className="min-w-0">
+                    <span className="mb-1 flex items-center justify-between gap-1 whitespace-nowrap text-[11px] font-medium text-muted">
+                      {time ? "🕐 Uhrzeit" : "🕐 Uhrzeit (optional)"}
+                      {time && <button type="button" onClick={() => setTime("")} className="font-semibold text-accent">✕ ganztägig</button>}
+                    </span>
+                    <span className="relative block">
+                      <input className={`${inputCls} h-[42px] py-2 ${time ? "" : "text-muted"}`} type="time" value={time} onChange={(e) => setTime(e.target.value)} aria-label="Uhrzeit (optional)" />
+                      {!time && <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center bg-card pr-2 text-sm text-muted">🕐 ganztägig</span>}
+                    </span>
+                  </label>
                   <select className={`${inputCls} col-span-2 py-2`} value={recurrence} onChange={(e) => setRecurrence(e.target.value as typeof recurrence)} aria-label="Wiederholen">
                     {Object.entries(RECURRENCE_LABEL).map(([k, v]) => <option key={k} value={k}>🔁 {v}</option>)}
                   </select>

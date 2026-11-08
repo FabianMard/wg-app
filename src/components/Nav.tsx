@@ -13,7 +13,7 @@ export const NAV = [
   { href: "/einkauf", label: "Einkauf", icon: "🛒" },
   { href: "/kosten", label: "Kosten", icon: "💶" },
   { href: "/kalender", label: "Kalender", icon: "📅" },
-  { href: "/todos", label: "To-dos", icon: "✅" },
+  { href: "/todos", label: "Lists", icon: "📋" },
   { href: "/spiel", label: "Spiel", icon: "🎮" },
 ];
 
