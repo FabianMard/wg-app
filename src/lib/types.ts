@@ -162,3 +162,11 @@ export type Praise = {
   ref: string;
   created_at: string;
 };
+
+export type GameScore = {
+  household_id: string;
+  member_id: string;
+  game: "spuelmaschine";
+  best: number;
+  updated_at: string;
+};

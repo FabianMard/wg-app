@@ -1,6 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { supabase } from "@/lib/supabase";
+import { useRows, useWG } from "@/lib/wg";
+import type { GameScore } from "@/lib/types";
+import { Avatar } from "@/components/ui";
 
 /**
  * Minispiel: Spülmaschine einräumen – so schnell und so richtig wie möglich.
@@ -32,6 +36,31 @@ const BEST_KEY = "wg-spiel-spuelmaschine-rekord";
 
 const pick = () => ITEMS[Math.floor(Math.random() * ITEMS.length)];
 
+/** Bestenliste der WG – Rekorde aller, die schon gespielt haben */
+function Leaderboard({ scores }: { scores: GameScore[] }) {
+  const { everyone, myId } = useWG();
+  const list = scores.filter((s) => s.best > 0).sort((a, b) => b.best - a.best);
+  if (!list.length) return null;
+  return (
+    <div className="rounded-2xl border border-line p-3 text-left">
+      <p className="mb-2 text-center text-sm font-semibold">🏆 Bestenliste der WG</p>
+      <ol className="space-y-1.5">
+        {list.map((s, i) => {
+          const m = everyone.find((x) => x.id === s.member_id);
+          return (
+            <li key={s.member_id} className={`flex items-center gap-2 rounded-xl px-2 py-1 text-sm ${s.member_id === myId ? "bg-accent/10 font-semibold" : ""}`}>
+              <span className="w-6 text-center">{["🥇", "🥈", "🥉"][i] ?? `${i + 1}.`}</span>
+              <Avatar member={m} size={22} />
+              <span className="min-w-0 flex-1 truncate">{m?.display_name ?? "?"}{s.member_id === myId && " (du)"}</span>
+              <span className="tabular-nums">{s.best}</span>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
 export function Dishwasher({ onResult }: { onResult?: (score: number, best: boolean) => void }) {
   const [phase, setPhase] = useState<"start" | "spiel" | "ende">("start");
   const [timeLeft, setTimeLeft] = useState(DURATION);
@@ -41,7 +70,15 @@ export function Dishwasher({ onResult }: { onResult?: (score: number, best: bool
   const [right, setRight] = useState(0);
   const [wrong, setWrong] = useState(0);
   const [flash, setFlash] = useState<null | { ok: boolean; slot: Slot }>(null);
-  const [best, setBest] = useState(() => { try { return Number(localStorage.getItem(BEST_KEY)) || 0; } catch { return 0; } });
+  const { myId } = useWG();
+  const { rows: scores, reload: reloadScores } = useRows<GameScore>("game_scores", "best", false);
+  const [localBest, setLocalBest] = useState(() => { try { return Number(localStorage.getItem(BEST_KEY)) || 0; } catch { return 0; } });
+  const best = Math.max(localBest, scores.find((x) => x.member_id === myId && x.game === "spuelmaschine")?.best ?? 0);
+  // Alten Rekord, der bisher nur auf diesem Gerät lag, einmalig in die Bestenliste übernehmen
+  useEffect(() => {
+    if (localBest > 0) supabase.rpc("submit_score", { p_game: "spuelmaschine", p_score: localBest }).then(() => reloadScores());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [newBest, setNewBest] = useState(false);
   const shownAt = useRef(0);
   const scoreRef = useRef(0);
@@ -55,9 +92,10 @@ export function Dishwasher({ onResult }: { onResult?: (score: number, best: bool
     setPhase("ende");
     const s = scoreRef.current;
     const isBest = s > best;
-    if (isBest) { setBest(s); setNewBest(true); try { localStorage.setItem(BEST_KEY, String(s)); } catch { /* egal */ } }
+    if (isBest) { setLocalBest(s); setNewBest(true); try { localStorage.setItem(BEST_KEY, String(s)); } catch { /* egal */ } }
+    if (s > 0) supabase.rpc("submit_score", { p_game: "spuelmaschine", p_score: s }).then(() => reloadScores());
     onResult?.(s, isBest);
-  }, [best, onResult]);
+  }, [best, onResult, reloadScores]);
 
   useEffect(() => {
     if (phase !== "spiel") return;
@@ -102,8 +140,8 @@ export function Dishwasher({ onResult }: { onResult?: (score: number, best: bool
           <li>⬇️ <b>Unterkorb:</b> Teller · Töpfe &amp; Pfannen</li>
           <li>⏱️ {DURATION} Sekunden · schnell und Serie = Bonus · falsches Fach = Abzug</li>
         </ul>
-        {best > 0 && <p className="text-sm">🏆 Dein Rekord: <b>{best}</b></p>}
         <button onClick={start} className="w-full rounded-2xl bg-accent py-3 text-lg font-semibold text-white active:scale-[.98]">Los geht&apos;s!</button>
+        <Leaderboard scores={scores} />
       </div>
     );
   }
@@ -117,6 +155,7 @@ export function Dishwasher({ onResult }: { onResult?: (score: number, best: bool
         <p className="text-sm text-muted">{right} richtig · {wrong} falsch · {accuracy} % Treffer · Rekord {best}</p>
         <p className="text-sm">{accuracy === 100 && right >= 20 ? "Perfekt einsortiert, Spülmaschinen-Profi! 🥇" : accuracy >= 85 ? "Sauber! Fast alles am richtigen Platz." : "Hmm … da klappert es beim Spülen. 😅"}</p>
         <button onClick={start} className="w-full rounded-2xl bg-accent py-3 font-semibold text-white">Nochmal</button>
+        <Leaderboard scores={scores} />
       </div>
     );
   }
