@@ -10,6 +10,7 @@ import {
   objectAt, OBJECTS, ROOM_LABELS, ROWS, type Action, type GameObject, type Pos,
 } from "./map";
 import { TalkDialog } from "./TalkDialog";
+import { ChatPanel } from "./ChatPanel";
 import { BookShelf } from "./BookShelf";
 import { AvatarFigure, lookOf, Wardrobe, type AvatarLook } from "./avatar";
 import {
@@ -53,7 +54,7 @@ const STEP_MS = 120;
 const BUBBLE_MS = 6000;
 
 type Target = { type: "object"; obj: GameObject } | { type: "member"; id: string } | { type: "cat" };
-type Panel = Target | { type: "wardrobe"; first?: boolean; ownerId?: string } | { type: "books"; ownerId: string } | { type: "dishwasher" } | { type: "kitegame" } | { type: "tennis" } | { type: "giessspiel" };
+type Panel = Target | { type: "wardrobe"; first?: boolean; ownerId?: string } | { type: "books"; ownerId: string } | { type: "dishwasher" } | { type: "kitegame" } | { type: "tennis" } | { type: "giessspiel" } | { type: "chat"; with?: string };
 const CAT_LINES = ["Schnurrrr … 💕", "Miau! 😺", "*kuschelt sich an* 🐾", "Prrrrr 😻", "Mehr! Mehr! 🐱"];
 const CAT_SEE = 3; // so nah muss man sein, um die Katze zu entdecken
 const dist = (a: Pos, b: Pos) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
@@ -131,6 +132,7 @@ export function Game() {
   const [chat, setChat] = useState("");
   // Ungelesene Chat-Nachrichten an mich, pro Absender
   const { rows: messages, reload: reloadMessages } = useRows<Message>("messages", "created_at");
+  const unreadTotal = messages.filter((m) => m.to_member === myId && !m.read_at).length;
   const unreadFrom = (id: string) => messages.filter((m) => m.from_member === id && m.to_member === myId && !m.read_at).length;
   const [live, setLive] = useState<"verbinde" | "live" | "offline">("verbinde");
   // Musik: standardmäßig aus, muss aktiv angemacht werden (wird nicht gespeichert)
@@ -405,7 +407,7 @@ export function Game() {
   // Tastatur
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (panel) { if (e.key === "Escape") { if (panel.type === "member") reloadMessages(); setPanel(null); } return; }
+      if (panel) { if (e.key === "Escape") { if (panel.type === "member" || panel.type === "chat") reloadMessages(); setPanel(null); } return; }
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       const dirs: Record<string, [number, number]> = {
@@ -548,8 +550,14 @@ export function Game() {
 
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1 space-y-2">
+          <button onClick={() => setPanel({ type: "chat" })}
+            className="flex w-full items-center gap-2 rounded-2xl border border-line bg-card px-3 py-2.5 text-left text-sm font-semibold transition hover:bg-line/40 active:scale-[.99]">
+            <span className="text-lg">💬</span>
+            <span className="flex-1">Chat – allen schreiben, egal wo sie sind</span>
+            {unreadTotal > 0 && <span className="rounded-full bg-red-500 px-2 py-0.5 text-xs font-bold text-white">{unreadTotal} neu</span>}
+          </button>
           <form onSubmit={(e) => { e.preventDefault(); if (chat.trim()) { say(myId, chat.trim().slice(0, 80)); setChat(""); } }} className="flex gap-2">
-            <input className={`${inputCls} py-2 text-sm`} placeholder="Etwas sagen …" maxLength={80} value={chat} onChange={(e) => setChat(e.target.value)} />
+            <input className={`${inputCls} py-2 text-sm`} placeholder="Laut sagen (alle im Spiel sehen es) …" maxLength={80} value={chat} onChange={(e) => setChat(e.target.value)} />
             <button className="rounded-xl bg-accent px-3 text-sm font-medium text-white">💬</button>
           </form>
           <div className="flex gap-1.5">
@@ -623,11 +631,14 @@ export function Game() {
       )}
 
       {panel && (
-        <Sheet onClose={() => { if (panel.type === "member") reloadMessages(); setPanel(null); }} light={panel.type === "member"}
-          title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : panel.type === "wardrobe" ? (panel.ownerId && panel.ownerId !== myId ? `👚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Kleiderschrank` : "👚 Dein Kleiderschrank") : panel.type === "object" ? (panel.obj.action === "kite" ? "🪁 Stefans Kite-Wetter" : panel.obj.action === "paper" ? "📄 Verenas Paper" : panel.obj.action === "kunst" ? "🎨 Verenas Kunst" : `${panel.obj.icon} ${panel.obj.label}`) : panel.type === "books" ? `📚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Bücher` : panel.type === "dishwasher" ? "🫧 Spülmaschine einräumen" : panel.type === "kitegame" ? "🏄 Kitesurfen" : panel.type === "tennis" ? "🎾 Tennis" : panel.type === "giessspiel" ? "💧 Verenas Dschungel" : ""}>
+        <Sheet onClose={() => { if (panel.type === "member" || panel.type === "chat") reloadMessages(); setPanel(null); }} light={panel.type === "member"}
+          title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : panel.type === "wardrobe" ? (panel.ownerId && panel.ownerId !== myId ? `👚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Kleiderschrank` : "👚 Dein Kleiderschrank") : panel.type === "object" ? (panel.obj.action === "kite" ? "🪁 Stefans Kite-Wetter" : panel.obj.action === "paper" ? "📄 Verenas Paper" : panel.obj.action === "kunst" ? "🎨 Verenas Kunst" : `${panel.obj.icon} ${panel.obj.label}`) : panel.type === "books" ? `📚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Bücher` : panel.type === "dishwasher" ? "🫧 Spülmaschine einräumen" : panel.type === "kitegame" ? "🏄 Kitesurfen" : panel.type === "tennis" ? "🎾 Tennis" : panel.type === "giessspiel" ? "💧 Verenas Dschungel" : panel.type === "chat" ? "💬 Chat" : ""}>
           {panel.type === "member" && targetMember ? (
             <TalkDialog target={targetMember} online={onlineIds.has(targetMember.id)}
-              onEmote={(em, on) => say(em === "🐝" && on ? on : myId, em)} onSay={(text) => say(myId, text)} onClose={() => { reloadMessages(); setPanel(null); }} />
+              onEmote={(em, on) => say(em === "🐝" && on ? on : myId, em)}
+              onOpenChat={() => setPanel({ type: "chat", with: targetMember.id })} onClose={() => { reloadMessages(); setPanel(null); }} />
+          ) : panel.type === "chat" ? (
+            <ChatPanel key={panel.with ?? "liste"} initialWith={panel.with} online={onlineIds} onSent={() => say(myId, "💬")} />
           ) : panel.type === "dishwasher" ? (
             <Dishwasher onResult={(score, best) => say(myId, best ? `🏆 ${score} Punkte – neuer Rekord!` : `🍽️ ${score} Punkte!`)} />
           ) : panel.type === "giessspiel" ? (
