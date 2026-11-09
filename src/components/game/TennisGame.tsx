@@ -143,7 +143,11 @@ export function TennisGame({ onResult, live }: { onResult?: (score: number, best
   if (!me || !opponent) return <p className="text-sm text-muted">Hier fehlt noch ein Gegner. 🎾</p>;
 
   const liveOpp = live?.match ? everyone.find((m) => m.id === live.match!.opponentId) : null; // auch Gäste
-  if (live?.match && liveOpp) return <LiveTennisMatch key={live.match.matchId} me={me} opponent={liveOpp} match={live.match} onEnd={live.onMatchEnd} />;
+  if (live?.match && liveOpp) return <LiveTennisMatch key={live.match.matchId} me={me} opponent={liveOpp} match={live.match} onEnd={live.onMatchEnd} onFinished={live.onFinished} />;
+  if (live?.watching) {
+    const h = everyone.find((m) => m.id === live.watching!.host), g = everyone.find((m) => m.id === live.watching!.guest);
+    if (h && g) return <SpectateMatch key={live.watching.id} matchId={live.watching.id} host={h} guest={g} onEnd={live.onStopWatching} />;
+  }
 
   if (phase === "spiel") return <TennisMatch me={me} opponent={opponent} onOver={finish} />;
 
@@ -192,12 +196,26 @@ export function TennisGame({ onResult, live }: { onResult?: (score: number, best
             </div>
           ) : live.online.length ? (
             <div className="flex flex-wrap justify-center gap-2">
-              {live.online.map((m) => (
-                <button key={m.id} onClick={() => live.onInvite(m.id)}
-                  className="flex items-center gap-1.5 rounded-2xl bg-red-600 py-1 pl-1 pr-3 text-sm font-semibold text-white active:scale-[.98]">
-                  <span className="rounded-xl bg-white/90"><AvatarFigure look={lookOf(m)} size={26} /></span> {m.display_name} herausfordern
-                </button>
-              ))}
+              {live.online.map((m) => {
+                const mm = live.busy[m.id];
+                if (mm) {
+                  // Spielt gerade → nicht einladbar, aber zuschauen geht (ein Knopf pro Match)
+                  if (mm.guest === m.id && live.online.some((o) => o.id === mm.host)) return null;
+                  const other = everyone.find((o) => o.id === (mm.host === m.id ? mm.guest : mm.host));
+                  return (
+                    <button key={m.id} onClick={() => live.onWatch(mm)}
+                      className="flex items-center gap-1.5 rounded-2xl border-2 border-red-500/60 py-1 pl-1 pr-3 text-sm font-semibold active:scale-[.98]">
+                      <AvatarFigure look={lookOf(m)} size={26} /> 🎾 {m.display_name} vs. {other?.display_name ?? "?"} · 👀 Zuschauen
+                    </button>
+                  );
+                }
+                return (
+                  <button key={m.id} onClick={() => live.onInvite(m.id)}
+                    className="flex items-center gap-1.5 rounded-2xl bg-red-600 py-1 pl-1 pr-3 text-sm font-semibold text-white active:scale-[.98]">
+                    <span className="rounded-xl bg-white/90"><AvatarFigure look={lookOf(m)} size={26} /></span> {m.display_name} herausfordern
+                  </button>
+                );
+              })}
             </div>
           ) : <p className="text-sm text-muted">Gerade ist niemand sonst im WG-Spiel.</p>}
           {live.declinedBy && <p className="mt-2 text-xs text-muted">{everyone.find((m) => m.id === live.declinedBy)?.display_name} hat gerade keine Zeit. 🙅</p>}
@@ -427,6 +445,11 @@ export type LiveTennisProps = {
   onCancel: () => void;
   match: LiveMatch | null;
   onMatchEnd: () => void;
+  onFinished: () => void;                                   // Match vorbei (dann wieder einladbar)
+  busy: Record<string, { id: string; host: string; guest: string }>; // wer gerade live spielt
+  watching: { id: string; host: string; guest: string } | null;
+  onWatch: (m: { id: string; host: string; guest: string }) => void;
+  onStopWatching: () => void;
 };
 
 const WIN_AT = 7;
@@ -434,7 +457,7 @@ type Shot = { seq: number; fx: number; tx: number; v: number; rally: number; to:
 type PointMsg = { seq: number; winner: string; reason: "aus" | "verpasst"; host: number; guest: number; nextServer: string };
 
 /** Live-Match: jedes Handy entscheidet über Treffer/Aus auf seiner eigenen Seite. Übertragen werden nur Schläge, Punkte und Positionen. */
-function LiveTennisMatch({ me, opponent, match, onEnd }: { me: Member; opponent: Member; match: LiveMatch; onEnd: () => void }) {
+function LiveTennisMatch({ me, opponent, match, onEnd, onFinished }: { me: Member; opponent: Member; match: LiveMatch; onEnd: () => void; onFinished: () => void }) {
   const { household } = useWG();
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -446,6 +469,10 @@ function LiveTennisMatch({ me, opponent, match, onEnd }: { me: Member; opponent:
   const [hud, setHud] = useState({ mine: 0, theirs: 0, status: "Warte auf " + opponent.display_name + " …", ended: "" as "" | "gewonnen" | "verloren" | "abgebrochen" });
   const endRef = useRef(onEnd);
   useEffect(() => { endRef.current = onEnd; }, [onEnd]);
+  const finishedRef = useRef(onFinished);
+  useEffect(() => { finishedRef.current = onFinished; }, [onFinished]);
+  const [viewers, setViewers] = useState(0);
+  useEffect(() => { if (hud.ended) finishedRef.current(); }, [hud.ended]);
 
   useEffect(() => {
     const canvas = canvasRef.current!, wrap = wrapRef.current!, meEl = meRef.current!, oppEl = oppRef.current!;
@@ -537,10 +564,17 @@ function LiveTennisMatch({ me, opponent, match, onEnd }: { me: Member; opponent:
 
     ch.on("presence", { event: "sync" }, () => {
       const here = Object.keys(ch.presenceState());
+      setViewers(here.filter((id) => id !== me.id && id !== opponent.id).length);
       if (st.phase === "warten" && here.includes(opponent.id)) { st.phase = "countdown"; st.countdown = 3.2; pushHud("Gleich geht's los!"); }
     })
       .on("presence", { event: "leave" }, ({ key }) => { if (key === opponent.id) abort("Verbindung weg – Match beendet"); })
-      .on("broadcast", { event: "pos" }, ({ payload }) => { st.oppX = (payload as { x: number }).x; st.lastOppMsg = performance.now(); })
+      .on("broadcast", { event: "pos" }, ({ payload }) => {
+        const p = payload as { x: number; id?: string };
+        if (p.id && p.id !== opponent.id) return;
+        st.oppX = p.x; st.lastOppMsg = performance.now();
+      })
+      // Zuschauer fragen nach dem Stand – der Host antwortet
+      .on("broadcast", { event: "hello" }, () => { if (match.host) send("state", { host: st.score.host, guest: st.score.guest, ended: st.phase === "ende" }); })
       .on("broadcast", { event: "shot" }, ({ payload }) => {
         st.lastOppMsg = performance.now();
         // Countdown kann auf beiden Handys minimal versetzt enden – ein Aufschlag startet das Spiel dann sofort
@@ -563,7 +597,7 @@ function LiveTennisMatch({ me, opponent, match, onEnd }: { me: Member; opponent:
       if (input.current.right) goal = st.px + 60;
       const d = goal - st.px;
       st.px = Math.max(c.l - 18, Math.min(c.r + 18, st.px + Math.sign(d) * Math.min(Math.abs(d), 430 * dt)));
-      if (now - lastPos > 70 && st.phase !== "warten") { lastPos = now; send("pos", { x: toWorldX(st.px) }); }
+      if (now - lastPos > 70 && st.phase !== "warten") { lastPos = now; send("pos", { x: toWorldX(st.px), id: me.id }); }
       // Gegner weich zur gemeldeten Position
       const ot = toScreenX(st.oppX); st.ox += (ot - st.ox) * Math.min(1, dt * 14);
 
@@ -637,7 +671,7 @@ function LiveTennisMatch({ me, opponent, match, onEnd }: { me: Member; opponent:
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2 text-sm">
         <span className="font-semibold">Du <b className="text-lg tabular-nums">{hud.mine}</b> : <b className="text-lg tabular-nums">{hud.theirs}</b> {opponent.display_name}</span>
-        <span className="flex items-center gap-1 text-xs font-semibold text-red-600"><span className="h-2 w-2 animate-pulse rounded-full bg-red-600" />LIVE</span>
+        <span className="flex items-center gap-1 text-xs font-semibold text-red-600">{viewers > 0 && <span className="mr-1 text-muted">👀 {viewers}</span>}<span className="h-2 w-2 animate-pulse rounded-full bg-red-600" />LIVE</span>
       </div>
       <p className="text-center text-xs text-muted">{hud.status || `Bis ${WIN_AT} Punkte, 2 Vorsprung`}</p>
       <div ref={wrapRef} className="relative mx-auto max-w-md touch-none select-none overflow-hidden rounded-2xl" style={{ height: H }}
@@ -706,6 +740,130 @@ function TennisStats() {
           Zuletzt: {name(rows[0].winner)?.display_name} schlägt {name(rows[0].loser)?.display_name} {rows[0].winner_points}:{rows[0].loser_points}
         </p>
       )}
+    </div>
+  );
+}
+
+/** Zuschauen: Match aus Sicht des Hosts (unten). Ball, Punkte und Positionen kommen live aus dem Match-Kanal. */
+function SpectateMatch({ matchId, host, guest, onEnd }: { matchId: string; host: Member; guest: Member; onEnd: () => void }) {
+  const { myId } = useWG();
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const hostRef = useRef<HTMLDivElement>(null);
+  const guestRef = useRef<HTMLDivElement>(null);
+  const [hud, setHud] = useState({ host: 0, guest: 0, status: "Verbinde …", ended: false });
+  const colors = useRef({ me: host.color, opp: guest.color });
+  useEffect(() => { colors.current = { me: host.color, opp: guest.color }; }, [host.color, guest.color]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current!, wrap = wrapRef.current!, hostEl = hostRef.current!, guestEl = guestRef.current!;
+    const ctx = canvas.getContext("2d")!;
+    let W = wrap.clientWidth;
+    const resize = () => {
+      W = wrap.clientWidth;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = W * dpr; canvas.height = COURT_H * dpr;
+      canvas.style.width = `${W}px`; canvas.style.height = `${COURT_H}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    resize();
+    const ro = new ResizeObserver(resize); ro.observe(wrap);
+    const court = (): Court => ({ l: 34, r: W - 34, t: 46, b: COURT_H - 40 });
+    const toScreenX = (xw: number) => { const c = court(); return c.l + xw * (c.r - c.l); };
+    const st: Scene & { hx: number; gx: number; ball: Scene["ball"] & { vx: number; vy: number; bounced: boolean; toHost: boolean }; ended: boolean } = {
+      px: W / 2, ox: W / 2, hx: 0.5, gx: 0.5, swingMe: 0, swingOpp: 0, sideMe: 1, sideOpp: -1,
+      ball: { x: 0, y: 0, fromY: 0, toY: 1, live: false, vx: 0, vy: 0, bounced: false, toHost: false },
+      trail: [], marks: [], msg: "", msgT: 0, over: false, ended: false,
+    };
+    const say = (m: string) => { st.msg = m; st.msgT = 1.2; };
+    const finish = (text: string) => { if (st.ended) return; st.ended = true; st.over = true; st.overText = text; st.ball.live = false; setHud((h) => ({ ...h, ended: true, status: "" })); };
+    const scoreUpdate = (h: number, g: number) => {
+      setHud((x) => ({ ...x, host: h, guest: g, status: "" }));
+      if ((h >= WIN_AT || g >= WIN_AT) && Math.abs(h - g) >= 2) finish(`${h > g ? host.display_name : guest.display_name} gewinnt!`);
+    };
+
+    const ch = supabase.channel(`tennis-${matchId}`, { config: { presence: { key: myId }, broadcast: { self: false } } });
+    ch.on("broadcast", { event: "pos" }, ({ payload }) => {
+      const p = payload as { x: number; id?: string };
+      if (p.id === host.id) st.hx = p.x; else if (p.id === guest.id) st.gx = p.x;
+    })
+      .on("broadcast", { event: "shot" }, ({ payload }) => {
+        const s = payload as Shot, c = court(), toHost = s.to === host.id;
+        const fromY = toHost ? c.t + 14 : c.b - 14, toY = toHost ? c.b - 14 : c.t + 14;
+        const time = 1 / s.v, fromX = toScreenX(s.fx), toX = toScreenX(s.tx);
+        st.ball = { x: fromX, y: fromY, fromY, toY, live: true, vx: (toX - fromX) / time, vy: Math.sign(toY - fromY) * Math.abs(toY - fromY) / time, bounced: false, toHost };
+        st.trail = [];
+        if (toHost) st.swingOpp = 0.25; else st.swingMe = 0.25;
+        setHud((h) => (h.status ? { ...h, status: "" } : h));
+      })
+      .on("broadcast", { event: "point" }, ({ payload }) => {
+        const p = payload as PointMsg;
+        st.ball.live = false;
+        say(`Punkt für ${p.winner === host.id ? host.display_name : guest.display_name}${p.reason === "aus" ? " (Aus)" : ""}`);
+        scoreUpdate(p.host, p.guest);
+      })
+      .on("broadcast", { event: "state" }, ({ payload }) => {
+        const p = payload as { host: number; guest: number; ended: boolean };
+        scoreUpdate(p.host, p.guest);
+        if (p.ended) finish("Match ist schon vorbei");
+      })
+      .on("broadcast", { event: "leave" }, () => finish("Match abgebrochen"))
+      .on("presence", { event: "leave" }, ({ key }) => { if (key === host.id || key === guest.id) finish("Match beendet"); })
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") { ch.track({ watching: true }); ch.send({ type: "broadcast", event: "hello", payload: {} }); setHud((h) => ({ ...h, status: "Warte auf den nächsten Schlag …" })); }
+      });
+
+    let last = performance.now(), raf = 0;
+    function frame(now: number) {
+      const dt = Math.min(0.033, (now - last) / 1000); last = now;
+      const c = court(), sg = singlesOf(c);
+      st.px += (toScreenX(st.hx) - st.px) * Math.min(1, dt * 14);
+      st.ox += (toScreenX(st.gx) - st.ox) * Math.min(1, dt * 14);
+      const b = st.ball;
+      if (b.live) {
+        b.x += b.vx * dt; b.y += b.vy * dt;
+        st.trail.push({ x: b.x, y: b.y }); if (st.trail.length > 6) st.trail.shift();
+        const arrive = (yy: number) => b.x + b.vx * ((yy - b.y) / b.vy);
+        if (b.toHost) { const d = arrive(c.b - 14) - st.px; if (Math.abs(d) > 4) st.sideMe = Math.sign(d); }
+        else { const d = arrive(c.t + 14) - st.ox; if (Math.abs(d) > 4) st.sideOpp = Math.sign(d); }
+        if (!b.bounced && (b.y - b.fromY) / (b.toY - b.fromY) >= 0.68) {
+          b.bounced = true; st.marks.push({ x: b.x, y: b.y, out: b.x < sg.l - 3 || b.x > sg.r + 3, t: 1.6 });
+        }
+        if (b.y < c.t - 40 || b.y > c.b + 40) b.live = false;
+      }
+      st.swingMe = Math.max(0, st.swingMe - dt); st.swingOpp = Math.max(0, st.swingOpp - dt);
+      st.msgT = Math.max(0, st.msgT - dt);
+      for (const m of st.marks) m.t -= dt;
+      st.marks = st.marks.filter((m) => m.t > 0);
+      drawTennis(ctx, W, c, st, colors.current);
+      // Steuerstreifen gibt es beim Zuschauen nicht – der untere Teil des Canvas ist abgeschnitten
+      hostEl.style.transform = `translate(${st.px - FIG / 2}px, ${c.b - FIG * 1.25 + 6}px)`;
+      guestEl.style.transform = `translate(${st.ox - FIG / 2}px, ${c.t - FIG * 1.25 + 4}px)`;
+      raf = requestAnimationFrame(frame);
+    }
+    raf = requestAnimationFrame(frame);
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); supabase.removeChannel(ch); };
+  }, [matchId, host.id, guest.id, host.display_name, guest.display_name, myId]);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2 text-sm">
+        <span className="font-semibold">{host.display_name} <b className="text-lg tabular-nums">{hud.host}</b> : <b className="text-lg tabular-nums">{hud.guest}</b> {guest.display_name}</span>
+        <span className="flex items-center gap-1 text-xs font-semibold text-red-600">👀 Zuschauen <span className="h-2 w-2 animate-pulse rounded-full bg-red-600" /></span>
+      </div>
+      <p className="text-center text-xs text-muted">{hud.status || `${host.display_name} unten · ${guest.display_name} oben`}</p>
+      <div ref={wrapRef} className="relative mx-auto max-w-md select-none overflow-hidden rounded-2xl" style={{ height: COURT_H }}>
+        <canvas ref={canvasRef} className="absolute inset-0" />
+        <div ref={guestRef} className="pointer-events-none absolute left-0 top-0 will-change-transform" style={{ width: FIG }}>
+          <AvatarFigure look={lookOf(guest)} size={FIG} />
+        </div>
+        <div ref={hostRef} className="pointer-events-none absolute left-0 top-0 will-change-transform" style={{ width: FIG }}>
+          <AvatarFigure look={lookOf(host)} size={FIG} />
+        </div>
+      </div>
+      <button onClick={onEnd} className={`w-full rounded-2xl py-3 font-semibold ${hud.ended ? "bg-accent text-white" : "border border-line"}`}>
+        {hud.ended ? "Zurück" : "Zuschauen beenden"}
+      </button>
     </div>
   );
 }

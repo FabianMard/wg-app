@@ -147,7 +147,7 @@ export type Message = {
   id: string;
   household_id: string;
   from_member: string;
-  to_member: string;
+  to_member: string | null; // null = an alle (WG-Chat)
   text: string;
   read_at: string | null;
   created_at: string;

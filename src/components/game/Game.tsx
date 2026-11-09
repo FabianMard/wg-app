@@ -10,7 +10,7 @@ import {
   objectAt, OBJECTS, ROOM_LABELS, ROWS, type Action, type GameObject, type Pos,
 } from "./map";
 import { TalkDialog } from "./TalkDialog";
-import { ChatPanel } from "./ChatPanel";
+import { ChatPanel, useGroupUnread } from "./ChatPanel";
 import { BookShelf } from "./BookShelf";
 import { AvatarFigure, lookOf, Wardrobe, type AvatarLook } from "./avatar";
 import {
@@ -78,6 +78,8 @@ function catHideout(avoid: Pos[], far?: Pos): Pos {
 
 /** Position + Blickrichtung (l = schaut nach links) */
 type Spot = Pos & { l?: boolean };
+/** Wer gerade ein Live-Tennis-Match spielt (steht in der Presence, damit auch Neue es sofort sehen) */
+type MatchMeta = { id: string; host: string; guest: string };
 type Bubble = { text: string; until: number };
 type SayPayload = { on: string; text: string };
 type MovePayload = { id: string; x: number; y: number; l?: boolean };
@@ -114,6 +116,9 @@ export function Game() {
   const [declinedBy, setDeclinedBy] = useState<string | null>(null);
   const [liveMatch, setLiveMatch] = useState<LiveMatch | null>(null);
   const pendingRef = useRef<InvitePayload | null>(null); // für den Kanal-Handler
+  const [matches, setMatches] = useState<Record<string, MatchMeta>>({}); // Spieler-ID → laufendes Match
+  const myMatchRef = useRef<MatchMeta | null>(null);
+  const [watching, setWatching] = useState<MatchMeta | null>(null);
   useEffect(() => { pendingRef.current = tennisPending; }, [tennisPending]);
   const [remote, setRemote] = useState<Record<string, Spot>>({});
   const [faceLeft, setFaceLeft] = useState(false);
@@ -132,7 +137,8 @@ export function Game() {
   const [chat, setChat] = useState("");
   // Ungelesene Chat-Nachrichten an mich, pro Absender
   const { rows: messages, reload: reloadMessages } = useRows<Message>("messages", "created_at");
-  const unreadTotal = messages.filter((m) => m.to_member === myId && !m.read_at).length;
+  const groupUnread = useGroupUnread(messages, myId);
+  const unreadTotal = messages.filter((m) => m.to_member === myId && !m.read_at).length + groupUnread;
   const unreadFrom = (id: string) => messages.filter((m) => m.from_member === id && m.to_member === myId && !m.read_at).length;
   const [live, setLive] = useState<"verbinde" | "live" | "offline">("verbinde");
   // Musik: standardmäßig aus, muss aktiv angemacht werden (wird nicht gespeichert)
@@ -193,18 +199,36 @@ export function Game() {
     if (accept) { setLiveMatch({ matchId: invite.matchId, opponentId: invite.from, host: false }); setPanel({ type: "tennis" }); }
     setInvite(null);
   }, [invite, myId, sendTennis]);
+  // Eigenes Match melden (Presence + Sofort-Nachricht), damit andere nicht einladen, aber zuschauen können
+  const setMyMatch = useCallback((m: MatchMeta | null) => {
+    const prev = myMatchRef.current;
+    if ((prev?.id ?? null) === (m?.id ?? null)) return;
+    myMatchRef.current = m;
+    const players = m ? [m.host, m.guest] : prev ? [prev.host, prev.guest] : [];
+    if (joined.current) {
+      channel.current?.send({ type: "broadcast", event: "tennis-status", payload: { match: m, players: players.filter((id) => id === myId) } });
+      channel.current?.track({ ...posRef.current, l: faceRef.current, match: m });
+    }
+    setMatches((cur) => { const next = { ...cur }; if (m) next[myId] = m; else delete next[myId]; return next; });
+  }, [myId]);
+  useEffect(() => {
+    setMyMatch(liveMatch ? { id: liveMatch.matchId, host: liveMatch.host ? myId : liveMatch.opponentId, guest: liveMatch.host ? liveMatch.opponentId : myId } : null);
+  }, [liveMatch, myId, setMyMatch]);
   // Einladungen laufen nach 30 s ab; schließt man das Tennis-Fenster, wird die eigene Einladung zurückgezogen
   useEffect(() => { if (!invite) return; const t = setTimeout(() => setInvite(null), 30_000); return () => clearTimeout(t); }, [invite]);
   useEffect(() => { if (!tennisPending) return; const t = setTimeout(() => cancelInvite(), 30_000); return () => clearTimeout(t); }, [tennisPending, cancelInvite]);
-  useEffect(() => { if (panel?.type !== "tennis") { if (pendingRef.current) cancelInvite(); setLiveMatch(null); } }, [panel, cancelInvite]);
+  useEffect(() => { if (panel?.type !== "tennis") { if (pendingRef.current) cancelInvite(); setLiveMatch(null); setWatching(null); } }, [panel, cancelInvite]);
 
   // ── Live: wer ist im Spiel und wo? (Supabase Realtime Presence) ──
   useEffect(() => {
     const ch = supabase.channel(`spiel-${household.id}`, { config: { presence: { key: myId }, broadcast: { self: false } } });
     // Presence = wer ist online. Die Position kommt v. a. über "move"-Nachrichten (schneller, nichts geht verloren).
     ch.on("presence", { event: "sync" }, () => {
-      const state = ch.presenceState<Spot>();
+      const state = ch.presenceState<Spot & { match?: MatchMeta | null }>();
       present.current = new Set(Object.keys(state));
+      const busy: Record<string, MatchMeta> = {};
+      for (const [id, metas] of Object.entries(state)) { const mm = metas[metas.length - 1]?.match; if (mm) busy[id] = mm; }
+      setMatches(busy);
       setRemote((prev) => {
         const next: Record<string, Spot> = {};
         for (const [id, metas] of Object.entries(state)) {
@@ -232,11 +256,23 @@ export function Game() {
       .on("broadcast", { event: "say" }, ({ payload }) => showBubble((payload as SayPayload).on, (payload as SayPayload).text))
       .on("broadcast", { event: "tennis-invite" }, ({ payload }) => {
         const p = payload as InvitePayload;
-        if (p.to === myId) setInvite(p);
+        if (p.to !== myId) return;
+        // Schon im Match → automatisch absagen
+        if (myMatchRef.current) { ch.send({ type: "broadcast", event: "tennis-reply", payload: { ...p, from: myId, to: p.from, accept: false } }); return; }
+        setInvite(p);
       })
       .on("broadcast", { event: "tennis-cancel" }, ({ payload }) => {
         const p = payload as InvitePayload;
         setInvite((cur) => (cur && cur.matchId === p.matchId ? null : cur));
+      })
+      .on("broadcast", { event: "tennis-status" }, ({ payload }) => {
+        // Sofort-Info, wer ein Match startet/beendet (die Presence kommt etwas verzögert)
+        const p = payload as { match: MatchMeta | null; players: string[] };
+        setMatches((cur) => {
+          const next = { ...cur };
+          for (const id of p.players) { if (p.match) next[id] = p.match; else delete next[id]; }
+          return next;
+        });
       })
       .on("broadcast", { event: "tennis-reply" }, ({ payload }) => {
         const p = payload as ReplyPayload;
@@ -246,7 +282,7 @@ export function Game() {
         else setDeclinedBy(p.from);
       })
       .subscribe((status) => {
-        if (status === "SUBSCRIBED") { joined.current = true; setLive("live"); ch.track({ ...posRef.current, l: faceRef.current }); }
+        if (status === "SUBSCRIBED") { joined.current = true; setLive("live"); ch.track({ ...posRef.current, l: faceRef.current, match: myMatchRef.current }); }
         else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") { joined.current = false; setLive("offline"); }
       });
     channel.current = ch;
@@ -274,7 +310,7 @@ export function Game() {
     const ping = () => {
       if (!joined.current || Date.now() - lastPing < 5_000) return;
       lastPing = Date.now();
-      channel.current?.track({ ...posRef.current, l: faceRef.current });
+      channel.current?.track({ ...posRef.current, l: faceRef.current, match: myMatchRef.current });
     };
     const id = setInterval(ping, 15_000);
     // App im Hintergrund / geschlossen → sofort abmelden (sonst merkt Supabase es erst nach bis zu einer Minute)
@@ -527,7 +563,7 @@ export function Game() {
                 {hot && <span className="absolute bottom-0 left-1/2 h-2 w-[90%] -translate-x-1/2 animate-pulse rounded-[50%] bg-white/80 ring-2 ring-accent" />}
                 <span className={`absolute left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full px-1.5 text-[10px] font-bold leading-4 text-white shadow ${hot ? "ring-2 ring-white" : ""}`}
                   style={{ background: m.color, top: -tile * 0.42 - 15 }}>
-                  {isMe ? "Du" : m.display_name}{!online && " 💤"}
+                  {isMe ? "Du" : m.display_name}{!online && " 💤"}{matches[m.id] && " 🎾"}
                   {!isMe && unreadFrom(m.id) > 0 && <span className="ml-1 rounded-full bg-red-500 px-1 text-[9px]">💬{unreadFrom(m.id)}</span>}
                 </span>
                 <div className={`absolute bottom-0 left-1/2 -translate-x-1/2 ${moving[m.id] ? "animate-waddle" : ""} ${online ? "" : "opacity-75 grayscale-[.35]"}`}>
@@ -631,14 +667,15 @@ export function Game() {
       )}
 
       {panel && (
-        <Sheet onClose={() => { if (panel.type === "member" || panel.type === "chat") reloadMessages(); setPanel(null); }} light={panel.type === "member"}
+        <Sheet onClose={() => { if (panel.type === "member" || panel.type === "chat") reloadMessages(); setPanel(null); }} light={panel.type === "member"} fill={panel.type === "chat"}
           title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : panel.type === "wardrobe" ? (panel.ownerId && panel.ownerId !== myId ? `👚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Kleiderschrank` : "👚 Dein Kleiderschrank") : panel.type === "object" ? (panel.obj.action === "kite" ? "🪁 Stefans Kite-Wetter" : panel.obj.action === "paper" ? "📄 Verenas Paper" : panel.obj.action === "kunst" ? "🎨 Verenas Kunst" : `${panel.obj.icon} ${panel.obj.label}`) : panel.type === "books" ? `📚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Bücher` : panel.type === "dishwasher" ? "🫧 Spülmaschine einräumen" : panel.type === "kitegame" ? "🏄 Kitesurfen" : panel.type === "tennis" ? "🎾 Tennis" : panel.type === "giessspiel" ? "💧 Verenas Dschungel" : panel.type === "chat" ? "💬 Chat" : ""}>
           {panel.type === "member" && targetMember ? (
             <TalkDialog target={targetMember} online={onlineIds.has(targetMember.id)}
               onEmote={(em, on) => say(em === "🐝" && on ? on : myId, em)}
               onOpenChat={() => setPanel({ type: "chat", with: targetMember.id })} onClose={() => { reloadMessages(); setPanel(null); }} />
           ) : panel.type === "chat" ? (
-            <ChatPanel key={panel.with ?? "liste"} initialWith={panel.with} online={onlineIds} onSent={() => say(myId, "💬")} />
+            <ChatPanel key={panel.with ?? "liste"} initialWith={panel.with} online={onlineIds} onSent={() => say(myId, "💬")}
+              onClose={() => { reloadMessages(); setPanel(null); }} />
           ) : panel.type === "dishwasher" ? (
             <Dishwasher onResult={(score, best) => say(myId, best ? `🏆 ${score} Punkte – neuer Rekord!` : `🍽️ ${score} Punkte!`)} />
           ) : panel.type === "giessspiel" ? (
@@ -648,7 +685,8 @@ export function Game() {
               live={{
                 online: everyone.filter((m) => m.id !== myId && onlineIds.has(m.id)), // auch Gäste
                 pendingTo: tennisPending?.to ?? null, declinedBy, onInvite: inviteTennis, onCancel: cancelInvite,
-                match: liveMatch, onMatchEnd: () => setLiveMatch(null),
+                match: liveMatch, onMatchEnd: () => setLiveMatch(null), onFinished: () => setMyMatch(null),
+                busy: matches, watching, onWatch: (m) => setWatching(m), onStopWatching: () => setWatching(null),
               }} />
           ) : panel.type === "kitegame" ? (
             <KiteGame onResult={(score, best) => say(myId, best ? `🏄 ${score} Punkte – neuer Kite-Rekord!` : `🏄 ${score} Punkte!`)} />
@@ -667,11 +705,12 @@ export function Game() {
   );
 }
 
-function Sheet({ title, onClose, children, light }: { title: string; onClose: () => void; children: React.ReactNode; light?: boolean }) {
+function Sheet({ title, onClose, children, light, fill }: { title: string; onClose: () => void; children: React.ReactNode; light?: boolean; fill?: boolean }) {
+  // fill = Inhalt füllt das Fenster genau aus und scrollt selbst (Chat) – Kopfzeile bleibt immer sichtbar
   // light = Gespräch: Spiel bleibt klar sichtbar (kein Abdunkeln/Weichzeichnen), Fenster nur unten
   return (
     <div className={`fixed inset-0 z-50 flex items-end justify-center ${light ? "bg-transparent" : "bg-black/40 backdrop-blur-[2px] md:items-center md:p-6"}`} onClick={onClose}>
-      <div className={`flex w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl bg-bg ${light ? "max-h-[62dvh] border-t border-line shadow-[0_-8px_30px_rgba(0,0,0,.18)]" : "max-h-[90dvh] shadow-2xl md:rounded-3xl"}`}
+      <div className={`flex w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl bg-bg ${light ? "max-h-[62dvh] border-t border-line shadow-[0_-8px_30px_rgba(0,0,0,.18)]" : `${fill ? "h-[90dvh]" : "max-h-[90dvh]"} shadow-2xl md:rounded-3xl`}`}
         onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={title}>
         <div className="flex items-center justify-between border-b border-line px-4 py-3">
           <span className="font-semibold">{title}</span>
@@ -679,7 +718,7 @@ function Sheet({ title, onClose, children, light }: { title: string; onClose: ()
             Zurück ins Spiel ✕
           </button>
         </div>
-        <div className="overflow-y-auto px-4 pb-8 pt-4">{children}</div>
+        {fill ? <div className="min-h-0 flex-1">{children}</div> : <div className="overflow-y-auto px-4 pb-8 pt-4">{children}</div>}
       </div>
     </div>
   );

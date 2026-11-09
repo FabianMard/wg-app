@@ -153,7 +153,7 @@ create table public.praises (
   id           uuid primary key default gen_random_uuid(),
   household_id uuid not null references public.households on delete cascade,
   from_member  uuid not null default public.my_member_id() references public.members on delete cascade,
-  to_member    uuid not null references public.members on delete cascade,
+  to_member    uuid references public.members on delete cascade,   -- leer = Gruppen-Nachricht an alle
   kind         text not null check (kind in ('putzen', 'todo')),
   ref          text not null,   -- z. B. "<area_id>:<period>" oder todo-id
   created_at   timestamptz not null default now(),
@@ -840,6 +840,15 @@ begin
     alter publication supabase_realtime add table public.tennis_matches;
   end if;
 end $$;
+
+-- ───────────── WG-Chat für alle ─────────────
+drop policy if exists "Eigene Nachrichten lesen" on public.messages;
+drop policy if exists "Nachricht schreiben" on public.messages;
+-- Private Nachrichten: nur Absender & Empfänger. Gruppen-Nachrichten (to_member leer): alle in der WG.
+create policy "Eigene Nachrichten lesen" on public.messages for select
+  using (is_member(household_id) and (to_member is null or my_member_id() in (from_member, to_member)));
+create policy "Nachricht schreiben" on public.messages for insert
+  with check (is_member(household_id) and from_member = my_member_id() and (to_member is null or to_member <> from_member));
 
 -- Euer Einladungslink: https://<eure-adresse>/?code=<invite_code>
 select name, invite_code from public.households;

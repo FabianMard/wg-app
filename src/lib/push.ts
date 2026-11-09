@@ -14,7 +14,7 @@ export const PUSH_AREAS: { id: PushArea; label: string; icon: string; url: strin
   { id: "pinnwand", label: "Pinnwand", icon: "📌", url: "/pinnwand", hint: "Neue Zettel & Fotos" },
   { id: "watchlist", label: "Watchlist", icon: "📺", url: "/todos?tab=watchlist", hint: "Neue Filme & Serien" },
   { id: "musik", label: "Musik", icon: "🎵", url: "/todos?tab=musik", hint: "Neue Playlisten" },
-  { id: "chat", label: "Nachrichten an dich", icon: "💬", url: "/spiel", hint: "Wenn dich jemand im Spiel anschreibt" },
+  { id: "chat", label: "Chat", icon: "💬", url: "/spiel", hint: "Nachrichten an dich und im WG-Chat" },
 ];
 
 /** Vorschlag beim Einschalten: Nachrichten an mich immer, alles andere 1× am Tag, Geburtstage morgens um 9 */
