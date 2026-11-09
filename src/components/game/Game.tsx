@@ -30,16 +30,18 @@ import { Pinboard } from "@/components/Pinboard";
 import { Watchlist } from "@/components/Watchlist";
 import { MusicList } from "@/components/MusicList";
 import { Dishwasher } from "./Dishwasher";
+import { KiteWeather } from "./KiteWeather";
 
 type PageAction = Exclude<Action, "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine">;
 const WatchlistPanel = () => <Watchlist />;
 const PinnwandPanel = () => <Pinboard />;
 const MusikPanel = () => <MusicList />;
+const KitePanel = () => <KiteWeather />;
 /** Was Gäste im Spiel nie öffnen dürfen */
 const RESIDENT_ONLY: Action[] = ["start", "putzplan", "einkauf", "kosten", "todos", "wg"];
 const PANELS: Record<PageAction, React.ComponentType> = {
   start: StartPage, putzplan: PutzplanPage, einkauf: EinkaufPage, kosten: KostenPage,
-  watchlist: WatchlistPanel, pinnwand: PinnwandPanel, musik: MusikPanel,
+  watchlist: WatchlistPanel, pinnwand: PinnwandPanel, musik: MusikPanel, kite: KitePanel,
   kalender: KalenderPage, todos: TodosPage, wg: WGPage,
 };
 
@@ -553,7 +555,7 @@ export function Game() {
 
       {panel && (
         <Sheet onClose={() => { if (panel.type === "member") reloadMessages(); setPanel(null); }} light={panel.type === "member"}
-          title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : panel.type === "wardrobe" ? (panel.ownerId && panel.ownerId !== myId ? `👚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Kleiderschrank` : "👚 Dein Kleiderschrank") : panel.type === "object" ? `${panel.obj.icon} ${panel.obj.label}` : panel.type === "books" ? `📚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Bücher` : panel.type === "dishwasher" ? "🫧 Spülmaschine einräumen" : ""}>
+          title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : panel.type === "wardrobe" ? (panel.ownerId && panel.ownerId !== myId ? `👚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Kleiderschrank` : "👚 Dein Kleiderschrank") : panel.type === "object" ? (panel.obj.action === "kite" ? "🪁 Stefans Kite-Wetter" : `${panel.obj.icon} ${panel.obj.label}`) : panel.type === "books" ? `📚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Bücher` : panel.type === "dishwasher" ? "🫧 Spülmaschine einräumen" : ""}>
           {panel.type === "member" && targetMember ? (
             <TalkDialog target={targetMember} online={onlineIds.has(targetMember.id)}
               onEmote={(em, on) => say(em === "🐝" && on ? on : myId, em)} onSay={(text) => say(myId, text)} onClose={() => { reloadMessages(); setPanel(null); }} />
