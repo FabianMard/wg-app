@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { notify } from "@/lib/push";
 import { useWG } from "@/lib/wg";
 import type { ShoppingItem } from "@/lib/types";
 import { storeById } from "@/lib/stores";
@@ -85,6 +86,7 @@ export function Checkout({ items, onDone, onCancel }: { items: ShoppingItem[]; o
     setBusy(true);
     const { error } = await supabase.from("expenses").insert(rows);
     if (error) { setBusy(false); return setErr(error.message); }
+    notify("kosten", `${title.trim() || "Einkauf"} – ${euro(total / 100)}`);
     await supabase.from("shopping_items").update({ archived: true }).in("id", items.map((i) => i.id));
     setBusy(false);
     onDone(`✓ ${euro(total / 100)} von ${member(paidBy)?.display_name} unter Kosten eingetragen`);

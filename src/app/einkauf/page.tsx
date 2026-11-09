@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { notify } from "@/lib/push";
 import { useRows, useWG } from "@/lib/wg";
 import type { ShoppingItem, StoreId } from "@/lib/types";
 import { DEFAULT_SUGGESTIONS, STORES, storeById } from "@/lib/stores";
@@ -79,9 +80,10 @@ export default function Einkauf() {
 
   async function addNames(names: string[]) {
     if (!names.length) return;
-    await supabase.from("shopping_items").insert(names.map((n) => ({
+    const { error } = await supabase.from("shopping_items").insert(names.map((n) => ({
       household_id: household.id, name: n, store, store_note: store === "sonstiges" ? note.trim() || null : null,
     })));
+    if (!error) notify("einkauf", names.join(", "));
     reload();
   }
 

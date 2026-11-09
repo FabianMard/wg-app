@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { notify } from "@/lib/push";
 import { useRows, useWG } from "@/lib/wg";
 import type { Playlist } from "@/lib/types";
 import { btnCls, Card, DeleteButton, Empty, inputCls } from "@/components/ui";
@@ -82,6 +83,7 @@ export function MusicList({ initialLink }: { initialLink?: string } = {}) {
       setErr(error.message.includes("playlists") ? "Datenbank-Update fehlt: Bitte supabase/013_musik.sql im SQL Editor ausführen." : error.message);
       return;
     }
+    notify("musik", `${(name || "Spotify-Playlist").slice(0, 120)} · ${moodOf(mood).icon} ${moodOf(mood).label}`);
     setLink(""); setTitle("");
     reload();
   }

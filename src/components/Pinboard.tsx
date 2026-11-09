@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { notify } from "@/lib/push";
 import { useRows, useWG } from "@/lib/wg";
 import type { Note, NoteColor } from "@/lib/types";
 
@@ -123,6 +124,7 @@ export function Pinboard() {
     }
     const { error } = await supabase.from("notes").insert({ household_id: household.id, text: t.slice(0, MAX_LEN), color, ...(image_path ? { image_path } : {}) });
     setBusy(false);
+    if (!error) notify("pinnwand", t ? t.slice(0, 120) : "📷 Neues Foto");
     if (error) {
       if (image_path) await supabase.storage.from("pinnwand").remove([image_path]);
       setErr(error.message.includes("image_path") || error.message.includes("notes_text_check")

@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { notify } from "@/lib/push";
 import { useRows, useWG } from "@/lib/wg";
 import type { CalEvent, ChoreArea, ChoreCheck, ChoreTask } from "@/lib/types";
 import { areaStatuses, isOverdue, periodOf, periodRange, type AreaStatus } from "@/lib/cleaning";
@@ -112,6 +113,9 @@ export default function Kalender() {
         : error.message);
       return;
     }
+    // Nur wer den Eintrag sehen darf, wird benachrichtigt
+    notify("kalender", `${kind === "geburtstag" ? `🎂 ${birthdayName(t)}` : String(row.title)} am ${formatDate(selected)}${row.time ? `, ${String(row.time).slice(0, 5)} Uhr` : ""}`,
+      { to: (row.visible_to as string[] | null | undefined) ?? null });
     resetForm();
     reload();
   }

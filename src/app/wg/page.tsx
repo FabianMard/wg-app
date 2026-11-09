@@ -7,6 +7,7 @@ import { useRows, useWG } from "@/lib/wg";
 import type { Praise } from "@/lib/types";
 import { beesOf } from "@/components/Praise";
 import { GuestManager } from "@/components/GuestManager";
+import { PushSettings } from "@/components/PushSettings";
 import { Avatar, btnCls, btnGhostCls, Card, inputCls, PageTitle, SectionTitle } from "@/components/ui";
 
 // Gut unterscheidbare Farben, die auch mit weißer Schrift lesbar sind
@@ -145,6 +146,9 @@ export default function WGSettings() {
         </div>
         <p className="mt-3 text-xs text-muted">Code zum Eintippen: <b className="font-mono tracking-widest">{household.invite_code}</b></p>
       </Card>
+
+      <SectionTitle>🔔 Push-Nachrichten</SectionTitle>
+      <PushSettings />
 
       <SectionTitle>WG-Foto</SectionTitle>
       <Card className="flex items-center gap-4">

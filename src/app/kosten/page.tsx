@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { notify } from "@/lib/push";
 import { useRows, useWG } from "@/lib/wg";
 import type { Expense } from "@/lib/types";
 import { computeBalances, suggestTransfers, type Transfer } from "@/lib/balances";
@@ -28,9 +29,10 @@ export default function Kosten() {
     e.preventDefault();
     const value = Number(amount.replace(",", "."));
     if (!title.trim() || !(value > 0) || participants.length === 0) return;
-    await supabase.from("expenses").insert({
+    const { error } = await supabase.from("expenses").insert({
       household_id: household.id, title: title.trim(), amount: value, paid_by: paidBy, participants, spent_on: todayISO(),
     });
+    if (!error) notify("kosten", `${title.trim()} – ${euro(value)}`);
     setTitle(""); setAmount(""); setParts(null);
     reload();
   }
@@ -38,9 +40,10 @@ export default function Kosten() {
   async function settle(t: Transfer) {
     const from = member(t.from)?.display_name, to = member(t.to)?.display_name;
     if (!confirm(`Hat ${from} ${euro(t.cents / 100)} an ${to} überwiesen?`)) return;
-    await supabase.from("expenses").insert({
+    const { error } = await supabase.from("expenses").insert({
       household_id: household.id, title: "Ausgleich", amount: t.cents / 100, paid_by: t.from, participants: [t.to], is_settlement: true,
     });
+    if (!error) notify("kosten", `Ausgleich: ${from} → ${to} ${euro(t.cents / 100)}`);
     reload();
   }
 

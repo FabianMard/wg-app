@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRows, useWG } from "@/lib/wg";
 import { supabase } from "@/lib/supabase";
+import { notify } from "@/lib/push";
 import type { ChoreArea, ChoreCheck, ChoreTask, Expense, Member, Message, Praise, Todo } from "@/lib/types";
 import { areaStatuses, isOverdue, periodOf, phaseOf } from "@/lib/cleaning";
 import { computeBalances, suggestTransfers } from "@/lib/balances";
@@ -64,6 +65,7 @@ export function TalkDialog({ target, online, onEmote, onSay, onClose }: {
       setChatErr(error.message.includes("messages") ? "Datenbank-Update fehlt: Bitte supabase/010_chat.sql im SQL Editor ausführen." : error.message);
       return;
     }
+    notify("chat", t, { to: [target.id] });
     onSay(t.slice(0, 80)); // zusätzlich als Sprechblase im Spiel
     setMsg("");
     reloadMessages();

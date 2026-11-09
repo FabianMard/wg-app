@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { notify } from "@/lib/push";
 import { useRows, useWG } from "@/lib/wg";
 import type { WatchItem } from "@/lib/types";
 import { Avatar, btnCls, Card, DeleteButton, Empty, inputCls, SectionTitle } from "@/components/ui";
@@ -37,6 +38,7 @@ export function Watchlist() {
       setErr(error.message.includes("watchlist") ? "Datenbank-Update fehlt: Bitte supabase/012_gaeste_kalender_watchlist.sql ausführen." : error.message);
       return;
     }
+    notify("watchlist", `${title.trim()}${platform ? ` (${platform})` : ""}`);
     setTitle(""); setPlatform(null);
     reload();
   }

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { notify } from "@/lib/push";
 import { useRows, useWG } from "@/lib/wg";
 import type { Praise, Todo } from "@/lib/types";
 import { daysUntil, formatDate } from "@/lib/dates";
@@ -30,9 +31,10 @@ function TodoList() {
   async function add(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
-    await supabase.from("todos").insert({
+    const { error } = await supabase.from("todos").insert({
       household_id: household.id, title: title.trim(), assignee: assignee || null, due_date: due || null,
     });
+    if (!error) notify("todos", `${title.trim()}${assignee ? ` (für ${member(assignee)?.display_name ?? "?"})` : ""}${due ? ` – bis ${formatDate(due)}` : ""}`);
     setTitle(""); setDue("");
     reload();
   }
