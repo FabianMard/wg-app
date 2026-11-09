@@ -133,17 +133,24 @@ function TennisMatch({ me, opponent, onOver }: { me: Member; opponent: Member; o
     const c0 = court();
     const st = {
       px: W / 2, ox: W / 2, oTarget: W / 2,
-      ball: { x: W / 2, y: c0.t + 14, vx: 0, vy: 0, fromY: c0.t + 14, toY: c0.b - 14, live: false, byMe: false },
+      ball: { x: W / 2, y: c0.t + 14, vx: 0, vy: 0, fromY: c0.t + 14, toY: c0.b - 14, live: false, byMe: false, bounced: false },
+      // Gegner: reagiert verzögert und schätzt bei schrägen Bällen etwas daneben
+      oReact: 0, oErr: 0,
+      marks: [] as { x: number; y: number; out: boolean; t: number }[],
       rally: 0, score: 0, returns: 0, winners: 0, lives: LIVES,
       wait: 0.9, swingMe: 0, swingOpp: 0, msg: "", msgT: 0, over: false, overT: 0, t: 0, trail: [] as { x: number; y: number }[],
     };
+    // Nur in der Entwicklung: Zustand für automatische Tests sichtbar machen
+    if (process.env.NODE_ENV !== "production") (window as unknown as { __tennis?: unknown }).__tennis = { st, court };
     const speed = () => Math.min(560, 250 + st.rally * 14 + st.winners * 6);
     const say = (m: string) => { st.msg = m; st.msgT = 1.1; };
 
     // Ball von (x,y) zu Zielpunkt schlagen
     function shoot(fromX: number, fromY: number, toX: number, toY: number, byMe: boolean) {
       const s = speed(), dy = toY - fromY, time = Math.abs(dy) / s;
-      st.ball = { x: fromX, y: fromY, vx: (toX - fromX) / time, vy: Math.sign(dy) * s, fromY, toY, live: true, byMe };
+      const vx = (toX - fromX) / time;
+      st.ball = { x: fromX, y: fromY, vx, vy: Math.sign(dy) * s, fromY, toY, live: true, byMe, bounced: false };
+      if (byMe) { st.oReact = rnd(0.16, 0.3); st.oErr = rnd(-1, 1) * (8 + Math.abs(vx) * 0.12); }
     }
     function serve() {
       const c = court();
@@ -153,6 +160,7 @@ function TennisMatch({ me, opponent, onOver }: { me: Member; opponent: Member; o
     }
     function pointOver(won: boolean, text: string) {
       st.ball.live = false;
+      if (process.env.NODE_ENV !== "production") ((window as unknown as { __tennisLog?: string[] }).__tennisLog ??= []).push(`${text} | Ball von ${st.ball.byMe ? "mir" : "Gegner"} | x=${Math.round(st.ball.x)} Platz ${Math.round(court().l)}–${Math.round(court().r)}`);
       if (won) { st.winners++; st.score += 5; } else { st.lives--; }
       say(text);
       st.rally = 0;
@@ -181,17 +189,29 @@ function TennisMatch({ me, opponent, onOver }: { me: Member; opponent: Member; o
         if (b.live) {
           b.x += b.vx * dt; b.y += b.vy * dt;
           st.trail.push({ x: b.x, y: b.y }); if (st.trail.length > 6) st.trail.shift();
-          // Gegner läuft zum Ball (mit kleinem Fehler, wird mit der Zeit besser)
+          // Aufsprung (bei ~68 % des Wegs, wie gezeichnet): hier wird über Aus entschieden – für beide Seiten
+          const prog = (b.y - b.fromY) / (b.toY - b.fromY);
+          if (!b.bounced && prog >= 0.68) {
+            b.bounced = true;
+            const out = b.x < c.l - 3 || b.x > c.r + 3;
+            st.marks.push({ x: b.x, y: b.y, out, t: 1.6 });
+            if (out) {
+              if (b.byMe) pointOver(false, "Aus! 😬");
+              else pointOver(true, "Aus vom Gegner! +5");
+            }
+          }
+          // Gegner läuft zum Ball: erst nach kurzer Reaktionszeit, mit Schätzfehler; wird im Ballwechsel etwas besser
           if (b.vy < 0) {
             const tLeft = (c.t + 14 - b.y) / b.vy;
-            st.oTarget = b.x + b.vx * tLeft;
+            st.oTarget = b.x + b.vx * tLeft + st.oErr * Math.min(1, tLeft * 2.5);
           } else st.oTarget = W / 2;
-          const oppSpeed = 175 + Math.min(150, st.winners * 9 + st.returns * 2.5);
+          st.oReact = Math.max(0, st.oReact - dt);
+          const oppSpeed = 125 + Math.min(95, st.rally * 3 + st.winners * 4);
           const od = st.oTarget - st.ox;
-          st.ox += Math.sign(od) * Math.min(Math.abs(od), oppSpeed * dt);
+          if (st.oReact <= 0) st.ox += Math.sign(od) * Math.min(Math.abs(od), oppSpeed * dt);
 
           // Ball kommt bei mir an
-          if (b.vy > 0 && b.y >= c.b - 14) {
+          if (b.live && b.vy > 0 && b.y >= c.b - 14) {
             if (Math.abs(b.x - st.px) <= REACH && b.x > c.l - 30 && b.x < c.r + 30) {
               const off = Math.max(-1, Math.min(1, (b.x - st.px) / REACH));
               const toX = W / 2 + off * (W / 2 - 34) * 1.25 + rnd(-12, 12); // Rand = schräg, evtl. Aus
@@ -200,13 +220,11 @@ function TennisMatch({ me, opponent, onOver }: { me: Member; opponent: Member; o
             } else if (b.y > c.b + 10) pointOver(false, "Verpasst!");
           }
           // Ball kommt beim Gegner an
-          if (b.vy < 0 && b.y <= c.t + 14) {
-            const out = b.x < c.l - 4 || b.x > c.r + 4;
-            if (out) pointOver(false, "Aus!");
-            else if (Math.abs(b.x - st.ox) <= REACH - 2) {
+          if (b.live && b.vy < 0 && b.y <= c.t + 14) {
+            if (Math.abs(b.x - st.ox) <= REACH - 2) {
               st.swingOpp = 0.25; st.rally++;
               shoot(b.x, c.t + 14, rnd(c.l + 18, c.r - 18), c.b - 14, false);
-            } else if (b.y < c.t - 10) pointOver(true, "Punkt! +5");
+            } else if (b.y < c.t - 10) pointOver(true, "Gewinnschlag! +5");
           }
         }
       } else {
@@ -215,6 +233,8 @@ function TennisMatch({ me, opponent, onOver }: { me: Member; opponent: Member; o
       }
       st.swingMe = Math.max(0, st.swingMe - dt); st.swingOpp = Math.max(0, st.swingOpp - dt);
       st.msgT = Math.max(0, st.msgT - dt);
+      for (const m of st.marks) m.t -= dt;
+      st.marks = st.marks.filter((m) => m.t > 0);
 
       draw(c);
       if (hudRef.current) hudRef.current.textContent = `${st.score} ${st.score === 1 ? "Punkt" : "Punkte"}`;
@@ -261,6 +281,14 @@ function TennisMatch({ me, opponent, onOver }: { me: Member; opponent: Member; o
       ctx.fillStyle = "rgba(15,23,42,.35)"; ctx.fillRect(c.l - 10, mid - 1, c.r - c.l + 20, 5);
       ctx.strokeStyle = "#f8fafc"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(c.l - 10, mid - 2); ctx.lineTo(c.r + 10, mid - 2); ctx.stroke();
 
+      // Aufsprung-Abdrücke: weiß = drin, rot = Aus
+      for (const m of st.marks) {
+        ctx.globalAlpha = Math.min(1, m.t);
+        ctx.strokeStyle = m.out ? "#dc2626" : "#ffffff"; ctx.lineWidth = m.out ? 3 : 2;
+        ctx.beginPath(); ctx.ellipse(m.x, m.y, 7, 4, 0, 0, Math.PI * 2); ctx.stroke();
+        if (m.out) { ctx.font = "800 12px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "#dc2626"; ctx.fillText("AUS", m.x, m.y - 9); }
+      }
+      ctx.globalAlpha = 1;
       // Ball mit Schatten; Höhe (Bogen + Aufsprung) aus dem Fortschritt berechnet
       const b = st.ball;
       if (b.live) {
