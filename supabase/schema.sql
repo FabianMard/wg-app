@@ -11,7 +11,7 @@
 -- ════════════════════════════════════════════════════════════════════
 
 -- ───────────── Alte Version entfernen ─────────────
-drop table if exists public.push_cron, public.push_subscriptions, public.push_prefs, public.game_scores, public.playlists, public.watchlist, public.messages, public.notes, public.praises, public.chore_checks, public.chore_tasks, public.chore_areas,
+drop table if exists public.kite_spots, public.push_cron, public.push_subscriptions, public.push_prefs, public.game_scores, public.playlists, public.watchlist, public.messages, public.notes, public.praises, public.chore_checks, public.chore_tasks, public.chore_areas,
   public.chores, public.shopping_items, public.expenses, public.events, public.todos,
   public.members, public.households cascade;
 drop function if exists public.is_member(uuid) cascade;
@@ -596,7 +596,7 @@ end $$;
 create table if not exists public.game_scores (
   household_id uuid not null references public.households on delete cascade,
   member_id    uuid not null references public.members on delete cascade,
-  game         text not null check (game in ('spuelmaschine')),
+  game         text not null check (game in ('spuelmaschine', 'kite')),
   best         integer not null default 0 check (best >= 0),
   updated_at   timestamptz not null default now(),
   primary key (member_id, game)
@@ -785,6 +785,34 @@ select cron.schedule('wg-geburtstage', '0 * * * *', $job$
     body    := '{}'::jsonb
   );
 $job$);
+
+-- ───────────── Kite-Spots ─────────────
+create table if not exists public.kite_spots (
+  id           uuid primary key default gen_random_uuid(),
+  household_id uuid not null references public.households on delete cascade,
+  name         text not null check (char_length(name) between 1 and 60),
+  place        text,
+  cc           text,                      -- Ländercode für die Flagge, z. B. 'DE'
+  lat          double precision not null check (lat between -90 and 90),
+  lon          double precision not null check (lon between -180 and 180),
+  sort         int not null default 0,
+  created_at   timestamptz not null default now()
+);
+alter table public.kite_spots enable row level security;
+drop policy if exists "Spots sehen" on public.kite_spots;
+drop policy if exists "Spots ändern" on public.kite_spots;
+-- Alle in der WG sehen die Spots (auch Gäste), ändern dürfen Mitbewohner
+create policy "Spots sehen"  on public.kite_spots for select using (is_member(household_id));
+create policy "Spots ändern" on public.kite_spots for all using (is_resident(household_id)) with check (is_resident(household_id));
+
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables
+                 where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'kite_spots') then
+    alter publication supabase_realtime add table public.kite_spots;
+  end if;
+end $$;
+
 
 -- Euer Einladungslink: https://<eure-adresse>/?code=<invite_code>
 select name, invite_code from public.households;

@@ -166,7 +166,18 @@ export type Praise = {
 export type GameScore = {
   household_id: string;
   member_id: string;
-  game: "spuelmaschine";
+  game: "spuelmaschine" | "kite";
   best: number;
   updated_at: string;
+};
+
+export type KiteSpot = {
+  id: string;
+  household_id: string;
+  name: string;
+  place: string | null;
+  cc: string | null;
+  lat: number;
+  lon: number;
+  sort: number;
 };
