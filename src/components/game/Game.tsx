@@ -620,7 +620,7 @@ export function Game() {
         <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/40 px-3 pt-20">
         <div className="w-full max-w-sm animate-[pop_.2s_ease-out] rounded-3xl border-2 border-red-500/50 bg-bg p-4 text-center shadow-2xl">
           <p className="text-4xl">🎾</p>
-          <p className="mt-1 font-semibold">{members.find((m) => m.id === invite.from)?.display_name ?? "Jemand"} fordert dich zum Tennis heraus!</p>
+          <p className="mt-1 font-semibold">{everyone.find((m) => m.id === invite.from)?.display_name ?? "Jemand"} fordert dich zum Tennis heraus!</p>
           <p className="text-xs text-muted">Live · bis 7 Punkte, 2 Vorsprung</p>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <button onClick={() => answerInvite(false)} className="rounded-2xl border border-line py-2.5 font-semibold">Ablehnen</button>
@@ -646,7 +646,7 @@ export function Game() {
           ) : panel.type === "tennis" ? (
             <TennisGame onResult={(score, best) => say(myId, best ? `🎾 ${score} Punkte – neuer Tennis-Rekord!` : `🎾 ${score} Punkte!`)}
               live={{
-                online: members.filter((m) => m.id !== myId && onlineIds.has(m.id)),
+                online: everyone.filter((m) => m.id !== myId && onlineIds.has(m.id)), // auch Gäste
                 pendingTo: tennisPending?.to ?? null, declinedBy, onInvite: inviteTennis, onCancel: cancelInvite,
                 match: liveMatch, onMatchEnd: () => setLiveMatch(null),
               }} />

@@ -114,7 +114,7 @@ function drawTennis(ctx: CanvasRenderingContext2D, W: number, c: Court, st: Scen
 }
 
 export function TennisGame({ onResult, live }: { onResult?: (score: number, best: boolean) => void; live?: LiveTennisProps }) {
-  const { members, me, myId } = useWG();
+  const { members, everyone, me, myId } = useWG();
   // Gegner frei wählbar: alle Mitbewohner außer einem selbst – alle spielen gleich stark
   const candidates = [...members].sort((a, b) => a.sort - b.sort).filter((m) => m.id !== myId);
   const [oppId, setOppId] = useState<string | null>(() => { try { return localStorage.getItem(OPP_KEY); } catch { return null; } });
@@ -142,7 +142,7 @@ export function TennisGame({ onResult, live }: { onResult?: (score: number, best
 
   if (!me || !opponent) return <p className="text-sm text-muted">Hier fehlt noch ein Gegner. 🎾</p>;
 
-  const liveOpp = live?.match ? members.find((m) => m.id === live.match!.opponentId) : null;
+  const liveOpp = live?.match ? everyone.find((m) => m.id === live.match!.opponentId) : null; // auch Gäste
   if (live?.match && liveOpp) return <LiveTennisMatch key={live.match.matchId} me={me} opponent={liveOpp} match={live.match} onEnd={live.onMatchEnd} />;
 
   if (phase === "spiel") return <TennisMatch me={me} opponent={opponent} onOver={finish} />;
@@ -184,10 +184,10 @@ export function TennisGame({ onResult, live }: { onResult?: (score: number, best
       </button>
       {live && (
         <div className="rounded-2xl border-2 border-red-500/40 p-3">
-          <p className="mb-2 flex items-center justify-center gap-1.5 text-sm font-semibold"><span className="h-2 w-2 animate-pulse rounded-full bg-red-600" />Live gegen Mitbewohner · bis {WIN_AT}</p>
+          <p className="mb-2 flex items-center justify-center gap-1.5 text-sm font-semibold"><span className="h-2 w-2 animate-pulse rounded-full bg-red-600" />Live gegen alle, die online sind · bis {WIN_AT}</p>
           {live.pendingTo ? (
             <div className="space-y-2">
-              <p className="animate-pulse text-sm">Warte auf {members.find((m) => m.id === live.pendingTo)?.display_name} …</p>
+              <p className="animate-pulse text-sm">Warte auf {everyone.find((m) => m.id === live.pendingTo)?.display_name} …</p>
               <button onClick={live.onCancel} className="rounded-xl border border-line px-3 py-1.5 text-sm font-semibold">Abbrechen</button>
             </div>
           ) : live.online.length ? (
@@ -200,7 +200,7 @@ export function TennisGame({ onResult, live }: { onResult?: (score: number, best
               ))}
             </div>
           ) : <p className="text-sm text-muted">Gerade ist niemand sonst im WG-Spiel.</p>}
-          {live.declinedBy && <p className="mt-2 text-xs text-muted">{members.find((m) => m.id === live.declinedBy)?.display_name} hat gerade keine Zeit. 🙅</p>}
+          {live.declinedBy && <p className="mt-2 text-xs text-muted">{everyone.find((m) => m.id === live.declinedBy)?.display_name} hat gerade keine Zeit. 🙅</p>}
         </div>
       )}
       <Leaderboard scores={tennisScores} error={dbErr} />
