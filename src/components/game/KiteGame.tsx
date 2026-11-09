@@ -36,7 +36,9 @@ export function KiteGame({ onResult }: { onResult?: (score: number, best: boolea
   const { members, myId } = useWG();
   const riders = [...members].sort((a, b) => a.sort - b.sort).filter((m) => m.sort === 0 || m.sort === 1);
   const pickable = riders.length ? riders : [...members].sort((a, b) => a.sort - b.sort).slice(0, 2);
-  const [rider, setRider] = useState<Member | null>(null);
+  // Nur die Person merken – der Look kommt immer frisch aus der WG (= wie im WG-Spiel gerade angezogen)
+  const [riderId, setRiderId] = useState<string | null>(null);
+  const rider = members.find((m) => m.id === riderId) ?? null;
   const [phase, setPhase] = useState<"wahl" | "spiel" | "ende">("wahl");
   const [result, setResult] = useState<{ score: number; stars: number; tricks: number; best: boolean } | null>(null);
   const { rows: scores, reload: reloadScores } = useRows<GameScore>("game_scores", "best", false);
@@ -75,8 +77,8 @@ export function KiteGame({ onResult }: { onResult?: (score: number, best: boolea
       <p className="font-semibold">Wer geht aufs Wasser?</p>
       <div className="grid grid-cols-2 gap-3">
         {pickable.map((m) => (
-          <button key={m.id} onClick={() => setRider(m)}
-            className={`flex flex-col items-center gap-1 rounded-2xl border-2 p-3 transition active:scale-[.98] ${rider?.id === m.id ? "border-accent bg-accent/10" : "border-line"}`}>
+          <button key={m.id} onClick={() => setRiderId(m.id)}
+            className={`flex flex-col items-center gap-1 rounded-2xl border-2 p-3 transition active:scale-[.98] ${riderId === m.id ? "border-accent bg-accent/10" : "border-line"}`}>
             <AvatarFigure look={lookOf(m)} size={56} />
             <span className="font-semibold">{m.display_name}</span>
           </button>
@@ -92,7 +94,7 @@ export function KiteGame({ onResult }: { onResult?: (score: number, best: boolea
         className="w-full rounded-2xl bg-accent py-3 text-lg font-semibold text-white active:scale-[.98] disabled:opacity-40">
         {rider ? `Los geht's mit ${rider.display_name}!` : "Erst Figur wählen"}
       </button>
-      <p className="text-xs text-muted">Der Rekord zählt für dich – egal, wen du steuerst.</p>
+      <p className="text-xs text-muted">Beide tragen, was sie im WG-Spiel gerade anhaben. Der Rekord zählt für dich – egal, wen du steuerst.</p>
       <Leaderboard scores={kiteScores} />
     </div>
   );
@@ -109,6 +111,9 @@ function KiteRun({ rider, onOver }: { rider: Member; onOver: (score: number, sta
   // Ergebnis-Callback per Ref – sonst würde das Spiel neu starten, wenn sich die Bestenliste live ändert
   const overRef = useRef(onOver);
   useEffect(() => { overRef.current = onOver; }, [onOver]);
+  // Farbe per Ref: zieht sich jemand während der Runde um, ändert sich der Look, ohne dass das Spiel neu startet
+  const colorRef = useRef(rider.color);
+  useEffect(() => { colorRef.current = rider.color; }, [rider.color]);
 
   useEffect(() => {
     const canvas = canvasRef.current!, wrap = wrapRef.current!, fig = figRef.current!;
@@ -277,7 +282,7 @@ function KiteRun({ rider, onOver }: { rider: Member; onOver: (score: number, sta
       const hx = x + 6, hy = st.y - FIG * 0.75;
       ctx.strokeStyle = "rgba(30,30,30,.55)"; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(kx - 30, ky + 6); ctx.moveTo(hx, hy); ctx.lineTo(kx + 30, ky + 6); ctx.stroke();
-      ctx.fillStyle = rider.color;
+      ctx.fillStyle = colorRef.current;
       ctx.beginPath(); ctx.moveTo(kx - 34, ky + 8); ctx.quadraticCurveTo(kx, ky - 30, kx + 34, ky + 8); ctx.quadraticCurveTo(kx, ky - 10, kx - 34, ky + 8); ctx.fill();
       ctx.strokeStyle = "rgba(255,255,255,.7)"; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(kx - 26, ky + 2); ctx.quadraticCurveTo(kx, ky - 22, kx + 26, ky + 2); ctx.stroke();
@@ -285,7 +290,7 @@ function KiteRun({ rider, onOver }: { rider: Member; onOver: (score: number, sta
       ctx.save(); ctx.translate(x, st.y - 1); ctx.rotate(((st.onWater ? -8 : Math.max(-25, Math.min(25, st.vy * 0.03))) + st.spin) * Math.PI / 180);
       ctx.fillStyle = "#fafafa"; ctx.strokeStyle = "#1f2937"; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.roundRect(-20, -3, 40, 6, 3); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = rider.color; ctx.fillRect(-6, -3, 12, 6);
+      ctx.fillStyle = colorRef.current; ctx.fillRect(-6, -3, 12, 6);
       ctx.restore();
       // Gischt
       ctx.fillStyle = "rgba(255,255,255,.9)";
@@ -302,7 +307,7 @@ function KiteRun({ rider, onOver }: { rider: Member; onOver: (score: number, sta
 
     raf = requestAnimationFrame(frame);
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
-  }, [rider]);
+  }, [rider.id]);
 
   // Steuerung: Finger, Maus, Leertaste / Pfeil hoch
   useEffect(() => {
