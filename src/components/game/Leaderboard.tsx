@@ -5,13 +5,14 @@ import type { GameScore } from "@/lib/types";
 import { Avatar } from "@/components/ui";
 
 /** Bestenliste der WG – Rekorde aller, die schon gespielt haben */
-export function Leaderboard({ scores }: { scores: GameScore[] }) {
+export function Leaderboard({ scores, error }: { scores: GameScore[]; error?: string | null }) {
   const { everyone, myId } = useWG();
   const list = scores.filter((s) => s.best > 0).sort((a, b) => b.best - a.best);
-  if (!list.length) return null;
   return (
     <div className="rounded-2xl border border-line p-3 text-left">
       <p className="mb-2 text-center text-sm font-semibold">🏆 Bestenliste der WG</p>
+      {error && <p className="mb-2 rounded-xl bg-amber-500/10 p-2 text-xs text-amber-800 dark:text-amber-300">{error}</p>}
+      {!list.length && !error && <p className="py-2 text-center text-sm text-muted">Noch keine Rekorde – sei die erste Person! 🥇</p>}
       <ol className="space-y-1.5">
         {list.map((s, i) => {
           const m = everyone.find((x) => x.id === s.member_id);

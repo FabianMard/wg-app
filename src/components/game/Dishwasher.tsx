@@ -55,6 +55,7 @@ export function Dishwasher({ onResult }: { onResult?: (score: number, best: bool
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [newBest, setNewBest] = useState(false);
+  const [dbErr, setDbErr] = useState<string | null>(null);
   const shownAt = useRef(0);
   const scoreRef = useRef(0);
 
@@ -68,7 +69,10 @@ export function Dishwasher({ onResult }: { onResult?: (score: number, best: bool
     const s = scoreRef.current;
     const isBest = s > best;
     if (isBest) { setLocalBest(s); setNewBest(true); try { localStorage.setItem(BEST_KEY, String(s)); } catch { /* egal */ } }
-    if (s > 0) supabase.rpc("submit_score", { p_game: "spuelmaschine", p_score: s }).then(() => reloadScores());
+    if (s > 0) supabase.rpc("submit_score", { p_game: "spuelmaschine", p_score: s }).then(({ error }) => {
+      setDbErr(error ? "Rekord nur auf diesem Handy gespeichert: Bitte supabase/014_bestenliste.sql im SQL Editor ausführen." : null);
+      reloadScores();
+    });
     onResult?.(s, isBest);
   }, [best, onResult, reloadScores]);
 
@@ -116,7 +120,7 @@ export function Dishwasher({ onResult }: { onResult?: (score: number, best: bool
           <li>⏱️ {DURATION} Sekunden · schnell und Serie = Bonus · falsches Fach = Abzug</li>
         </ul>
         <button onClick={start} className="w-full rounded-2xl bg-accent py-3 text-lg font-semibold text-white active:scale-[.98]">Los geht&apos;s!</button>
-        <Leaderboard scores={scores.filter((x) => x.game === "spuelmaschine")} />
+        <Leaderboard scores={scores.filter((x) => x.game === "spuelmaschine")} error={dbErr} />
       </div>
     );
   }
@@ -130,7 +134,7 @@ export function Dishwasher({ onResult }: { onResult?: (score: number, best: bool
         <p className="text-sm text-muted">{right} richtig · {wrong} falsch · {accuracy} % Treffer · Rekord {best}</p>
         <p className="text-sm">{accuracy === 100 && right >= 20 ? "Perfekt einsortiert, Spülmaschinen-Profi! 🥇" : accuracy >= 85 ? "Sauber! Fast alles am richtigen Platz." : "Hmm … da klappert es beim Spülen. 😅"}</p>
         <button onClick={start} className="w-full rounded-2xl bg-accent py-3 font-semibold text-white">Nochmal</button>
-        <Leaderboard scores={scores.filter((x) => x.game === "spuelmaschine")} />
+        <Leaderboard scores={scores.filter((x) => x.game === "spuelmaschine")} error={dbErr} />
       </div>
     );
   }

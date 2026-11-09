@@ -28,7 +28,84 @@ type Obj = {
 type Floater = { x: number; y: number; text: string; t: number };
 type Splash = { x: number; y: number; vx: number; vy: number; t: number };
 
-const EMOJI: Record<Obj["kind"], string> = { stein: "🪨", boje: "🛟", hai: "🦈", moewe: "🐦", stern: "⭐", muschel: "🐚", welle: "" };
+
+/**
+ * Spielobjekte selbst gezeichnet (keine Emojis im Canvas – manche Handys zeichnen die einfarbig).
+ * Kräftige Farben + dunkler Rand, damit alles vor Himmel und Meer gut sichtbar ist.
+ * (x, y) = Mitte unten des Objekts.
+ */
+const OUTLINE = "#1f2937";
+function drawObj(ctx: CanvasRenderingContext2D, o: Obj, t: number) {
+  const { x, y } = o;
+  ctx.save();
+  ctx.lineWidth = 2; ctx.strokeStyle = OUTLINE; ctx.lineJoin = "round";
+  switch (o.kind) {
+    case "stein": {
+      ctx.fillStyle = "#8b8f98";
+      ctx.beginPath(); ctx.moveTo(x - 17, y + 4); ctx.lineTo(x - 13, y - 12); ctx.lineTo(x - 3, y - 20); ctx.lineTo(x + 9, y - 17);
+      ctx.lineTo(x + 17, y - 6); ctx.lineTo(x + 18, y + 4); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = "#c3c7cf"; ctx.beginPath(); ctx.moveTo(x - 9, y - 11); ctx.lineTo(x - 2, y - 16); ctx.lineTo(x + 5, y - 13); ctx.closePath(); ctx.fill();
+      break;
+    }
+    case "boje": {
+      // rot-weiß gestreifte Tonne mit Fähnchen
+      ctx.beginPath(); ctx.moveTo(x - 12, y + 3); ctx.lineTo(x - 9, y - 22); ctx.lineTo(x + 9, y - 22); ctx.lineTo(x + 12, y + 3); ctx.closePath();
+      ctx.fillStyle = "#ef4444"; ctx.fill();
+      ctx.save(); ctx.clip(); ctx.fillStyle = "#ffffff"; ctx.fillRect(x - 14, y - 14, 28, 6); ctx.restore();
+      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x, y - 22); ctx.lineTo(x, y - 34); ctx.stroke();
+      ctx.fillStyle = "#facc15"; ctx.beginPath(); ctx.moveTo(x, y - 34); ctx.lineTo(x + 10, y - 30); ctx.lineTo(x, y - 26); ctx.closePath(); ctx.fill(); ctx.stroke();
+      break;
+    }
+    case "hai": {
+      // Rückenflosse, die durchs Wasser schneidet
+      ctx.fillStyle = "#475569";
+      ctx.beginPath(); ctx.moveTo(x - 14, y + 1); ctx.quadraticCurveTo(x - 4, y - 8, x + 2, y - 26); ctx.quadraticCurveTo(x + 6, y - 10, x + 15, y + 1); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.beginPath(); ctx.moveTo(x - 20, y + 2); ctx.quadraticCurveTo(x, y - 3, x + 20, y + 2); ctx.stroke();
+      break;
+    }
+    case "moewe": {
+      // weiße Möwe mit schlagenden Flügeln
+      const flap = Math.sin(t * 12) * 6;
+      ctx.fillStyle = "#ffffff"; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(x - 16, y - 10 - flap); ctx.quadraticCurveTo(x - 8, y - 18, x, y - 10); ctx.quadraticCurveTo(x + 8, y - 18, x + 16, y - 10 - flap); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(x, y - 9, 7, 4, 0, 0, Math.PI * 2); ctx.fill(); ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.fillStyle = "#f97316"; ctx.beginPath(); ctx.moveTo(x - 7, y - 10); ctx.lineTo(x - 12, y - 8); ctx.lineTo(x - 7, y - 7); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = OUTLINE; ctx.beginPath(); ctx.arc(x - 4, y - 10, 1.2, 0, Math.PI * 2); ctx.fill();
+      break;
+    }
+    case "stern": {
+      const cy = y - 11, R = 12, rr = 5.2, rot = Math.sin(t * 3 + x / 40) * 0.15;
+      ctx.beginPath();
+      for (let i = 0; i < 10; i++) {
+        const a = -Math.PI / 2 + rot + (i * Math.PI) / 5, rad = i % 2 ? rr : R;
+        ctx.lineTo(x + Math.cos(a) * rad, cy + Math.sin(a) * rad);
+      }
+      ctx.closePath(); ctx.fillStyle = "#facc15"; ctx.fill(); ctx.strokeStyle = "#b45309"; ctx.stroke();
+      ctx.fillStyle = "rgba(255,255,255,.75)"; ctx.beginPath(); ctx.arc(x - 3, cy - 3, 2, 0, Math.PI * 2); ctx.fill();
+      break;
+    }
+    case "muschel": {
+      // Fächermuschel
+      ctx.fillStyle = "#fb7185";
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, 12, Math.PI * 1.08, Math.PI * 1.92); ctx.closePath(); ctx.fill(); ctx.strokeStyle = "#9f1239"; ctx.stroke();
+      ctx.lineWidth = 1.2;
+      for (let i = 1; i < 5; i++) { const a = Math.PI * (1.08 + i * 0.168); ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * 12, y + Math.sin(a) * 12); ctx.stroke(); }
+      break;
+    }
+    default: break;
+  }
+  ctx.restore();
+}
+
+/** Zackiger Knall beim Zusammenstoß */
+function drawCrash(ctx: CanvasRenderingContext2D, x: number, y: number, k: number) {
+  ctx.save(); ctx.globalAlpha = Math.max(0, 1 - k);
+  ctx.beginPath();
+  for (let i = 0; i < 16; i++) { const a = (i * Math.PI) / 8, rad = (i % 2 ? 10 : 24) * (1 + k * 0.6); ctx.lineTo(x + Math.cos(a) * rad, y + Math.sin(a) * rad); }
+  ctx.closePath(); ctx.fillStyle = "#fde047"; ctx.fill(); ctx.strokeStyle = "#dc2626"; ctx.lineWidth = 3; ctx.stroke();
+  ctx.restore();
+}
 const POINTS: Partial<Record<Obj["kind"], number>> = { stern: 10, muschel: 5 };
 const BAD: Obj["kind"][] = ["stein", "boje", "hai", "moewe"];
 
@@ -44,12 +121,18 @@ export function KiteGame({ onResult }: { onResult?: (score: number, best: boolea
   const { rows: scores, reload: reloadScores } = useRows<GameScore>("game_scores", "best", false);
   const kiteScores = scores.filter((s) => s.game === "kite");
   const myBest = kiteScores.find((s) => s.member_id === myId)?.best ?? 0;
+  const [dbErr, setDbErr] = useState<string | null>(null);
 
   const finish = useCallback((score: number, stars: number, tricks: number) => {
     const best = score > myBest;
     setResult({ score, stars, tricks, best });
     setPhase("ende");
-    if (score > 0) supabase.rpc("submit_score", { p_game: "kite", p_score: score }).then(() => reloadScores());
+    if (score > 0) supabase.rpc("submit_score", { p_game: "kite", p_score: score }).then(({ error }) => {
+      setDbErr(error ? (/game_scores|submit_score|check constraint/i.test(error.message)
+        ? "Rekord konnte nicht gespeichert werden: Bitte supabase/014_bestenliste.sql und 017_kite.sql im SQL Editor ausführen."
+        : `Rekord konnte nicht gespeichert werden: ${error.message}`) : null);
+      reloadScores();
+    });
     onResult?.(score, best);
   }, [myBest, onResult, reloadScores]);
 
@@ -66,7 +149,7 @@ export function KiteGame({ onResult }: { onResult?: (score: number, best: boolea
           <button onClick={() => setPhase("spiel")} className="rounded-2xl bg-accent py-3 font-semibold text-white">Nochmal</button>
           <button onClick={() => setPhase("wahl")} className="rounded-2xl border border-line py-3 font-semibold">Andere Figur</button>
         </div>
-        <Leaderboard scores={kiteScores} />
+        <Leaderboard scores={kiteScores} error={dbErr} />
       </div>
     );
   }
@@ -84,18 +167,18 @@ export function KiteGame({ onResult }: { onResult?: (score: number, best: boolea
           </button>
         ))}
       </div>
+      <button disabled={!rider} onClick={() => setPhase("spiel")}
+        className="w-full rounded-2xl bg-accent py-3 text-lg font-semibold text-white active:scale-[.98] disabled:opacity-40">
+        {rider ? `Los geht's mit ${rider.display_name}!` : "Erst Figur wählen"}
+      </button>
+      <p className="text-xs text-muted">Beide tragen, was sie im WG-Spiel gerade anhaben. Der Rekord zählt für dich – egal, wen du steuerst.</p>
+      <Leaderboard scores={kiteScores} error={dbErr} />
       <ul className="mx-auto max-w-xs space-y-1 text-left text-sm text-muted">
         <li>👆 <b>Tippen</b> = springen · <b>gedrückt halten</b> = höher</li>
         <li>🪁 In der Luft nochmal tippen = <b>Kite-Boost</b></li>
         <li>⭐ 10 · 🐚 5 Punkte · 🌊 Welle = Rampe · lange Sprünge = Trick-Bonus</li>
         <li>💥 Nicht gegen 🪨 🛟 🦈 oder 🐦 knallen!</li>
       </ul>
-      <button disabled={!rider} onClick={() => setPhase("spiel")}
-        className="w-full rounded-2xl bg-accent py-3 text-lg font-semibold text-white active:scale-[.98] disabled:opacity-40">
-        {rider ? `Los geht's mit ${rider.display_name}!` : "Erst Figur wählen"}
-      </button>
-      <p className="text-xs text-muted">Beide tragen, was sie im WG-Spiel gerade anhaben. Der Rekord zählt für dich – egal, wen du steuerst.</p>
-      <Leaderboard scores={kiteScores} />
     </div>
   );
 }
@@ -178,7 +261,7 @@ function KiteRun({ rider, onOver }: { rider: Member; onOver: (score: number, sta
         if (press.current.tapped) {
           press.current.tapped = false;
           if (st.onWater) jump(JUMP_V);
-          else if (!st.boosted) { st.vy = Math.min(st.vy, -BOOST_V); st.boosted = true; float("🪁 Boost!", x, st.y - 50); }
+          else if (!st.boosted) { st.vy = Math.min(st.vy, -BOOST_V); st.boosted = true; float("Boost!", x, st.y - 50); }
         }
         // Physik
         if (!st.onWater) {
@@ -188,8 +271,8 @@ function KiteRun({ rider, onOver }: { rider: Member; onOver: (score: number, sta
           if (st.boosted) st.spin = Math.min(360, st.spin + 720 * dt);
           if (st.y >= SEA) {
             st.y = SEA; st.vy = 0; st.onWater = true;
-            if (st.airT > 1.1) { st.score += 25; st.tricks++; float("🌀 Kiteloop! +25", x, SEA - 60); }
-            else if (st.airT > 0.75) { st.score += 10; st.tricks++; float("✨ Jump! +10", x, SEA - 60); }
+            if (st.airT > 1.1) { st.score += 25; st.tricks++; float("Kiteloop! +25", x, SEA - 60); }
+            else if (st.airT > 0.75) { st.score += 10; st.tricks++; float("Jump! +10", x, SEA - 60); }
             for (let i = 0; i < 8; i++) st.splash.push({ x, y: SEA, vx: rnd(-120, 40), vy: rnd(-200, -60), t: 0 });
             st.spin = 0;
           }
@@ -203,11 +286,11 @@ function KiteRun({ rider, onOver }: { rider: Member; onOver: (score: number, sta
           const ol = o.x - o.w / 2, or = o.x + o.w / 2, ot = o.y - o.h, ob = o.y;
           const overlap = hit.l < or && hit.r > ol && hit.t < ob && hit.b > ot;
           if (!overlap) continue;
-          if (o.kind === "welle") { if (st.onWater) { jump(JUMP_V * 1.25); float("🌊 Rampe!", x, SEA - 40); } o.done = true; }
+          if (o.kind === "welle") { if (st.onWater) { jump(JUMP_V * 1.25); float("Rampe!", x, SEA - 40); } o.done = true; }
           else if (BAD.includes(o.kind)) {
             // etwas Gnade: nur echte Treffer zählen
             const core = hit.l + 4 < or - 4 && hit.r - 4 > ol + 4 && hit.t + 4 < ob - 2 && hit.b - 2 > ot + 4;
-            if (core) { st.over = true; st.overT = 0; float("💥", x + 10, st.y - 30); }
+            if (core) { st.over = true; st.overT = 0; }
           } else {
             o.done = true;
             const pts = POINTS[o.kind] ?? 0;
@@ -264,18 +347,13 @@ function KiteRun({ rider, onOver }: { rider: Member; onOver: (score: number, sta
       ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
       for (const o of st.objs) {
         if (o.kind === "welle") {
-          ctx.fillStyle = "#e9f8ff";
-          ctx.beginPath(); ctx.moveTo(o.x - o.w / 2, SEA); ctx.quadraticCurveTo(o.x + 4, SEA - o.h * 1.6, o.x + o.w / 2, SEA); ctx.fill();
+          ctx.fillStyle = "#ffffff"; ctx.strokeStyle = "#0e7490"; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.moveTo(o.x - o.w / 2, SEA); ctx.quadraticCurveTo(o.x + 4, SEA - o.h * 1.6, o.x + o.w / 2, SEA); ctx.fill(); ctx.stroke();
           ctx.fillStyle = "#2a9fd6";
           ctx.beginPath(); ctx.moveTo(o.x - o.w / 2 + 10, SEA); ctx.quadraticCurveTo(o.x + 4, SEA - o.h * 1.1, o.x + o.w / 2 - 6, SEA); ctx.fill();
           continue;
         }
-        ctx.font = `${o.h + 6}px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
-        if (o.kind === "hai") {
-          // nur die Flosse schaut raus
-          ctx.save(); ctx.beginPath(); ctx.rect(o.x - 30, 0, 60, SEA + 2); ctx.clip();
-          ctx.fillText(EMOJI.hai, o.x, o.y + 12); ctx.restore();
-        } else ctx.fillText(EMOJI[o.kind], o.x, o.y + (o.kind === "stein" || o.kind === "boje" ? 6 : 0));
+        drawObj(ctx, o, st.t);
       }
       // Kite + Leinen
       const kx = x + 70 + Math.sin(st.t * 1.6) * 8, ky = Math.max(26, st.y - 150 + Math.sin(st.t * 2.1) * 6);
@@ -297,10 +375,13 @@ function KiteRun({ rider, onOver }: { rider: Member; onOver: (score: number, sta
       for (const p of st.splash) { ctx.globalAlpha = 1 - p.t / 0.6; ctx.beginPath(); ctx.arc(p.x, p.y, 2.2, 0, Math.PI * 2); ctx.fill(); }
       ctx.globalAlpha = 1;
       // Punkte-Texte
-      ctx.font = "bold 15px system-ui, sans-serif";
+      if (st.over) drawCrash(ctx, x + 6, st.y - 24, st.overT);
+      // Punkte-Texte: dunkle Schrift mit weißem Rand – auf Himmel und Meer lesbar
+      ctx.font = "800 16px system-ui, sans-serif"; ctx.lineJoin = "round";
       for (const f of st.floats) {
-        ctx.globalAlpha = 1 - f.t; ctx.fillStyle = "#0f172a";
-        ctx.fillText(f.text, f.x, f.y - f.t * 30);
+        ctx.globalAlpha = 1 - f.t;
+        ctx.lineWidth = 4; ctx.strokeStyle = "#ffffff"; ctx.strokeText(f.text, f.x, f.y - f.t * 30);
+        ctx.fillStyle = "#0f172a"; ctx.fillText(f.text, f.x, f.y - f.t * 30);
       }
       ctx.globalAlpha = 1;
     }
