@@ -705,16 +705,44 @@ export function Game() {
   );
 }
 
+/**
+ * Sichtbarer Bereich des Bildschirms (ohne Bildschirmtastatur).
+ * iPhones schieben sonst bei geöffneter Tastatur die ganze Seite hoch – Kopfzeilen verschwinden oben.
+ */
+function useVisibleViewport(active: boolean) {
+  const [vv, setVv] = useState<{ top: number; height: number } | null>(null);
+  useEffect(() => {
+    if (!active) return;
+    const v = window.visualViewport;
+    const upd = () => setVv(v ? { top: v.offsetTop, height: v.height } : { top: 0, height: window.innerHeight });
+    upd();
+    v?.addEventListener("resize", upd); v?.addEventListener("scroll", upd); window.addEventListener("resize", upd);
+    // Seite dahinter festhalten, damit sie nicht mitscrollt
+    const html = document.documentElement, body = document.body;
+    const prev = [html.style.overflow, body.style.overflow, body.style.overscrollBehavior];
+    html.style.overflow = "hidden"; body.style.overflow = "hidden"; body.style.overscrollBehavior = "none";
+    return () => {
+      v?.removeEventListener("resize", upd); v?.removeEventListener("scroll", upd); window.removeEventListener("resize", upd);
+      [html.style.overflow, body.style.overflow, body.style.overscrollBehavior] = prev;
+    };
+  }, [active]);
+  return vv;
+}
+
 function Sheet({ title, onClose, children, light, fill }: { title: string; onClose: () => void; children: React.ReactNode; light?: boolean; fill?: boolean }) {
-  // fill = Inhalt füllt das Fenster genau aus und scrollt selbst (Chat) – Kopfzeile bleibt immer sichtbar
+  // fill = Inhalt füllt den SICHTBAREN Bereich genau aus und scrollt selbst (Chat) – Kopfzeile + Eingabe bleiben immer sichtbar
   // light = Gespräch: Spiel bleibt klar sichtbar (kein Abdunkeln/Weichzeichnen), Fenster nur unten
+  const vv = useVisibleViewport(!light);
+  const outerStyle: React.CSSProperties | undefined = vv ? { top: vv.top, height: vv.height, bottom: "auto" } : undefined;
+  const innerStyle: React.CSSProperties | undefined = fill && vv ? { height: Math.round(Math.min(vv.height - 12, vv.height * 0.94)) } : undefined;
   return (
-    <div className={`fixed inset-0 z-50 flex items-end justify-center ${light ? "bg-transparent" : "bg-black/40 backdrop-blur-[2px] md:items-center md:p-6"}`} onClick={onClose}>
+    <div className={`fixed inset-x-0 top-0 bottom-0 z-50 flex items-end justify-center ${light ? "bg-transparent" : "bg-black/40 backdrop-blur-[2px] md:items-center md:p-6"}`}
+      style={outerStyle} onClick={onClose}>
       <div className={`flex w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl bg-bg ${light ? "max-h-[62dvh] border-t border-line shadow-[0_-8px_30px_rgba(0,0,0,.18)]" : `${fill ? "h-[90dvh]" : "max-h-[90dvh]"} shadow-2xl md:rounded-3xl`}`}
-        onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={title}>
-        <div className="flex items-center justify-between border-b border-line px-4 py-3">
+        style={innerStyle} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={title}>
+        <div className="flex shrink-0 items-center justify-between border-b border-line px-4 py-3">
           <span className="font-semibold">{title}</span>
-          <button onClick={onClose} className="rounded-full px-3 py-1 text-sm font-medium text-muted hover:bg-line/50" aria-label="Schließen">
+          <button onClick={onClose} className="rounded-full bg-line/50 px-3 py-1.5 text-sm font-semibold hover:bg-line" aria-label="Schließen">
             Zurück ins Spiel ✕
           </button>
         </div>

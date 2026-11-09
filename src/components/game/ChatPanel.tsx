@@ -74,7 +74,7 @@ export function ChatPanel({ initialWith, online, onSent, onClose }: {
   }).sort((a, b) => (b.last?.created_at ?? "").localeCompare(a.last?.created_at ?? "") || a.p.sort - b.p.sort);
 
   return (
-    <div className="h-full space-y-1 overflow-y-auto px-4 pb-8 pt-4">
+    <div className="h-full space-y-1 overflow-y-auto overscroll-contain px-4 pb-8 pt-4">
       <p className="px-1 pb-2 text-sm text-muted">Schreib allen in der WG – egal, wo ihr gerade im Spiel seid.</p>
       {/* WG-Chat für alle */}
       <button onClick={() => setWithId(GROUP)}
@@ -188,7 +188,7 @@ function Conversation({ partner, online, onlineCount, messages, reload, onBack, 
       </div>
 
       {/* Verlauf */}
-      <div className="flex-1 space-y-1 overflow-y-auto px-3 py-3" style={{ background: "color-mix(in srgb, var(--line) 25%, transparent)" }}>
+      <div className="flex-1 space-y-1 overflow-y-auto overscroll-contain px-3 py-3" style={{ background: "color-mix(in srgb, var(--line) 25%, transparent)" }}>
         {chat.length === 0 && (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-sm text-muted">
             {group ? <span className="text-5xl">👥</span> : <AvatarFigure look={lookOf(partner)} size={56} />}
