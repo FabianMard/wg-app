@@ -25,7 +25,7 @@ export const COLS = MAP[0].length;
 export const ROWS = MAP.length;
 
 export type Action = "start" | "putzplan" | "einkauf" | "kosten" | "kalender" | "todos" | "wg" | "watchlist" | "pinnwand" | "musik"
-  | "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine" | "kite" | "kitegame" | "tennis" | "paper" | "kunst";
+  | "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine" | "kite" | "kitegame" | "tennis" | "paper" | "kunst" | "giessspiel";
 
 /** owner = Index des Mitbewohners (members.sort), dem der Gegenstand gehört */
 export type GameObject = { x: number; y: number; icon: string; label: string; action: Action; hint: string; owner?: number };
@@ -62,7 +62,7 @@ export const OBJECTS: GameObject[] = [
   ...([
     [2, 10, "🌵"], [1, 12, "🪴"], [1, 13, "🌿"], [1, 14, "🌱"], [2, 14, "🌻"],
     [5, 14, "🌷"], [6, 14, "🪴"], [6, 13, "🌿"], [6, 12, "🎋"], [5, 12, "🍀"],
-  ] as const).map(([x, y, icon]) => ({ x, y, icon, label: "Pflanze", action: "giessen" as const, hint: "Gießen 💧" })),
+  ] as const).map(([x, y, icon]) => ({ x, y, icon, label: "Pflanze", action: "giessspiel" as const, hint: "Minispiel: Verenas Dschungel gießen 💧", owner: 0 })),
   { x: 6, y: 10, icon: "👚", label: "Kleiderschrank", action: "kleiderschrank", hint: "Verenas Schrank – ausleihen erlaubt", owner: 0 },
   // Verenas Schreibtisch: Paper & Kunst
   { x: 5, y: 10, icon: "📄", label: "Paper", action: "paper", hint: "Verenas Forschung lesen", owner: 0 },
