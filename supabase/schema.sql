@@ -11,7 +11,7 @@
 -- ════════════════════════════════════════════════════════════════════
 
 -- ───────────── Alte Version entfernen ─────────────
-drop table if exists public.kite_spots, public.push_cron, public.push_subscriptions, public.push_prefs, public.game_scores, public.playlists, public.watchlist, public.messages, public.notes, public.praises, public.chore_checks, public.chore_tasks, public.chore_areas,
+drop table if exists public.tennis_matches, public.kite_spots, public.push_cron, public.push_subscriptions, public.push_prefs, public.game_scores, public.playlists, public.watchlist, public.messages, public.notes, public.praises, public.chore_checks, public.chore_tasks, public.chore_areas,
   public.chores, public.shopping_items, public.expenses, public.events, public.todos,
   public.members, public.households cascade;
 drop function if exists public.is_member(uuid) cascade;
@@ -813,6 +813,33 @@ begin
   end if;
 end $$;
 
+
+-- ───────────── Live-Tennis ─────────────
+create table if not exists public.tennis_matches (
+  id             uuid primary key,                 -- = Match-ID, so wird ein Match nie doppelt gezählt
+  household_id   uuid not null references public.households on delete cascade,
+  winner         uuid not null references public.members on delete cascade,
+  loser          uuid not null references public.members on delete cascade,
+  winner_points  int  not null check (winner_points between 0 and 99),
+  loser_points   int  not null check (loser_points between 0 and 99),
+  created_at     timestamptz not null default now(),
+  check (winner <> loser)
+);
+alter table public.tennis_matches enable row level security;
+drop policy if exists "Matches sehen" on public.tennis_matches;
+drop policy if exists "Eigenes Match eintragen" on public.tennis_matches;
+create policy "Matches sehen" on public.tennis_matches for select using (is_member(household_id));
+-- Eintragen darf nur, wer selbst mitgespielt hat
+create policy "Eigenes Match eintragen" on public.tennis_matches for insert
+  with check (is_member(household_id) and (winner = my_member_id() or loser = my_member_id()));
+
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables
+                 where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'tennis_matches') then
+    alter publication supabase_realtime add table public.tennis_matches;
+  end if;
+end $$;
 
 -- Euer Einladungslink: https://<eure-adresse>/?code=<invite_code>
 select name, invite_code from public.households;

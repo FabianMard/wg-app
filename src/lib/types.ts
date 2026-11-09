@@ -181,3 +181,13 @@ export type KiteSpot = {
   lon: number;
   sort: number;
 };
+
+export type TennisMatch = {
+  id: string;
+  household_id: string;
+  winner: string;
+  loser: string;
+  winner_points: number;
+  loser_points: number;
+  created_at: string;
+};

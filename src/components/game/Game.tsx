@@ -32,7 +32,7 @@ import { MusicList } from "@/components/MusicList";
 import { Dishwasher } from "./Dishwasher";
 import { KiteWeather } from "./KiteWeather";
 import { KiteGame } from "./KiteGame";
-import { TennisGame } from "./TennisGame";
+import { TennisGame, type LiveMatch } from "./TennisGame";
 import { ArtGallery, Papers } from "./VerenaCorner";
 import { WateringGame } from "./WateringGame";
 
@@ -80,6 +80,9 @@ type Spot = Pos & { l?: boolean };
 type Bubble = { text: string; until: number };
 type SayPayload = { on: string; text: string };
 type MovePayload = { id: string; x: number; y: number; l?: boolean };
+/** Live-Tennis: Einladung / Antwort / Zurückziehen (über den Spiel-Kanal – kommt nur an, wer gerade im WG-Spiel ist) */
+type InvitePayload = { from: string; to: string; matchId: string };
+type ReplyPayload = InvitePayload & { accept: boolean };
 
 export function Game() {
   const { members, everyone, myId, household, me, refresh, isGuest, can } = useWG();
@@ -104,6 +107,13 @@ export function Game() {
   const [path, setPath] = useState<Pos[]>([]);
   const pending = useRef<Target | null>(null);
   const [panel, setPanel] = useState<Panel | null>(null);
+  // ── Live-Tennis ──
+  const [invite, setInvite] = useState<InvitePayload | null>(null);          // an mich
+  const [tennisPending, setTennisPending] = useState<InvitePayload | null>(null); // von mir, wartet auf Antwort
+  const [declinedBy, setDeclinedBy] = useState<string | null>(null);
+  const [liveMatch, setLiveMatch] = useState<LiveMatch | null>(null);
+  const pendingRef = useRef<InvitePayload | null>(null); // für den Kanal-Handler
+  useEffect(() => { pendingRef.current = tennisPending; }, [tennisPending]);
   const [remote, setRemote] = useState<Record<string, Spot>>({});
   const [faceLeft, setFaceLeft] = useState(false);
   const faceRef = useRef(false);
@@ -164,6 +174,28 @@ export function Game() {
     if (joined.current) channel.current?.send({ type: "broadcast", event: "say", payload: { on, text } satisfies SayPayload });
   }, [showBubble]);
 
+  const sendTennis = useCallback((event: string, payload: object) => {
+    if (joined.current) channel.current?.send({ type: "broadcast", event, payload });
+  }, []);
+  const inviteTennis = useCallback((to: string) => {
+    const p: InvitePayload = { from: myId, to, matchId: crypto.randomUUID() };
+    setDeclinedBy(null); setTennisPending(p); sendTennis("tennis-invite", p);
+  }, [myId, sendTennis]);
+  const cancelInvite = useCallback(() => {
+    if (pendingRef.current) sendTennis("tennis-cancel", pendingRef.current);
+    setTennisPending(null);
+  }, [sendTennis]);
+  const answerInvite = useCallback((accept: boolean) => {
+    if (!invite) return;
+    sendTennis("tennis-reply", { ...invite, from: myId, to: invite.from, accept } satisfies ReplyPayload);
+    if (accept) { setLiveMatch({ matchId: invite.matchId, opponentId: invite.from, host: false }); setPanel({ type: "tennis" }); }
+    setInvite(null);
+  }, [invite, myId, sendTennis]);
+  // Einladungen laufen nach 30 s ab; schließt man das Tennis-Fenster, wird die eigene Einladung zurückgezogen
+  useEffect(() => { if (!invite) return; const t = setTimeout(() => setInvite(null), 30_000); return () => clearTimeout(t); }, [invite]);
+  useEffect(() => { if (!tennisPending) return; const t = setTimeout(() => cancelInvite(), 30_000); return () => clearTimeout(t); }, [tennisPending, cancelInvite]);
+  useEffect(() => { if (panel?.type !== "tennis") { if (pendingRef.current) cancelInvite(); setLiveMatch(null); } }, [panel, cancelInvite]);
+
   // ── Live: wer ist im Spiel und wo? (Supabase Realtime Presence) ──
   useEffect(() => {
     const ch = supabase.channel(`spiel-${household.id}`, { config: { presence: { key: myId }, broadcast: { self: false } } });
@@ -196,6 +228,21 @@ export function Game() {
         markMoving(m.id);
       })
       .on("broadcast", { event: "say" }, ({ payload }) => showBubble((payload as SayPayload).on, (payload as SayPayload).text))
+      .on("broadcast", { event: "tennis-invite" }, ({ payload }) => {
+        const p = payload as InvitePayload;
+        if (p.to === myId) setInvite(p);
+      })
+      .on("broadcast", { event: "tennis-cancel" }, ({ payload }) => {
+        const p = payload as InvitePayload;
+        setInvite((cur) => (cur && cur.matchId === p.matchId ? null : cur));
+      })
+      .on("broadcast", { event: "tennis-reply" }, ({ payload }) => {
+        const p = payload as ReplyPayload;
+        if (p.to !== myId || pendingRef.current?.matchId !== p.matchId) return;
+        setTennisPending(null);
+        if (p.accept) { setLiveMatch({ matchId: p.matchId, opponentId: p.from, host: true }); setPanel({ type: "tennis" }); }
+        else setDeclinedBy(p.from);
+      })
       .subscribe((status) => {
         if (status === "SUBSCRIBED") { joined.current = true; setLive("live"); ch.track({ ...posRef.current, l: faceRef.current }); }
         else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") { joined.current = false; setLive("offline"); }
@@ -560,6 +607,21 @@ export function Game() {
         </div>
       </div>
 
+      {/* Live-Tennis-Einladung (nur im WG-Spiel) */}
+      {invite && (
+        <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/40 px-3 pt-20">
+        <div className="w-full max-w-sm animate-[pop_.2s_ease-out] rounded-3xl border-2 border-red-500/50 bg-bg p-4 text-center shadow-2xl">
+          <p className="text-4xl">🎾</p>
+          <p className="mt-1 font-semibold">{members.find((m) => m.id === invite.from)?.display_name ?? "Jemand"} fordert dich zum Tennis heraus!</p>
+          <p className="text-xs text-muted">Live · bis 7 Punkte, 2 Vorsprung</p>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button onClick={() => answerInvite(false)} className="rounded-2xl border border-line py-2.5 font-semibold">Ablehnen</button>
+            <button onClick={() => answerInvite(true)} className="rounded-2xl bg-red-600 py-2.5 font-semibold text-white">Annehmen</button>
+          </div>
+        </div>
+        </div>
+      )}
+
       {panel && (
         <Sheet onClose={() => { if (panel.type === "member") reloadMessages(); setPanel(null); }} light={panel.type === "member"}
           title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : panel.type === "wardrobe" ? (panel.ownerId && panel.ownerId !== myId ? `👚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Kleiderschrank` : "👚 Dein Kleiderschrank") : panel.type === "object" ? (panel.obj.action === "kite" ? "🪁 Stefans Kite-Wetter" : panel.obj.action === "paper" ? "📄 Verenas Paper" : panel.obj.action === "kunst" ? "🎨 Verenas Kunst" : `${panel.obj.icon} ${panel.obj.label}`) : panel.type === "books" ? `📚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Bücher` : panel.type === "dishwasher" ? "🫧 Spülmaschine einräumen" : panel.type === "kitegame" ? "🏄 Kitesurfen" : panel.type === "tennis" ? "🎾 Tennis" : panel.type === "giessspiel" ? "💧 Verenas Dschungel" : ""}>
@@ -571,7 +633,12 @@ export function Game() {
           ) : panel.type === "giessspiel" ? (
             <WateringGame onResult={(score, best) => say(myId, best ? `💧 ${score} Punkte – neuer Gieß-Rekord!` : `💧 ${score} Punkte!`)} />
           ) : panel.type === "tennis" ? (
-            <TennisGame onResult={(score, best) => say(myId, best ? `🎾 ${score} Punkte – neuer Tennis-Rekord!` : `🎾 ${score} Punkte!`)} />
+            <TennisGame onResult={(score, best) => say(myId, best ? `🎾 ${score} Punkte – neuer Tennis-Rekord!` : `🎾 ${score} Punkte!`)}
+              live={{
+                online: members.filter((m) => m.id !== myId && onlineIds.has(m.id)),
+                pendingTo: tennisPending?.to ?? null, declinedBy, onInvite: inviteTennis, onCancel: cancelInvite,
+                match: liveMatch, onMatchEnd: () => setLiveMatch(null),
+              }} />
           ) : panel.type === "kitegame" ? (
             <KiteGame onResult={(score, best) => say(myId, best ? `🏄 ${score} Punkte – neuer Kite-Rekord!` : `🏄 ${score} Punkte!`)} />
           ) : panel.type === "object" && panel.obj.action === "kite" ? (

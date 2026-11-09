@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRows, useWG } from "@/lib/wg";
-import type { GameScore, Member } from "@/lib/types";
+import type { GameScore, Member, TennisMatch } from "@/lib/types";
 import { AvatarFigure, lookOf } from "./avatar";
 import { Leaderboard } from "./Leaderboard";
 
@@ -21,9 +21,99 @@ const REACH = 30;        // Reichweite des Schlägers (seitlich)
 const LIVES = 3;
 
 type Phase = "start" | "spiel" | "ende";
+type Court = { l: number; r: number; t: number; b: number };
+/** Was zum Zeichnen gebraucht wird (Spiel gegen Computer und Live-Match) */
+type Scene = {
+  px: number; ox: number; swingMe: number; swingOpp: number; sideMe: number; sideOpp: number;
+  ball: { x: number; y: number; fromY: number; toY: number; live: boolean };
+  trail: { x: number; y: number }[]; marks: { x: number; y: number; out: boolean; t: number }[];
+  msg: string; msgT: number; over: boolean; overText?: string;
+};
+const ALLEY = 0.12; // Einzel: die äußeren Streifen (Doppelfeld) sind Aus
+const singlesOf = (c: { l: number; r: number }) => { const i = (c.r - c.l) * ALLEY; return { l: c.l + i, r: c.r - i }; };
 const OPP_KEY = "wg-tennis-gegner";
 
-export function TennisGame({ onResult }: { onResult?: (score: number, best: boolean) => void }) {
+/** Schläger auf der Seite, auf der der Ball kommt (side 1 = rechts/Vorhand, -1 = links/Rückhand) */
+function racket(ctx: CanvasRenderingContext2D, x: number, y: number, swing: number, color: string, side: number, top: boolean) {
+  ctx.save(); ctx.translate(x + side * 10, y);
+  ctx.scale(side, top ? -1 : 1);
+  ctx.rotate(0.5 - swing * 5);
+  ctx.strokeStyle = "#1f2937"; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(16, 0); ctx.stroke();
+  ctx.fillStyle = "rgba(255,255,255,.85)"; ctx.strokeStyle = color; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.ellipse(25, 0, 9, 7, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+
+/** Platz, Ball, Schläger und Meldungen zeichnen – genutzt vom Spiel gegen den Computer und vom Live-Match */
+function drawTennis(ctx: CanvasRenderingContext2D, W: number, c: Court, st: Scene, colors: { me: string; opp: string }) {
+  // Hintergrund + Platz (Sand)
+  ctx.fillStyle = "#3f8f5a"; ctx.fillRect(0, 0, W, COURT_H);
+  // Steuerstreifen mit Markierung, wo die eigene Figur gerade steht
+  ctx.fillStyle = "#24533a"; ctx.fillRect(0, COURT_H, W, CTRL);
+  ctx.fillStyle = "rgba(255,255,255,.12)";
+  ctx.beginPath(); ctx.roundRect(14, COURT_H + 22, W - 28, CTRL - 44, (CTRL - 44) / 2); ctx.fill();
+  ctx.fillStyle = colors.me; ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.roundRect(Math.max(14, Math.min(W - 42, st.px - 14)), COURT_H + 18, 28, CTRL - 36, 8); ctx.fill(); ctx.stroke();
+  ctx.font = "700 13px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "rgba(255,255,255,.75)";
+  ctx.fillText("◀  hier wischen  ▶", W / 2, COURT_H + CTRL - 6);
+  ctx.fillStyle = "#d9773f"; ctx.fillRect(c.l - 14, c.t - 26, c.r - c.l + 28, c.b - c.t + 52);
+  ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2.5;
+  ctx.strokeRect(c.l, c.t, c.r - c.l, c.b - c.t);
+  const mid = (c.t + c.b) / 2, inset = (c.r - c.l) * ALLEY;
+  // Doppelfeld etwas dunkler, damit klar ist: das ist Aus
+  ctx.fillStyle = "rgba(0,0,0,.12)";
+  ctx.fillRect(c.l, c.t, inset, c.b - c.t); ctx.fillRect(c.r - inset, c.t, inset, c.b - c.t);
+  ctx.beginPath();
+  ctx.moveTo(c.l + inset, c.t); ctx.lineTo(c.l + inset, c.b);
+  ctx.moveTo(c.r - inset, c.t); ctx.lineTo(c.r - inset, c.b);
+  ctx.moveTo(c.l + inset, mid - (c.b - c.t) * 0.27); ctx.lineTo(c.r - inset, mid - (c.b - c.t) * 0.27);
+  ctx.moveTo(c.l + inset, mid + (c.b - c.t) * 0.27); ctx.lineTo(c.r - inset, mid + (c.b - c.t) * 0.27);
+  ctx.moveTo(W / 2, mid - (c.b - c.t) * 0.27); ctx.lineTo(W / 2, mid + (c.b - c.t) * 0.27);
+  ctx.stroke();
+  // Netz
+  ctx.fillStyle = "rgba(15,23,42,.35)"; ctx.fillRect(c.l - 10, mid - 1, c.r - c.l + 20, 5);
+  ctx.strokeStyle = "#f8fafc"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(c.l - 10, mid - 2); ctx.lineTo(c.r + 10, mid - 2); ctx.stroke();
+
+  // Aufsprung-Abdrücke: weiß = drin, rot = Aus
+  for (const m of st.marks) {
+    ctx.globalAlpha = Math.min(1, m.t);
+    ctx.strokeStyle = m.out ? "#dc2626" : "#ffffff"; ctx.lineWidth = m.out ? 3 : 2;
+    ctx.beginPath(); ctx.ellipse(m.x, m.y, 7, 4, 0, 0, Math.PI * 2); ctx.stroke();
+    if (m.out) { ctx.font = "800 12px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "#dc2626"; ctx.fillText("AUS", m.x, m.y - 9); }
+  }
+  ctx.globalAlpha = 1;
+  // Ball mit Schatten; Höhe (Bogen + Aufsprung) aus dem Fortschritt berechnet
+  const b = st.ball;
+  if (b.live) {
+    const p = Math.max(0, Math.min(1, (b.y - b.fromY) / (b.toY - b.fromY)));
+    const z = p < 0.68 ? 34 * Math.sin((Math.PI * p) / 0.68) : 12 * Math.sin((Math.PI * (p - 0.68)) / 0.32);
+    ctx.fillStyle = "rgba(0,0,0,.25)";
+    ctx.beginPath(); ctx.ellipse(b.x, b.y, 6, 3, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "rgba(223,255,79,.35)";
+    for (const q of st.trail) { ctx.beginPath(); ctx.arc(q.x, q.y - z, 3, 0, Math.PI * 2); ctx.fill(); }
+    ctx.fillStyle = "#dfff4f"; ctx.strokeStyle = "#3f6212"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(b.x, b.y - z, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(b.x - 3, b.y - z, 5, -0.9, 0.9); ctx.stroke();
+  }
+  // Schläger neben den Figuren
+  racket(ctx, st.px, c.b - 14, st.swingMe, colors.me, st.sideMe, false);
+  // Hand der Gegnerin/des Gegners: ~19 px über den Füßen (Füße bei c.t + 4)
+  racket(ctx, st.ox, c.t - 15, st.swingOpp, colors.opp, st.sideOpp, false);
+
+  // Meldung
+  if (st.msgT > 0 || st.over) {
+    const text = st.over ? (st.overText ?? "Spiel vorbei!") : st.msg;
+    ctx.globalAlpha = st.over ? 1 : Math.min(1, st.msgT * 2);
+    ctx.font = "800 26px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.lineJoin = "round";
+    ctx.lineWidth = 6; ctx.strokeStyle = "#ffffff"; ctx.strokeText(text, W / 2, (c.t + c.b) / 2 - 18);
+    ctx.fillStyle = "#0f172a"; ctx.fillText(text, W / 2, (c.t + c.b) / 2 - 18);
+    ctx.globalAlpha = 1;
+  }
+}
+
+export function TennisGame({ onResult, live }: { onResult?: (score: number, best: boolean) => void; live?: LiveTennisProps }) {
   const { members, me, myId } = useWG();
   // Gegner frei wählbar: alle Mitbewohner außer einem selbst – alle spielen gleich stark
   const candidates = [...members].sort((a, b) => a.sort - b.sort).filter((m) => m.id !== myId);
@@ -51,6 +141,9 @@ export function TennisGame({ onResult }: { onResult?: (score: number, best: bool
   }, [myBest, onResult, reload]);
 
   if (!me || !opponent) return <p className="text-sm text-muted">Hier fehlt noch ein Gegner. 🎾</p>;
+
+  const liveOpp = live?.match ? members.find((m) => m.id === live.match!.opponentId) : null;
+  if (live?.match && liveOpp) return <LiveTennisMatch key={live.match.matchId} me={me} opponent={liveOpp} match={live.match} onEnd={live.onMatchEnd} />;
 
   if (phase === "spiel") return <TennisMatch me={me} opponent={opponent} onOver={finish} />;
 
@@ -89,7 +182,29 @@ export function TennisGame({ onResult }: { onResult?: (score: number, best: bool
       <button onClick={() => setPhase("spiel")} className="w-full rounded-2xl bg-accent py-3 text-lg font-semibold text-white active:scale-[.98]">
         {phase === "ende" ? `Nochmal gegen ${opponent.display_name}` : `Aufschlag gegen ${opponent.display_name}!`}
       </button>
+      {live && (
+        <div className="rounded-2xl border-2 border-red-500/40 p-3">
+          <p className="mb-2 flex items-center justify-center gap-1.5 text-sm font-semibold"><span className="h-2 w-2 animate-pulse rounded-full bg-red-600" />Live gegen Mitbewohner · bis {WIN_AT}</p>
+          {live.pendingTo ? (
+            <div className="space-y-2">
+              <p className="animate-pulse text-sm">Warte auf {members.find((m) => m.id === live.pendingTo)?.display_name} …</p>
+              <button onClick={live.onCancel} className="rounded-xl border border-line px-3 py-1.5 text-sm font-semibold">Abbrechen</button>
+            </div>
+          ) : live.online.length ? (
+            <div className="flex flex-wrap justify-center gap-2">
+              {live.online.map((m) => (
+                <button key={m.id} onClick={() => live.onInvite(m.id)}
+                  className="flex items-center gap-1.5 rounded-2xl bg-red-600 py-1 pl-1 pr-3 text-sm font-semibold text-white active:scale-[.98]">
+                  <span className="rounded-xl bg-white/90"><AvatarFigure look={lookOf(m)} size={26} /></span> {m.display_name} herausfordern
+                </button>
+              ))}
+            </div>
+          ) : <p className="text-sm text-muted">Gerade ist niemand sonst im WG-Spiel.</p>}
+          {live.declinedBy && <p className="mt-2 text-xs text-muted">{members.find((m) => m.id === live.declinedBy)?.display_name} hat gerade keine Zeit. 🙅</p>}
+        </div>
+      )}
       <Leaderboard scores={tennisScores} error={dbErr} />
+      <TennisStats />
       <ul className="mx-auto max-w-xs space-y-1 text-left text-sm text-muted">
         <li>👆 <b>Im grünen Streifen unter dem Platz</b> hin- und herwischen (oder ← →)</li>
         <li>🎾 Geschlagen wird automatisch, wenn der Ball nah genug ist</li>
@@ -128,10 +243,8 @@ function TennisMatch({ me, opponent, onOver }: { me: Member; opponent: Member; o
     resize();
     const ro = new ResizeObserver(resize); ro.observe(wrap);
 
-    const court = () => ({ l: 34, r: W - 34, t: 46, b: COURT_H - 40 });
-    // Einzel: Die äußeren Streifen (Doppelfeld) sind Aus – es zählen die inneren Seitenlinien
-    const ALLEY = 0.12;
-    const singles = (c: { l: number; r: number }) => { const i = (c.r - c.l) * ALLEY; return { l: c.l + i, r: c.r - i }; };
+    const court = (): Court => ({ l: 34, r: W - 34, t: 46, b: COURT_H - 40 });
+    const singles = singlesOf;
     const rnd = (a: number, b: number) => a + Math.random() * (b - a);
     const c0 = court();
     const st = {
@@ -258,84 +371,7 @@ function TennisMatch({ me, opponent, onOver }: { me: Member; opponent: Member; o
       raf = requestAnimationFrame(frame);
     }
 
-    /** Schläger auf der Seite, auf der der Ball kommt (side 1 = rechts/Vorhand, -1 = links/Rückhand) */
-    function racket(x: number, y: number, swing: number, color: string, side: number, top: boolean) {
-      ctx.save(); ctx.translate(x + side * 10, y);
-      ctx.scale(side, top ? -1 : 1);
-      ctx.rotate(0.5 - swing * 5);
-      ctx.strokeStyle = "#1f2937"; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(16, 0); ctx.stroke();
-      ctx.fillStyle = "rgba(255,255,255,.85)"; ctx.strokeStyle = color; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.ellipse(25, 0, 9, 7, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.restore();
-    }
-
-    function draw(c: { l: number; r: number; t: number; b: number }) {
-      // Hintergrund + Platz (Sand)
-      ctx.fillStyle = "#3f8f5a"; ctx.fillRect(0, 0, W, COURT_H);
-      // Steuerstreifen mit Markierung, wo die eigene Figur gerade steht
-      ctx.fillStyle = "#24533a"; ctx.fillRect(0, COURT_H, W, CTRL);
-      ctx.fillStyle = "rgba(255,255,255,.12)";
-      ctx.beginPath(); ctx.roundRect(14, COURT_H + 22, W - 28, CTRL - 44, (CTRL - 44) / 2); ctx.fill();
-      ctx.fillStyle = colors.current.me; ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.roundRect(Math.max(14, Math.min(W - 42, st.px - 14)), COURT_H + 18, 28, CTRL - 36, 8); ctx.fill(); ctx.stroke();
-      ctx.font = "700 13px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "rgba(255,255,255,.75)";
-      ctx.fillText("◀  hier wischen  ▶", W / 2, COURT_H + CTRL - 6);
-      ctx.fillStyle = "#d9773f"; ctx.fillRect(c.l - 14, c.t - 26, c.r - c.l + 28, c.b - c.t + 52);
-      ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2.5;
-      ctx.strokeRect(c.l, c.t, c.r - c.l, c.b - c.t);
-      const mid = (c.t + c.b) / 2, inset = (c.r - c.l) * ALLEY;
-      // Doppelfeld etwas dunkler, damit klar ist: das ist Aus
-      ctx.fillStyle = "rgba(0,0,0,.12)";
-      ctx.fillRect(c.l, c.t, inset, c.b - c.t); ctx.fillRect(c.r - inset, c.t, inset, c.b - c.t);
-      ctx.beginPath();
-      ctx.moveTo(c.l + inset, c.t); ctx.lineTo(c.l + inset, c.b);
-      ctx.moveTo(c.r - inset, c.t); ctx.lineTo(c.r - inset, c.b);
-      ctx.moveTo(c.l + inset, mid - (c.b - c.t) * 0.27); ctx.lineTo(c.r - inset, mid - (c.b - c.t) * 0.27);
-      ctx.moveTo(c.l + inset, mid + (c.b - c.t) * 0.27); ctx.lineTo(c.r - inset, mid + (c.b - c.t) * 0.27);
-      ctx.moveTo(W / 2, mid - (c.b - c.t) * 0.27); ctx.lineTo(W / 2, mid + (c.b - c.t) * 0.27);
-      ctx.stroke();
-      // Netz
-      ctx.fillStyle = "rgba(15,23,42,.35)"; ctx.fillRect(c.l - 10, mid - 1, c.r - c.l + 20, 5);
-      ctx.strokeStyle = "#f8fafc"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(c.l - 10, mid - 2); ctx.lineTo(c.r + 10, mid - 2); ctx.stroke();
-
-      // Aufsprung-Abdrücke: weiß = drin, rot = Aus
-      for (const m of st.marks) {
-        ctx.globalAlpha = Math.min(1, m.t);
-        ctx.strokeStyle = m.out ? "#dc2626" : "#ffffff"; ctx.lineWidth = m.out ? 3 : 2;
-        ctx.beginPath(); ctx.ellipse(m.x, m.y, 7, 4, 0, 0, Math.PI * 2); ctx.stroke();
-        if (m.out) { ctx.font = "800 12px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "#dc2626"; ctx.fillText("AUS", m.x, m.y - 9); }
-      }
-      ctx.globalAlpha = 1;
-      // Ball mit Schatten; Höhe (Bogen + Aufsprung) aus dem Fortschritt berechnet
-      const b = st.ball;
-      if (b.live) {
-        const p = Math.max(0, Math.min(1, (b.y - b.fromY) / (b.toY - b.fromY)));
-        const z = p < 0.68 ? 34 * Math.sin((Math.PI * p) / 0.68) : 12 * Math.sin((Math.PI * (p - 0.68)) / 0.32);
-        ctx.fillStyle = "rgba(0,0,0,.25)";
-        ctx.beginPath(); ctx.ellipse(b.x, b.y, 6, 3, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = "rgba(223,255,79,.35)";
-        for (const q of st.trail) { ctx.beginPath(); ctx.arc(q.x, q.y - z, 3, 0, Math.PI * 2); ctx.fill(); }
-        ctx.fillStyle = "#dfff4f"; ctx.strokeStyle = "#3f6212"; ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.arc(b.x, b.y - z, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-        ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.arc(b.x - 3, b.y - z, 5, -0.9, 0.9); ctx.stroke();
-      }
-      // Schläger neben den Figuren
-      racket(st.px, c.b - 14, st.swingMe, colors.current.me, st.sideMe, false);
-      // Hand der Gegnerin/des Gegners: ~19 px über den Füßen (Füße bei c.t + 4)
-      racket(st.ox, c.t - 15, st.swingOpp, colors.current.opp, st.sideOpp, false);
-
-      // Meldung
-      if (st.msgT > 0 || st.over) {
-        const text = st.over ? "Spiel vorbei!" : st.msg;
-        ctx.globalAlpha = st.over ? 1 : Math.min(1, st.msgT * 2);
-        ctx.font = "800 26px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.lineJoin = "round";
-        ctx.lineWidth = 6; ctx.strokeStyle = "#ffffff"; ctx.strokeText(text, W / 2, (c.t + c.b) / 2 - 18);
-        ctx.fillStyle = "#0f172a"; ctx.fillText(text, W / 2, (c.t + c.b) / 2 - 18);
-        ctx.globalAlpha = 1;
-      }
-    }
+    const draw = (c: Court) => drawTennis(ctx, W, c, st, colors.current);
 
     raf = requestAnimationFrame(frame);
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
@@ -376,6 +412,300 @@ function TennisMatch({ me, opponent, onOver }: { me: Member; opponent: Member; o
         </div>
       </div>
       <p className="text-center text-xs text-muted">Unten im Streifen wischen · Schlägerrand = schräg</p>
+    </div>
+  );
+}
+
+/* ───────────────────────────── Live gegen Mitbewohner ───────────────────────────── */
+
+export type LiveMatch = { matchId: string; opponentId: string; host: boolean };
+export type LiveTennisProps = {
+  online: Member[];                 // wer gerade im WG-Spiel ist (ohne mich)
+  pendingTo: string | null;         // ich habe diese Person eingeladen und warte
+  declinedBy: string | null;        // diese Person hat abgelehnt
+  onInvite: (id: string) => void;
+  onCancel: () => void;
+  match: LiveMatch | null;
+  onMatchEnd: () => void;
+};
+
+const WIN_AT = 7;
+type Shot = { seq: number; fx: number; tx: number; v: number; rally: number; to: string };
+type PointMsg = { seq: number; winner: string; reason: "aus" | "verpasst"; host: number; guest: number; nextServer: string };
+
+/** Live-Match: jedes Handy entscheidet über Treffer/Aus auf seiner eigenen Seite. Übertragen werden nur Schläge, Punkte und Positionen. */
+function LiveTennisMatch({ me, opponent, match, onEnd }: { me: Member; opponent: Member; match: LiveMatch; onEnd: () => void }) {
+  const { household } = useWG();
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const meRef = useRef<HTMLDivElement>(null);
+  const oppRef = useRef<HTMLDivElement>(null);
+  const input = useRef<{ target: number | null; left: boolean; right: boolean }>({ target: null, left: false, right: false });
+  const colors = useRef({ me: me.color, opp: opponent.color });
+  useEffect(() => { colors.current = { me: me.color, opp: opponent.color }; }, [me.color, opponent.color]);
+  const [hud, setHud] = useState({ mine: 0, theirs: 0, status: "Warte auf " + opponent.display_name + " …", ended: "" as "" | "gewonnen" | "verloren" | "abgebrochen" });
+  const endRef = useRef(onEnd);
+  useEffect(() => { endRef.current = onEnd; }, [onEnd]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current!, wrap = wrapRef.current!, meEl = meRef.current!, oppEl = oppRef.current!;
+    const ctx = canvas.getContext("2d")!;
+    let W = wrap.clientWidth;
+    const resize = () => {
+      W = wrap.clientWidth;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = W * dpr; canvas.height = H * dpr;
+      canvas.style.width = `${W}px`; canvas.style.height = `${H}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    resize();
+    const ro = new ResizeObserver(resize); ro.observe(wrap);
+    const court = (): Court => ({ l: 34, r: W - 34, t: 46, b: COURT_H - 40 });
+    const rnd = (a: number, b: number) => a + Math.random() * (b - a);
+    // Welt-Koordinaten: x 0…1 über die Platzbreite (aus Sicht des Hosts). Gast sieht den Platz gedreht.
+    const toScreenX = (xw: number) => { const c = court(); return c.l + (match.host ? xw : 1 - xw) * (c.r - c.l); };
+    const toWorldX = (sx: number) => { const c = court(); const v = (sx - c.l) / (c.r - c.l); return match.host ? v : 1 - v; };
+    const hostId = match.host ? me.id : opponent.id;
+
+    const st: Scene & {
+      phase: "warten" | "countdown" | "spiel" | "ende"; countdown: number; oppX: number;
+      ball: Scene["ball"] & { vx: number; vy: number; toMe: boolean; bounced: boolean; seq: number; rally: number };
+      score: { host: number; guest: number }; server: string; serveWait: number; seq: number; lastOppMsg: number;
+    } = {
+      px: W / 2, ox: W / 2, swingMe: 0, swingOpp: 0, sideMe: 1, sideOpp: -1,
+      ball: { x: 0, y: 0, fromY: 0, toY: 1, live: false, vx: 0, vy: 0, toMe: false, bounced: false, seq: 0, rally: 0 },
+      trail: [], marks: [], msg: "", msgT: 0, over: false,
+      phase: "warten", countdown: 0, oppX: 0.5, score: { host: 0, guest: 0 }, server: hostId, serveWait: 0, seq: 0, lastOppMsg: performance.now(),
+    };
+    // Nur in der Entwicklung: Zustand für automatische Tests sichtbar machen
+    if (process.env.NODE_ENV !== "production") (window as unknown as { __tennisLive?: unknown }).__tennisLive = { st, court };
+    const mine = () => (match.host ? st.score.host : st.score.guest);
+    const theirs = () => (match.host ? st.score.guest : st.score.host);
+    const pushHud = (status: string, ended: "" | "gewonnen" | "verloren" | "abgebrochen" = "") => setHud({ mine: mine(), theirs: theirs(), status, ended });
+    const say = (m: string) => { st.msg = m; st.msgT = 1.2; };
+
+    const ch = supabase.channel(`tennis-${match.matchId}`, { config: { presence: { key: me.id }, broadcast: { self: false } } });
+    const send = (event: string, payload: object) => { ch.send({ type: "broadcast", event, payload }); };
+
+    // Ball aus einem Schlag (Welt-Daten) lokal starten
+    function startBall(s: Shot) {
+      const c = court(), toMe = s.to === me.id;
+      const fromY = toMe ? c.t + 14 : c.b - 14, toY = toMe ? c.b - 14 : c.t + 14;
+      const len = Math.abs(toY - fromY), time = 1 / s.v; // v = Platzlängen pro Sekunde
+      const fromX = toScreenX(s.fx), toX = toScreenX(s.tx);
+      st.ball = { x: fromX, y: fromY, fromY, toY, live: true, vx: (toX - fromX) / time, vy: Math.sign(toY - fromY) * len / time, toMe, bounced: false, seq: s.seq, rally: s.rally };
+      st.trail = [];
+      if (toMe) st.swingOpp = 0.25; else st.swingMe = 0.25;
+    }
+    function shoot(fromScreenX: number, toWorldXv: number, rally: number) {
+      const s: Shot = { seq: ++st.seq, fx: toWorldX(fromScreenX), tx: toWorldXv, v: Math.min(1.7, 0.8 + rally * 0.045), rally, to: opponent.id };
+      startBall(s); send("shot", s);
+    }
+    // Punkt entscheiden (nur das Handy, auf dessen Seite der Ball gerade ist)
+    function decidePoint(iWon: boolean, reason: "aus" | "verpasst") {
+      st.ball.live = false;
+      if ((iWon && match.host) || (!iWon && !match.host)) st.score.host++; else st.score.guest++;
+      const winner = iWon ? me.id : opponent.id;
+      const nextServer = st.server === me.id ? opponent.id : me.id; // Aufschlag wechselt jeden Punkt
+      const msg: PointMsg = { seq: st.ball.seq, winner, reason, host: st.score.host, guest: st.score.guest, nextServer };
+      send("point", msg);
+      applyPoint(msg, true);
+    }
+    function applyPoint(p: PointMsg, local: boolean) {
+      st.score = { host: p.host, guest: p.guest };
+      if (!local) st.ball.live = false;
+      const iWon = p.winner === me.id;
+      say(iWon ? (p.reason === "aus" ? "Aus! Punkt für dich" : "Punkt für dich!") : (p.reason === "aus" ? "Aus! 😬" : `Punkt für ${opponent.display_name}`));
+      const a = mine(), b = theirs();
+      if ((a >= WIN_AT || b >= WIN_AT) && Math.abs(a - b) >= 2) {
+        st.phase = "ende"; st.over = true;
+        const won = a > b;
+        st.overText = won ? "Gewonnen! 🏆" : `${opponent.display_name} gewinnt`;
+        pushHud("", won ? "gewonnen" : "verloren");
+        // Das Ergebnis trägt die Person ein, die gewonnen hat (Match-ID verhindert Doppelte)
+        if (won) supabase.from("tennis_matches").insert({ id: match.matchId, household_id: household.id, winner: me.id, loser: opponent.id, winner_points: a, loser_points: b }).then(() => {});
+        return;
+      }
+      st.server = p.nextServer; st.serveWait = 1.3;
+      pushHud(st.server === me.id ? "Du schlägst auf" : `${opponent.display_name} schlägt auf`);
+    }
+    function abort(text: string) {
+      if (st.phase === "ende") return;
+      st.phase = "ende"; st.over = true; st.overText = text; st.ball.live = false;
+      pushHud("", "abgebrochen");
+    }
+
+    ch.on("presence", { event: "sync" }, () => {
+      const here = Object.keys(ch.presenceState());
+      if (st.phase === "warten" && here.includes(opponent.id)) { st.phase = "countdown"; st.countdown = 3.2; pushHud("Gleich geht's los!"); }
+    })
+      .on("presence", { event: "leave" }, ({ key }) => { if (key === opponent.id) abort("Verbindung weg – Match beendet"); })
+      .on("broadcast", { event: "pos" }, ({ payload }) => { st.oppX = (payload as { x: number }).x; st.lastOppMsg = performance.now(); })
+      .on("broadcast", { event: "shot" }, ({ payload }) => {
+        st.lastOppMsg = performance.now();
+        // Countdown kann auf beiden Handys minimal versetzt enden – ein Aufschlag startet das Spiel dann sofort
+        if (st.phase === "countdown") { st.phase = "spiel"; pushHud(""); }
+        if (st.phase === "spiel") startBall(payload as Shot);
+      })
+      .on("broadcast", { event: "point" }, ({ payload }) => { st.lastOppMsg = performance.now(); applyPoint(payload as PointMsg, false); })
+      .on("broadcast", { event: "leave" }, () => abort(`${opponent.display_name} hat aufgehört`))
+      .subscribe((status) => { if (status === "SUBSCRIBED") ch.track({ at: Date.now() }); });
+
+    let last = performance.now(), raf = 0, lastPos = 0;
+    const waitStart = performance.now();
+    function frame(now: number) {
+      const dt = Math.min(0.033, (now - last) / 1000); last = now;
+      const c = court(), sg = singlesOf(c);
+      // eigene Figur
+      let goal = st.px;
+      if (input.current.target != null) goal = input.current.target;
+      if (input.current.left) goal = st.px - 60;
+      if (input.current.right) goal = st.px + 60;
+      const d = goal - st.px;
+      st.px = Math.max(c.l - 18, Math.min(c.r + 18, st.px + Math.sign(d) * Math.min(Math.abs(d), 430 * dt)));
+      if (now - lastPos > 70 && st.phase !== "warten") { lastPos = now; send("pos", { x: toWorldX(st.px) }); }
+      // Gegner weich zur gemeldeten Position
+      const ot = toScreenX(st.oppX); st.ox += (ot - st.ox) * Math.min(1, dt * 14);
+
+      if (st.phase === "warten" && now - waitStart > 25_000) abort(`${opponent.display_name} ist nicht gekommen`);
+      if (st.phase === "countdown") {
+        st.countdown -= dt;
+        st.msg = st.countdown > 0.2 ? String(Math.ceil(st.countdown - 0.2)) : "Los!"; st.msgT = 0.5;
+        if (st.countdown <= 0) { st.phase = "spiel"; st.serveWait = 0.6; pushHud(st.server === me.id ? "Du schlägst auf" : `${opponent.display_name} schlägt auf`); }
+      }
+      if (st.phase === "spiel") {
+        if (now - st.lastOppMsg > 12_000) abort("Verbindung weg – Match beendet");
+        // Aufschlag (nur wer dran ist)
+        if (!st.ball.live && st.serveWait > 0) {
+          st.serveWait -= dt;
+          if (st.serveWait <= 0 && st.server === me.id) shoot(st.px, toWorldX(rnd(sg.l + 14, sg.r - 14)), 0);
+        }
+        const b = st.ball;
+        if (b.live) {
+          b.x += b.vx * dt; b.y += b.vy * dt;
+          st.trail.push({ x: b.x, y: b.y }); if (st.trail.length > 6) st.trail.shift();
+          const arrive = (yy: number) => b.x + b.vx * ((yy - b.y) / b.vy);
+          if (b.toMe) { const dd = arrive(c.b - 14) - st.px; if (Math.abs(dd) > 4) st.sideMe = Math.sign(dd); }
+          else { const dd = arrive(c.t + 14) - st.ox; if (Math.abs(dd) > 4) st.sideOpp = Math.sign(dd); }
+          const prog = (b.y - b.fromY) / (b.toY - b.fromY);
+          if (!b.bounced && prog >= 0.68) {
+            b.bounced = true;
+            const out = b.x < sg.l - 3 || b.x > sg.r + 3;
+            st.marks.push({ x: b.x, y: b.y, out, t: 1.6 });
+            if (out && b.toMe) decidePoint(true, "aus"); // Aus auf meiner Seite → mein Punkt
+          }
+          if (b.live && b.toMe && b.y >= c.b - 14) {
+            if (Math.abs(b.x - st.px) <= REACH && b.x > c.l - 30 && b.x < c.r + 30) {
+              const off = Math.max(-1, Math.min(1, (b.x - st.px) / REACH)), half = (sg.r - sg.l) / 2;
+              shoot(b.x, toWorldX(W / 2 + off * half * 1.22 + rnd(-10, 10)), b.rally + 1);
+            } else if (b.y > c.b + 10) decidePoint(false, "verpasst");
+          }
+          // Ball beim Gegner: dessen Handy entscheidet – hier nur weiterfliegen und ausblenden
+          if (b.live && !b.toMe && b.y < c.t - 30) b.live = false;
+        }
+      }
+      st.swingMe = Math.max(0, st.swingMe - dt); st.swingOpp = Math.max(0, st.swingOpp - dt);
+      st.msgT = Math.max(0, st.msgT - dt);
+      for (const m of st.marks) m.t -= dt;
+      st.marks = st.marks.filter((m) => m.t > 0);
+
+      drawTennis(ctx, W, c, st, colors.current);
+      meEl.style.transform = `translate(${st.px - FIG / 2}px, ${c.b - FIG * 1.25 + 6}px)`;
+      oppEl.style.transform = `translate(${st.ox - FIG / 2}px, ${c.t - FIG * 1.25 + 4}px)`;
+      raf = requestAnimationFrame(frame);
+    }
+    raf = requestAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(raf); ro.disconnect();
+      if (st.phase !== "ende") send("leave", {});
+      supabase.removeChannel(ch);
+    };
+  }, [match, me.id, opponent.id, opponent.display_name, household.id]);
+
+  useEffect(() => {
+    const set = (e: KeyboardEvent, v: boolean) => {
+      if (e.key === "ArrowLeft" || e.key === "a") { e.preventDefault(); input.current.left = v; input.current.target = null; }
+      if (e.key === "ArrowRight" || e.key === "d") { e.preventDefault(); input.current.right = v; input.current.target = null; }
+    };
+    const down = (e: KeyboardEvent) => set(e, true), up = (e: KeyboardEvent) => set(e, false);
+    window.addEventListener("keydown", down); window.addEventListener("keyup", up);
+    return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
+  }, []);
+  const toTarget = (e: React.PointerEvent) => { const r = wrapRef.current!.getBoundingClientRect(); input.current.target = e.clientX - r.left; };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2 text-sm">
+        <span className="font-semibold">Du <b className="text-lg tabular-nums">{hud.mine}</b> : <b className="text-lg tabular-nums">{hud.theirs}</b> {opponent.display_name}</span>
+        <span className="flex items-center gap-1 text-xs font-semibold text-red-600"><span className="h-2 w-2 animate-pulse rounded-full bg-red-600" />LIVE</span>
+      </div>
+      <p className="text-center text-xs text-muted">{hud.status || `Bis ${WIN_AT} Punkte, 2 Vorsprung`}</p>
+      <div ref={wrapRef} className="relative mx-auto max-w-md touch-none select-none overflow-hidden rounded-2xl" style={{ height: H }}
+        onPointerDown={(e) => { e.preventDefault(); (e.target as Element).setPointerCapture?.(e.pointerId); toTarget(e); }}
+        onPointerMove={(e) => { if (e.buttons || e.pointerType === "touch") toTarget(e); }}
+        role="application" aria-label="Live-Tennis: Finger hin- und herziehen zum Laufen">
+        <canvas ref={canvasRef} className="absolute inset-0" />
+        <div ref={oppRef} className="pointer-events-none absolute left-0 top-0 will-change-transform" style={{ width: FIG }}>
+          <AvatarFigure look={lookOf(opponent)} size={FIG} />
+        </div>
+        <div ref={meRef} className="pointer-events-none absolute left-0 top-0 will-change-transform" style={{ width: FIG }}>
+          <AvatarFigure look={lookOf(me)} size={FIG} />
+        </div>
+      </div>
+      {hud.ended && (
+        <button onClick={() => endRef.current()} className="w-full rounded-2xl bg-accent py-3 font-semibold text-white">
+          {hud.ended === "gewonnen" ? "🏆 Zurück" : "Zurück"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Statistik: wer hat wie oft gegen wen gewonnen */
+function TennisStats() {
+  const { everyone } = useWG();
+  const { rows, loaded } = useRows<TennisMatch>("tennis_matches", "created_at", false);
+  const name = (id: string) => everyone.find((m) => m.id === id);
+  const pairs = new Map<string, { a: string; b: string; wa: number; wb: number }>();
+  const wins = new Map<string, number>();
+  for (const r of rows) {
+    const [a, b] = [r.winner, r.loser].sort();
+    const p = pairs.get(`${a}|${b}`) ?? { a, b, wa: 0, wb: 0 };
+    if (r.winner === a) p.wa++; else p.wb++;
+    pairs.set(`${a}|${b}`, p);
+    wins.set(r.winner, (wins.get(r.winner) ?? 0) + 1);
+  }
+  const ranking = [...wins.entries()].sort((x, y) => y[1] - x[1]);
+  return (
+    <div className="rounded-2xl border border-line p-3 text-left">
+      <p className="mb-2 text-center text-sm font-semibold">📊 Live-Statistik: wer gegen wen</p>
+      {loaded && rows.length === 0 && <p className="py-2 text-center text-sm text-muted">Noch kein Live-Match gespielt.</p>}
+      {ranking.length > 0 && (
+        <p className="mb-2 text-center text-xs text-muted">
+          Siege: {ranking.map(([id, n]) => `${name(id)?.display_name ?? "?"} ${n}`).join(" · ")}
+        </p>
+      )}
+      <div className="space-y-1.5">
+        {[...pairs.values()].sort((x, y) => (y.wa + y.wb) - (x.wa + x.wb)).map((p) => {
+          const A = name(p.a), B = name(p.b);
+          return (
+            <div key={`${p.a}|${p.b}`} className="flex items-center gap-2 rounded-xl bg-line/30 px-2 py-1.5 text-sm">
+              <AvatarFigure look={A ? lookOf(A) : lookOf(everyone[0])} size={20} />
+              <span className="min-w-0 flex-1 truncate text-right font-medium">{A?.display_name ?? "?"}</span>
+              <b className={`tabular-nums ${p.wa > p.wb ? "text-green-700 dark:text-green-400" : ""}`}>{p.wa}</b>
+              <span className="text-muted">:</span>
+              <b className={`tabular-nums ${p.wb > p.wa ? "text-green-700 dark:text-green-400" : ""}`}>{p.wb}</b>
+              <span className="min-w-0 flex-1 truncate font-medium">{B?.display_name ?? "?"}</span>
+              <AvatarFigure look={B ? lookOf(B) : lookOf(everyone[0])} size={20} />
+            </div>
+          );
+        })}
+      </div>
+      {rows.length > 0 && (
+        <p className="mt-2 text-center text-[11px] text-muted">
+          Zuletzt: {name(rows[0].winner)?.display_name} schlägt {name(rows[0].loser)?.display_name} {rows[0].winner_points}:{rows[0].loser_points}
+        </p>
+      )}
     </div>
   );
 }
