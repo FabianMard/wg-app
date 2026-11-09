@@ -323,7 +323,8 @@ function TennisMatch({ me, opponent, onOver }: { me: Member; opponent: Member; o
       }
       // Schläger neben den Figuren
       racket(st.px, c.b - 14, st.swingMe, colors.current.me, st.sideMe, false);
-      racket(st.ox, c.t + 4, st.swingOpp, colors.current.opp, st.sideOpp, true);
+      // Hand der Gegnerin/des Gegners: ~19 px über den Füßen (Füße bei c.t + 4)
+      racket(st.ox, c.t - 15, st.swingOpp, colors.current.opp, st.sideOpp, false);
 
       // Meldung
       if (st.msgT > 0 || st.over) {
