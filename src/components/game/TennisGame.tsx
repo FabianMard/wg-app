@@ -13,19 +13,23 @@ import { Leaderboard } from "./Leaderboard";
  * Schlägermitte = gerade, Schlägerrand = schräg (schwerer für den Gegner, aber Aus-Gefahr).
  */
 
-const H = 460;
+const COURT_H = 430;      // Platz
+const CTRL = 92;          // Steuerstreifen darunter – dort wischen, damit der Daumen die Figur nicht verdeckt
+const H = COURT_H + CTRL;
 const FIG = 34;
 const REACH = 30;        // Reichweite des Schlägers (seitlich)
 const LIVES = 3;
 
 type Phase = "start" | "spiel" | "ende";
+const OPP_KEY = "wg-tennis-gegner";
 
 export function TennisGame({ onResult }: { onResult?: (score: number, best: boolean) => void }) {
   const { members, me, myId } = useWG();
-  const sorted = [...members].sort((a, b) => a.sort - b.sort);
-  // Gegner: Fabian (Zimmerbesitzer) – ist man selbst Fabian, spielt Stefan
-  const fabian = sorted.find((m) => m.sort === 2) ?? sorted[sorted.length - 1];
-  const opponent = fabian && fabian.id !== myId ? fabian : sorted.find((m) => m.sort === 1 && m.id !== myId) ?? sorted.find((m) => m.id !== myId) ?? fabian;
+  // Gegner frei wählbar: alle Mitbewohner außer einem selbst – alle spielen gleich stark
+  const candidates = [...members].sort((a, b) => a.sort - b.sort).filter((m) => m.id !== myId);
+  const [oppId, setOppId] = useState<string | null>(() => { try { return localStorage.getItem(OPP_KEY); } catch { return null; } });
+  const opponent = candidates.find((m) => m.id === oppId) ?? candidates.find((m) => m.sort === 2) ?? candidates[0];
+  const pick = (id: string) => { setOppId(id); try { localStorage.setItem(OPP_KEY, id); } catch { /* egal */ } };
   const [phase, setPhase] = useState<Phase>("start");
   const [result, setResult] = useState<{ score: number; returns: number; winners: number; best: boolean } | null>(null);
   const [dbErr, setDbErr] = useState<string | null>(null);
@@ -66,15 +70,28 @@ export function TennisGame({ onResult }: { onResult?: (score: number, best: bool
             <span className="pb-6 text-3xl">🎾</span>
             <div className="flex flex-col items-center"><AvatarFigure look={lookOf(opponent)} size={52} flip /><span className="text-sm font-semibold">{opponent.display_name}</span></div>
           </div>
-          <p className="font-semibold">Tennis gegen {opponent.display_name}!</p>
         </>
       )}
+      {candidates.length > 1 && (
+        <div>
+          <p className="mb-2 text-sm font-semibold">Gegen wen spielst du?</p>
+          <div className="flex flex-wrap justify-center gap-2">
+            {candidates.map((m) => (
+              <button key={m.id} onClick={() => pick(m.id)}
+                className={`flex items-center gap-1.5 rounded-2xl border-2 py-1 pl-1 pr-3 text-sm font-semibold transition active:scale-[.98] ${opponent.id === m.id ? "border-accent bg-accent/10" : "border-line"}`}>
+                <AvatarFigure look={lookOf(m)} size={26} /> {m.display_name}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-muted">Alle spielen gleich stark.</p>
+        </div>
+      )}
       <button onClick={() => setPhase("spiel")} className="w-full rounded-2xl bg-accent py-3 text-lg font-semibold text-white active:scale-[.98]">
-        {phase === "ende" ? "Nochmal" : "Aufschlag!"}
+        {phase === "ende" ? `Nochmal gegen ${opponent.display_name}` : `Aufschlag gegen ${opponent.display_name}!`}
       </button>
       <Leaderboard scores={tennisScores} error={dbErr} />
       <ul className="mx-auto max-w-xs space-y-1 text-left text-sm text-muted">
-        <li>👆 <b>Finger auf den Platz</b> und hin- und herziehen (oder ← →)</li>
+        <li>👆 <b>Im grünen Streifen unter dem Platz</b> hin- und herwischen (oder ← →)</li>
         <li>🎾 Geschlagen wird automatisch, wenn der Ball nah genug ist</li>
         <li>🎯 Schlägermitte = gerade · Schlägerrand = schräg (Aus-Gefahr!)</li>
         <li>+1 pro Rückschlag · +5 wenn {opponent.display_name} nicht rankommt · {LIVES} Leben</li>
@@ -111,7 +128,7 @@ function TennisMatch({ me, opponent, onOver }: { me: Member; opponent: Member; o
     resize();
     const ro = new ResizeObserver(resize); ro.observe(wrap);
 
-    const court = () => ({ l: 34, r: W - 34, t: 46, b: H - 46 });
+    const court = () => ({ l: 34, r: W - 34, t: 46, b: COURT_H - 40 });
     const rnd = (a: number, b: number) => a + Math.random() * (b - a);
     const c0 = court();
     const st = {
@@ -220,7 +237,15 @@ function TennisMatch({ me, opponent, onOver }: { me: Member; opponent: Member; o
 
     function draw(c: { l: number; r: number; t: number; b: number }) {
       // Hintergrund + Platz (Sand)
-      ctx.fillStyle = "#3f8f5a"; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = "#3f8f5a"; ctx.fillRect(0, 0, W, COURT_H);
+      // Steuerstreifen mit Markierung, wo die eigene Figur gerade steht
+      ctx.fillStyle = "#24533a"; ctx.fillRect(0, COURT_H, W, CTRL);
+      ctx.fillStyle = "rgba(255,255,255,.12)";
+      ctx.beginPath(); ctx.roundRect(14, COURT_H + 22, W - 28, CTRL - 44, (CTRL - 44) / 2); ctx.fill();
+      ctx.fillStyle = colors.current.me; ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.roundRect(Math.max(14, Math.min(W - 42, st.px - 14)), COURT_H + 18, 28, CTRL - 36, 8); ctx.fill(); ctx.stroke();
+      ctx.font = "700 13px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "rgba(255,255,255,.75)";
+      ctx.fillText("◀  hier wischen  ▶", W / 2, COURT_H + CTRL - 6);
       ctx.fillStyle = "#d9773f"; ctx.fillRect(c.l - 14, c.t - 26, c.r - c.l + 28, c.b - c.t + 52);
       ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2.5;
       ctx.strokeRect(c.l, c.t, c.r - c.l, c.b - c.t);
@@ -303,7 +328,7 @@ function TennisMatch({ me, opponent, onOver }: { me: Member; opponent: Member; o
           <AvatarFigure look={lookOf(me)} size={FIG} />
         </div>
       </div>
-      <p className="text-center text-xs text-muted">Finger auf den Platz und hin- und herziehen · Schlägerrand = schräg</p>
+      <p className="text-center text-xs text-muted">Unten im Streifen wischen · Schlägerrand = schräg</p>
     </div>
   );
 }
