@@ -93,7 +93,7 @@ export function TennisGame({ onResult }: { onResult?: (score: number, best: bool
       <ul className="mx-auto max-w-xs space-y-1 text-left text-sm text-muted">
         <li>👆 <b>Im grünen Streifen unter dem Platz</b> hin- und herwischen (oder ← →)</li>
         <li>🎾 Geschlagen wird automatisch, wenn der Ball nah genug ist</li>
-        <li>🎯 Schlägermitte = gerade · Schlägerrand = schräg (Aus-Gefahr!)</li>
+        <li>🎯 Schlägermitte = gerade · Schlägerrand = schräg (Aus-Gefahr!) · Einzel: das dunkle Doppelfeld ist Aus</li>
         <li>+1 pro Rückschlag · +5 wenn {opponent.display_name} nicht rankommt · {LIVES} Leben</li>
       </ul>
     </div>
@@ -129,6 +129,9 @@ function TennisMatch({ me, opponent, onOver }: { me: Member; opponent: Member; o
     const ro = new ResizeObserver(resize); ro.observe(wrap);
 
     const court = () => ({ l: 34, r: W - 34, t: 46, b: COURT_H - 40 });
+    // Einzel: Die äußeren Streifen (Doppelfeld) sind Aus – es zählen die inneren Seitenlinien
+    const ALLEY = 0.12;
+    const singles = (c: { l: number; r: number }) => { const i = (c.r - c.l) * ALLEY; return { l: c.l + i, r: c.r - i }; };
     const rnd = (a: number, b: number) => a + Math.random() * (b - a);
     const c0 = court();
     const st = {
@@ -155,12 +158,13 @@ function TennisMatch({ me, opponent, onOver }: { me: Member; opponent: Member; o
     function serve() {
       const c = court();
       st.ox = W / 2;
-      shoot(st.ox, c.t + 14, rnd(c.l + 20, c.r - 20), c.b - 14, false);
+      const sg = singles(c);
+      shoot(st.ox, c.t + 14, rnd(sg.l + 14, sg.r - 14), c.b - 14, false);
       st.swingOpp = 0.25;
     }
     function pointOver(won: boolean, text: string) {
       st.ball.live = false;
-      if (process.env.NODE_ENV !== "production") ((window as unknown as { __tennisLog?: string[] }).__tennisLog ??= []).push(`${text} | Ball von ${st.ball.byMe ? "mir" : "Gegner"} | x=${Math.round(st.ball.x)} Platz ${Math.round(court().l)}–${Math.round(court().r)}`);
+      if (process.env.NODE_ENV !== "production") ((window as unknown as { __tennisLog?: string[] }).__tennisLog ??= []).push(`${text} | Ball von ${st.ball.byMe ? "mir" : "Gegner"} | x=${Math.round(st.ball.x)} Einzelfeld ${Math.round(singles(court()).l)}–${Math.round(singles(court()).r)}`);
       if (won) { st.winners++; st.score += 5; } else { st.lives--; }
       say(text);
       st.rally = 0;
@@ -193,7 +197,8 @@ function TennisMatch({ me, opponent, onOver }: { me: Member; opponent: Member; o
           const prog = (b.y - b.fromY) / (b.toY - b.fromY);
           if (!b.bounced && prog >= 0.68) {
             b.bounced = true;
-            const out = b.x < c.l - 3 || b.x > c.r + 3;
+            const sg = singles(c);
+            const out = b.x < sg.l - 3 || b.x > sg.r + 3; // Ball auf der Linie = drin
             st.marks.push({ x: b.x, y: b.y, out, t: 1.6 });
             if (out) {
               if (b.byMe) pointOver(false, "Aus! 😬");
@@ -214,7 +219,8 @@ function TennisMatch({ me, opponent, onOver }: { me: Member; opponent: Member; o
           if (b.live && b.vy > 0 && b.y >= c.b - 14) {
             if (Math.abs(b.x - st.px) <= REACH && b.x > c.l - 30 && b.x < c.r + 30) {
               const off = Math.max(-1, Math.min(1, (b.x - st.px) / REACH));
-              const toX = W / 2 + off * (W / 2 - 34) * 1.25 + rnd(-12, 12); // Rand = schräg, evtl. Aus
+              const sg = singles(c), half = (sg.r - sg.l) / 2;
+              const toX = W / 2 + off * half * 1.22 + rnd(-10, 10); // Rand = schräg, ganz außen = Aus
               st.rally++; st.returns++; st.score += 1; st.swingMe = 0.25;
               shoot(b.x, c.b - 14, toX, c.t + 14, true);
             } else if (b.y > c.b + 10) pointOver(false, "Verpasst!");
@@ -223,7 +229,8 @@ function TennisMatch({ me, opponent, onOver }: { me: Member; opponent: Member; o
           if (b.live && b.vy < 0 && b.y <= c.t + 14) {
             if (Math.abs(b.x - st.ox) <= REACH - 2) {
               st.swingOpp = 0.25; st.rally++;
-              shoot(b.x, c.t + 14, rnd(c.l + 18, c.r - 18), c.b - 14, false);
+              const sg = singles(c);
+              shoot(b.x, c.t + 14, rnd(sg.l + 12, sg.r - 12), c.b - 14, false);
             } else if (b.y < c.t - 10) pointOver(true, "Gewinnschlag! +5");
           }
         }
@@ -269,7 +276,10 @@ function TennisMatch({ me, opponent, onOver }: { me: Member; opponent: Member; o
       ctx.fillStyle = "#d9773f"; ctx.fillRect(c.l - 14, c.t - 26, c.r - c.l + 28, c.b - c.t + 52);
       ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2.5;
       ctx.strokeRect(c.l, c.t, c.r - c.l, c.b - c.t);
-      const mid = (c.t + c.b) / 2, inset = (c.r - c.l) * 0.12;
+      const mid = (c.t + c.b) / 2, inset = (c.r - c.l) * ALLEY;
+      // Doppelfeld etwas dunkler, damit klar ist: das ist Aus
+      ctx.fillStyle = "rgba(0,0,0,.12)";
+      ctx.fillRect(c.l, c.t, inset, c.b - c.t); ctx.fillRect(c.r - inset, c.t, inset, c.b - c.t);
       ctx.beginPath();
       ctx.moveTo(c.l + inset, c.t); ctx.lineTo(c.l + inset, c.b);
       ctx.moveTo(c.r - inset, c.t); ctx.lineTo(c.r - inset, c.b);
