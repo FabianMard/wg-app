@@ -17,8 +17,9 @@ export const PUSH_AREAS: { id: PushArea; label: string; icon: string; url: strin
   { id: "chat", label: "Nachrichten an dich", icon: "💬", url: "/spiel", hint: "Wenn dich jemand im Spiel anschreibt" },
 ];
 
-/** Vorschlag beim Einschalten: Nachrichten an mich immer, alles andere 1× am Tag */
-export const DEFAULT_PREFS: Record<PushArea, PushMode> = {
+/** Vorschlag beim Einschalten: Nachrichten an mich immer, alles andere 1× am Tag, Geburtstage morgens um 9 */
+export const DEFAULT_PREFS: Record<PushArea, PushMode> & { geburtstag: PushMode; geburtstag_zeit: string } = {
+  geburtstag: "taeglich", geburtstag_zeit: "09",
   einkauf: "taeglich", kosten: "taeglich", kalender: "taeglich", todos: "taeglich",
   pinnwand: "taeglich", watchlist: "taeglich", musik: "taeglich", chat: "jeder",
 };
