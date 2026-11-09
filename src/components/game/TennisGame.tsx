@@ -139,6 +139,7 @@ function TennisMatch({ me, opponent, onOver }: { me: Member; opponent: Member; o
       ball: { x: W / 2, y: c0.t + 14, vx: 0, vy: 0, fromY: c0.t + 14, toY: c0.b - 14, live: false, byMe: false, bounced: false },
       // Gegner: reagiert verzögert und schätzt bei schrägen Bällen etwas daneben
       oReact: 0, oErr: 0,
+      sideMe: 1, sideOpp: -1, // Schlägerseite (wechselt je nachdem, wo der Ball ankommt)
       marks: [] as { x: number; y: number; out: boolean; t: number }[],
       rally: 0, score: 0, returns: 0, winners: 0, lives: LIVES,
       wait: 0.9, swingMe: 0, swingOpp: 0, msg: "", msgT: 0, over: false, overT: 0, t: 0, trail: [] as { x: number; y: number }[],
@@ -215,6 +216,12 @@ function TennisMatch({ me, opponent, onOver }: { me: Member; opponent: Member; o
           const od = st.oTarget - st.ox;
           if (st.oReact <= 0) st.ox += Math.sign(od) * Math.min(Math.abs(od), oppSpeed * dt);
 
+          // Schläger auf die Ballseite nehmen (Vorhand/Rückhand)
+          if (b.live) {
+            const arrive = (yy: number) => b.x + b.vx * ((yy - b.y) / b.vy);
+            if (b.vy > 0) { const d = arrive(c.b - 14) - st.px; if (Math.abs(d) > 4) st.sideMe = Math.sign(d); }
+            else { const d = arrive(c.t + 14) - st.ox; if (Math.abs(d) > 4) st.sideOpp = Math.sign(d); }
+          }
           // Ball kommt bei mir an
           if (b.live && b.vy > 0 && b.y >= c.b - 14) {
             if (Math.abs(b.x - st.px) <= REACH && b.x > c.l - 30 && b.x < c.r + 30) {
@@ -251,10 +258,11 @@ function TennisMatch({ me, opponent, onOver }: { me: Member; opponent: Member; o
       raf = requestAnimationFrame(frame);
     }
 
-    function racket(x: number, y: number, swing: number, color: string, flip: boolean) {
-      ctx.save(); ctx.translate(x, y);
-      const ang = (flip ? -1 : 1) * (0.5 - swing * 5);
-      ctx.rotate(ang);
+    /** Schläger auf der Seite, auf der der Ball kommt (side 1 = rechts/Vorhand, -1 = links/Rückhand) */
+    function racket(x: number, y: number, swing: number, color: string, side: number, top: boolean) {
+      ctx.save(); ctx.translate(x + side * 10, y);
+      ctx.scale(side, top ? -1 : 1);
+      ctx.rotate(0.5 - swing * 5);
       ctx.strokeStyle = "#1f2937"; ctx.lineWidth = 3;
       ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(16, 0); ctx.stroke();
       ctx.fillStyle = "rgba(255,255,255,.85)"; ctx.strokeStyle = color; ctx.lineWidth = 3;
@@ -314,8 +322,8 @@ function TennisMatch({ me, opponent, onOver }: { me: Member; opponent: Member; o
         ctx.beginPath(); ctx.arc(b.x - 3, b.y - z, 5, -0.9, 0.9); ctx.stroke();
       }
       // Schläger neben den Figuren
-      racket(st.px + 10, c.b - 14, st.swingMe, colors.current.me, false);
-      racket(st.ox - 10, c.t + 4, st.swingOpp, colors.current.opp, true);
+      racket(st.px, c.b - 14, st.swingMe, colors.current.me, st.sideMe, false);
+      racket(st.ox, c.t + 4, st.swingOpp, colors.current.opp, st.sideOpp, true);
 
       // Meldung
       if (st.msgT > 0 || st.over) {
