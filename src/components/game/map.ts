@@ -25,7 +25,7 @@ export const COLS = MAP[0].length;
 export const ROWS = MAP.length;
 
 export type Action = "start" | "putzplan" | "einkauf" | "kosten" | "kalender" | "todos" | "wg" | "watchlist" | "pinnwand" | "musik"
-  | "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine" | "kite" | "kitegame" | "tennis";
+  | "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine" | "kite" | "kitegame" | "tennis" | "paper" | "kunst";
 
 /** owner = Index des Mitbewohners (members.sort), dem der Gegenstand gehört */
 export type GameObject = { x: number; y: number; icon: string; label: string; action: Action; hint: string; owner?: number };
@@ -64,6 +64,9 @@ export const OBJECTS: GameObject[] = [
     [5, 14, "🌷"], [6, 14, "🪴"], [6, 13, "🌿"], [6, 12, "🎋"], [5, 12, "🍀"],
   ] as const).map(([x, y, icon]) => ({ x, y, icon, label: "Pflanze", action: "giessen" as const, hint: "Gießen 💧" })),
   { x: 6, y: 10, icon: "👚", label: "Kleiderschrank", action: "kleiderschrank", hint: "Verenas Schrank – ausleihen erlaubt", owner: 0 },
+  // Verenas Schreibtisch: Paper & Kunst
+  { x: 5, y: 10, icon: "📄", label: "Paper", action: "paper", hint: "Verenas Forschung lesen", owner: 0 },
+  { x: 2, y: 13, icon: "🎨", label: "Farbpalette", action: "kunst", hint: "Ein Bild von Verena ansehen", owner: 0 },
   { x: 13, y: 10, icon: "👚", label: "Kleiderschrank", action: "kleiderschrank", hint: "Stefans Schrank – ausleihen erlaubt", owner: 1 },
   // Stefans Kite-Ecke 🪁 → Windvorhersage
   { x: 13, y: 12, icon: "🪁", label: "Kite", action: "kite", hint: "Wie ist der Wind an Stefans Spots?", owner: 1 },

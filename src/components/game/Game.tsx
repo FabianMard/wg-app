@@ -33,6 +33,7 @@ import { Dishwasher } from "./Dishwasher";
 import { KiteWeather } from "./KiteWeather";
 import { KiteGame } from "./KiteGame";
 import { TennisGame } from "./TennisGame";
+import { ArtGallery, Papers } from "./VerenaCorner";
 
 type PageAction = Exclude<Action, "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine" | "kitegame" | "tennis">;
 const WatchlistPanel = () => <Watchlist />;
@@ -43,7 +44,7 @@ const KitePanel = () => <KiteWeather />;
 const RESIDENT_ONLY: Action[] = ["start", "putzplan", "einkauf", "kosten", "todos", "wg"];
 const PANELS: Record<PageAction, React.ComponentType> = {
   start: StartPage, putzplan: PutzplanPage, einkauf: EinkaufPage, kosten: KostenPage,
-  watchlist: WatchlistPanel, pinnwand: PinnwandPanel, musik: MusikPanel, kite: KitePanel,
+  watchlist: WatchlistPanel, pinnwand: PinnwandPanel, musik: MusikPanel, kite: KitePanel, paper: Papers, kunst: ArtGallery,
   kalender: KalenderPage, todos: TodosPage, wg: WGPage,
 };
 
@@ -559,7 +560,7 @@ export function Game() {
 
       {panel && (
         <Sheet onClose={() => { if (panel.type === "member") reloadMessages(); setPanel(null); }} light={panel.type === "member"}
-          title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : panel.type === "wardrobe" ? (panel.ownerId && panel.ownerId !== myId ? `👚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Kleiderschrank` : "👚 Dein Kleiderschrank") : panel.type === "object" ? (panel.obj.action === "kite" ? "🪁 Stefans Kite-Wetter" : `${panel.obj.icon} ${panel.obj.label}`) : panel.type === "books" ? `📚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Bücher` : panel.type === "dishwasher" ? "🫧 Spülmaschine einräumen" : panel.type === "kitegame" ? "🏄 Kitesurfen" : panel.type === "tennis" ? "🎾 Tennis" : ""}>
+          title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : panel.type === "wardrobe" ? (panel.ownerId && panel.ownerId !== myId ? `👚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Kleiderschrank` : "👚 Dein Kleiderschrank") : panel.type === "object" ? (panel.obj.action === "kite" ? "🪁 Stefans Kite-Wetter" : panel.obj.action === "paper" ? "📄 Verenas Paper" : panel.obj.action === "kunst" ? "🎨 Verenas Kunst" : `${panel.obj.icon} ${panel.obj.label}`) : panel.type === "books" ? `📚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Bücher` : panel.type === "dishwasher" ? "🫧 Spülmaschine einräumen" : panel.type === "kitegame" ? "🏄 Kitesurfen" : panel.type === "tennis" ? "🎾 Tennis" : ""}>
           {panel.type === "member" && targetMember ? (
             <TalkDialog target={targetMember} online={onlineIds.has(targetMember.id)}
               onEmote={(em, on) => say(em === "🐝" && on ? on : myId, em)} onSay={(text) => say(myId, text)} onClose={() => { reloadMessages(); setPanel(null); }} />
