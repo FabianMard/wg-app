@@ -25,7 +25,7 @@ export const COLS = MAP[0].length;
 export const ROWS = MAP.length;
 
 export type Action = "start" | "putzplan" | "einkauf" | "kosten" | "kalender" | "todos" | "wg" | "watchlist" | "pinnwand" | "musik"
-  | "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine" | "kite" | "kitegame";
+  | "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine" | "kite" | "kitegame" | "tennis";
 
 /** owner = Index des Mitbewohners (members.sort), dem der Gegenstand gehört */
 export type GameObject = { x: number; y: number; icon: string; label: string; action: Action; hint: string; owner?: number };
@@ -75,6 +75,8 @@ export const OBJECTS: GameObject[] = [
   { x: 16, y: 14, icon: "📖", label: "Aufgeschlagenes Buch", action: "buecher", hint: "Was liest Fabian gerade?", owner: 2 },
   { x: 21, y: 14, icon: "📕", label: "Bücherstapel", action: "buecher", hint: "Was liest Fabian gerade?", owner: 2 },
   { x: 15, y: 10, icon: "👚", label: "Kleiderschrank", action: "kleiderschrank", hint: "Fabians Schrank – ausleihen erlaubt", owner: 2 },
+  // Fabians Tennisschläger 🎾
+  { x: 21, y: 12, icon: "🎾", label: "Tennisschläger", action: "tennis", hint: "Minispiel: Tennis!", owner: 2 },
 ];
 
 /** Startplatz/Schlafplatz je Zimmer (Index = members.sort) */

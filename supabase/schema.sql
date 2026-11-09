@@ -596,7 +596,7 @@ end $$;
 create table if not exists public.game_scores (
   household_id uuid not null references public.households on delete cascade,
   member_id    uuid not null references public.members on delete cascade,
-  game         text not null check (game in ('spuelmaschine', 'kite')),
+  game         text not null check (game ~ '^[a-z]{2,20}$'),
   best         integer not null default 0 check (best >= 0),
   updated_at   timestamptz not null default now(),
   primary key (member_id, game)

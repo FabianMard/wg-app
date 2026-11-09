@@ -32,8 +32,9 @@ import { MusicList } from "@/components/MusicList";
 import { Dishwasher } from "./Dishwasher";
 import { KiteWeather } from "./KiteWeather";
 import { KiteGame } from "./KiteGame";
+import { TennisGame } from "./TennisGame";
 
-type PageAction = Exclude<Action, "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine" | "kitegame">;
+type PageAction = Exclude<Action, "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine" | "kitegame" | "tennis">;
 const WatchlistPanel = () => <Watchlist />;
 const PinnwandPanel = () => <Pinboard />;
 const MusikPanel = () => <MusicList />;
@@ -50,7 +51,7 @@ const STEP_MS = 120;
 const BUBBLE_MS = 6000;
 
 type Target = { type: "object"; obj: GameObject } | { type: "member"; id: string } | { type: "cat" };
-type Panel = Target | { type: "wardrobe"; first?: boolean; ownerId?: string } | { type: "books"; ownerId: string } | { type: "dishwasher" } | { type: "kitegame" };
+type Panel = Target | { type: "wardrobe"; first?: boolean; ownerId?: string } | { type: "books"; ownerId: string } | { type: "dishwasher" } | { type: "kitegame" } | { type: "tennis" };
 const CAT_LINES = ["Schnurrrr … 💕", "Miau! 😺", "*kuschelt sich an* 🐾", "Prrrrr 😻", "Mehr! Mehr! 🐱"];
 const CAT_SEE = 3; // so nah muss man sein, um die Katze zu entdecken
 const dist = (a: Pos, b: Pos) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
@@ -303,6 +304,7 @@ export function Game() {
     }
     if (t.type === "object" && t.obj.action === "spuelmaschine") { setPanel({ type: "dishwasher" }); return; }
     if (t.type === "object" && t.obj.action === "kitegame") { setPanel({ type: "kitegame" }); return; }
+    if (t.type === "object" && t.obj.action === "tennis") { setPanel({ type: "tennis" }); return; }
     if (t.type === "object" && t.obj.action === "schlafen") { say(myId, "💤"); return; }
     if (t.type === "object" && t.obj.action === "giessen") {
       say(myId, ["💧 Gegossen!", "💧🌱 Wächst schon!", "Na, du Hübsche? 🌿", "💧 Prost!"][Math.floor(Math.random() * 4)]);
@@ -557,12 +559,14 @@ export function Game() {
 
       {panel && (
         <Sheet onClose={() => { if (panel.type === "member") reloadMessages(); setPanel(null); }} light={panel.type === "member"}
-          title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : panel.type === "wardrobe" ? (panel.ownerId && panel.ownerId !== myId ? `👚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Kleiderschrank` : "👚 Dein Kleiderschrank") : panel.type === "object" ? (panel.obj.action === "kite" ? "🪁 Stefans Kite-Wetter" : `${panel.obj.icon} ${panel.obj.label}`) : panel.type === "books" ? `📚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Bücher` : panel.type === "dishwasher" ? "🫧 Spülmaschine einräumen" : panel.type === "kitegame" ? "🏄 Kitesurfen" : ""}>
+          title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : panel.type === "wardrobe" ? (panel.ownerId && panel.ownerId !== myId ? `👚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Kleiderschrank` : "👚 Dein Kleiderschrank") : panel.type === "object" ? (panel.obj.action === "kite" ? "🪁 Stefans Kite-Wetter" : `${panel.obj.icon} ${panel.obj.label}`) : panel.type === "books" ? `📚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Bücher` : panel.type === "dishwasher" ? "🫧 Spülmaschine einräumen" : panel.type === "kitegame" ? "🏄 Kitesurfen" : panel.type === "tennis" ? "🎾 Tennis" : ""}>
           {panel.type === "member" && targetMember ? (
             <TalkDialog target={targetMember} online={onlineIds.has(targetMember.id)}
               onEmote={(em, on) => say(em === "🐝" && on ? on : myId, em)} onSay={(text) => say(myId, text)} onClose={() => { reloadMessages(); setPanel(null); }} />
           ) : panel.type === "dishwasher" ? (
             <Dishwasher onResult={(score, best) => say(myId, best ? `🏆 ${score} Punkte – neuer Rekord!` : `🍽️ ${score} Punkte!`)} />
+          ) : panel.type === "tennis" ? (
+            <TennisGame onResult={(score, best) => say(myId, best ? `🎾 ${score} Punkte – neuer Tennis-Rekord!` : `🎾 ${score} Punkte!`)} />
           ) : panel.type === "kitegame" ? (
             <KiteGame onResult={(score, best) => say(myId, best ? `🏄 ${score} Punkte – neuer Kite-Rekord!` : `🏄 ${score} Punkte!`)} />
           ) : panel.type === "object" && panel.obj.action === "kite" ? (

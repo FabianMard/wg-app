@@ -166,7 +166,7 @@ export type Praise = {
 export type GameScore = {
   household_id: string;
   member_id: string;
-  game: "spuelmaschine" | "kite";
+  game: "spuelmaschine" | "kite" | "tennis";
   best: number;
   updated_at: string;
 };
