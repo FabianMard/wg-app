@@ -14,7 +14,7 @@ import { ChatPanel, useGroupUnread } from "./ChatPanel";
 import { BookShelf } from "./BookShelf";
 import { AvatarFigure, lookOf, Wardrobe, type AvatarLook } from "./avatar";
 import {
-  deleteSong, dropOldDeviceSong, formatTime, MAX_SONG_MB, MAX_SONGS, parseTime, SONGS, uploadSong, useGameMusic, useSharedSong,
+  deleteSong, dropOldDeviceSong, formatTime, MAX_SONG_MB, MAX_SONGS, parseTime, uploadSong, useSongPlayer,
 } from "./music";
 import { inputCls } from "@/components/ui";
 
@@ -143,16 +143,10 @@ export function Game() {
   const unreadTotal = messages.filter((m) => m.to_member === myId && !m.read_at).length + groupUnread;
   const unreadFrom = (id: string) => messages.filter((m) => m.from_member === id && m.to_member === myId && !m.read_at).length;
   const [live, setLive] = useState<"verbinde" | "live" | "offline">("verbinde");
-  // Musik: standardmäßig aus, muss aktiv angemacht werden (wird nicht gespeichert)
-  const [song, setSong] = useState<string | null>(null);
-  // Eigene Songs der WG: alle können hochladen, alle hören
+  // Musik: Songs, die jemand aus der WG hochgeladen hat – startet erst, wenn man auf Start tippt
   const { rows: wgSongs } = useRows<GameSong>("game_songs", "created_at");
-  const sharedSong = wgSongs.find((x) => `wg:${x.id}` === song) ?? null;
-  useGameMusic(song?.startsWith("wg:") ? null : song);
-  useSharedSong(sharedSong);
+  const player = useSongPlayer(wgSongs);
   useEffect(() => { dropOldDeviceSong(); }, []);
-  // Ausgewählter Song verschwunden (von jemandem gelöscht) → aus
-  useEffect(() => { if (song?.startsWith("wg:") && !sharedSong) setSong(null); }, [song, sharedSong, wgSongs]);
   const [songSettings, setSongSettings] = useState(false);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -169,11 +163,13 @@ export function Game() {
     setSongBusy(false);
     if (err) setSongErr(err); else { setFrom(""); setTo(""); }
   }
-  async function saveRange(x: GameSong, f: string, t: string) {
+  async function saveSong(x: GameSong, name: string, f: string, t: string) {
     const start = parseTime(f) ?? 0, end = parseTime(t);
+    if (!name.trim()) { setSongErr("Der Song braucht einen Namen."); return; }
     if (end !== null && end <= start) { setSongErr("„bis“ muss nach „von“ liegen."); return; }
     setSongErr(null);
-    await supabase.from("game_songs").update({ start_sec: start, end_sec: end }).eq("id", x.id);
+    const { error } = await supabase.from("game_songs").update({ name: name.trim().slice(0, 60), start_sec: start, end_sec: end }).eq("id", x.id);
+    if (error) setSongErr(error.message);
   }
   const channel = useRef<RealtimeChannel | null>(null);
   const joined = useRef(false); // erst senden, wenn die Live-Verbindung steht
@@ -632,19 +628,36 @@ export function Game() {
               <button key={em} onClick={() => say(myId, em)} className="flex-1 rounded-xl border border-line bg-card py-1.5 text-lg transition hover:bg-line/40 active:scale-90">{em}</button>
             ))}
           </div>
-          <div className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="Musik">
-            <span className="text-xs font-medium text-muted">Musik:</span>
-            {[{ id: null, name: "🔇 Aus" }, ...SONGS.map((x) => ({ id: x.id, name: `🎵 ${x.name}` })),
-              ...wgSongs.map((x) => ({ id: `wg:${x.id}`, name: `🎧 ${x.name}` }))].map((x) => (
-              <button key={x.id ?? "aus"} role="radio" aria-checked={song === x.id} onClick={() => setSong(x.id)}
-                className={`max-w-[14rem] truncate rounded-full border px-2.5 py-1 text-xs font-medium transition active:scale-95 ${
-                  song === x.id ? "border-accent bg-accent text-white" : "border-line bg-card text-muted hover:text-fg"}`}>
-                {x.name}
+          <div className="space-y-1.5 rounded-xl border border-line bg-card p-2">
+            <div className="flex items-center gap-1.5">
+              <span className="text-lg" aria-hidden>{player.state === "spielt" ? "🎶" : "🎧"}</span>
+              <div className="min-w-0 flex-1 text-xs">
+                <p className="truncate font-semibold">{player.current?.name ?? (wgSongs[0]?.name ?? "Noch keine Songs")}</p>
+                <p className="text-muted tabular-nums">
+                  {player.state === "spielt" ? "spielt" : player.state === "pause" ? "Pause" : "gestoppt"}
+                  {player.current && player.state !== "stopp" && <> · {formatTime(player.time)}</>}
+                </p>
+              </div>
+              {player.state === "spielt"
+                ? <button onClick={player.pause} aria-label="Pause" className="flex h-9 w-9 items-center justify-center rounded-full bg-accent text-white active:scale-90">⏸</button>
+                : <button onClick={() => player.play()} disabled={!wgSongs.length} aria-label={player.state === "pause" ? "Weiter" : "Start"} className="flex h-9 w-9 items-center justify-center rounded-full bg-accent text-white active:scale-90 disabled:opacity-40">▶</button>}
+              <button onClick={player.stop} disabled={player.state === "stopp"} aria-label="Stopp" className="flex h-9 w-9 items-center justify-center rounded-full border border-line active:scale-90 disabled:opacity-40">⏹</button>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="Song wählen">
+              {wgSongs.map((x) => {
+                const on = (player.current?.id ?? wgSongs[0]?.id) === x.id;
+                return (
+                  <button key={x.id} role="radio" aria-checked={on} onClick={() => player.play(x)}
+                    className={`max-w-[14rem] truncate rounded-full border px-2.5 py-1 text-xs font-medium transition active:scale-95 ${
+                      on ? "border-accent bg-accent/10 text-fg" : "border-line text-muted hover:text-fg"}`}>
+                    {x.name}
+                  </button>
+                );
+              })}
+              <button onClick={() => setSongSettings(!songSettings)} className="rounded-full px-2 py-1 text-xs text-muted underline hover:text-fg">
+                {songSettings ? "Fertig" : wgSongs.length ? "Songs verwalten …" : "+ Song hochladen"}
               </button>
-            ))}
-            <button onClick={() => setSongSettings(!songSettings)} className="rounded-full px-2 py-1 text-xs text-muted underline hover:text-fg">
-              {songSettings ? "Fertig" : wgSongs.length ? "Songs der WG …" : "+ Eigener Song"}
-            </button>
+            </div>
           </div>
           {songSettings && (
             <div className="space-y-3 rounded-xl border border-dashed border-line p-3 text-xs">
@@ -670,9 +683,9 @@ export function Game() {
               {songErr && <p className="text-red-600">{songErr}</p>}
               {wgSongs.length > 0 && (
                 <ul className="divide-y divide-line rounded-lg border border-line bg-card">
-                  {wgSongs.map((x) => <SongRow key={`${x.id}-${x.start_sec}-${x.end_sec}`} song={x} by={everyone.find((m) => m.id === x.added_by)?.display_name}
-                    onSave={(f, t) => saveRange(x, f, t)}
-                    onDelete={async () => { if (!confirm(`„${x.name}“ für alle löschen?`)) return; if (song === `wg:${x.id}`) setSong(null); await deleteSong(x); }} />)}
+                  {wgSongs.map((x) => <SongRow key={`${x.id}-${x.name}-${x.start_sec}-${x.end_sec}`} song={x} by={everyone.find((m) => m.id === x.added_by)?.display_name}
+                    onSave={(n, f, t) => saveSong(x, n, f, t)}
+                    onDelete={async () => { if (!confirm(`„${x.name}“ für alle löschen?`)) return; await deleteSong(x); }} />)}
                 </ul>
               )}
             </div>
@@ -793,14 +806,17 @@ function Sheet({ title, onClose, children, light, fill }: { title: string; onClo
 }
 
 /** Ein WG-Song in der Liste: Abschnitt ändern, löschen */
-function SongRow({ song, by, onSave, onDelete }: { song: GameSong; by?: string; onSave: (from: string, to: string) => void; onDelete: () => void }) {
+function SongRow({ song, by, onSave, onDelete }: { song: GameSong; by?: string; onSave: (name: string, from: string, to: string) => void; onDelete: () => void }) {
+  const [name, setName] = useState(song.name);
   const [f, setF] = useState(song.start_sec ? formatTime(song.start_sec) : "");
   const [t, setT] = useState(song.end_sec != null ? formatTime(song.end_sec) : "");
-  const dirty = f !== (song.start_sec ? formatTime(song.start_sec) : "") || t !== (song.end_sec != null ? formatTime(song.end_sec) : "");
+  const dirty = name.trim() !== song.name || f !== (song.start_sec ? formatTime(song.start_sec) : "") || t !== (song.end_sec != null ? formatTime(song.end_sec) : "");
   return (
     <li className="space-y-1.5 px-2.5 py-2">
       <div className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 truncate font-medium">🎧 {song.name}</span>
+        <span aria-hidden>🎧</span>
+        <input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} aria-label="Name des Songs"
+          className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1 py-0.5 font-medium hover:border-line focus:border-line focus:bg-bg" />
         {by && <span className="shrink-0 text-muted">von {by}</span>}
         <button onClick={onDelete} className="shrink-0 text-red-600" aria-label={`${song.name} löschen`}>🗑️</button>
       </div>
@@ -809,7 +825,7 @@ function SongRow({ song, by, onSave, onDelete }: { song: GameSong; by?: string; 
         <input value={f} onChange={(e) => setF(e.target.value)} placeholder="0:00" inputMode="numeric" className="w-14 rounded-md border border-line bg-bg px-1.5 py-0.5 text-center" aria-label="Start (mm:ss)" />
         <span className="text-muted">bis</span>
         <input value={t} onChange={(e) => setT(e.target.value)} placeholder="Ende" inputMode="numeric" className="w-14 rounded-md border border-line bg-bg px-1.5 py-0.5 text-center" aria-label="Ende (mm:ss)" />
-        {dirty && <button onClick={() => onSave(f, t)} className="rounded-md bg-accent px-2 py-0.5 font-medium text-white">Speichern</button>}
+        {dirty && <button onClick={() => onSave(name, f, t)} className="rounded-md bg-accent px-2 py-0.5 font-medium text-white">Speichern</button>}
       </div>
     </li>
   );
