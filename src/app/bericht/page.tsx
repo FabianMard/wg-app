@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRows, useWG } from "@/lib/wg";
-import type { CalEvent, ChoreArea, ChoreCheck, ChoreTask, Expense, Member, Note, Praise, ShoppingItem, Todo } from "@/lib/types";
+import type { CostRequest, CalEvent, ChoreArea, ChoreCheck, ChoreTask, Expense, Member, Note, Praise, ShoppingItem, Todo } from "@/lib/types";
 import { areaStatuses, periodRange } from "@/lib/cleaning";
 import { addDays, euro, formatDate, toISO } from "@/lib/dates";
 import { holidaysSachsen } from "@/lib/holidays";
@@ -33,6 +33,7 @@ export default function Bericht() {
   const { rows: todos } = useRows<Todo>("todos", "created_at");
   const { rows: praises } = useRows<Praise>("praises", "created_at");
   const { rows: notes } = useRows<Note>("notes", "created_at");
+  const { rows: requests } = useRows<CostRequest>("cost_requests", "created_at");
 
   // Standard: aktueller Monat. In der ersten Woche eines Monats lieber der Vormonat (der ist dann "fertig").
   const [month, setMonth] = useState(() => {
@@ -97,6 +98,14 @@ export default function Bericht() {
     .sort((a, b) => b.sum - a.sum);
   const biggest = [...spending].sort((a, b) => Number(b.amount) - Number(a.amount))[0];
 
+  // ── Haushaltsausschuss: eingereichte Kosten (getrennt von „Kosten teilen“) ──
+  const paidOutMonth = requests.filter((q) => q.status === "ausgezahlt" && inMonth(q.paid_out_at ?? q.decided_at));
+  const approvedOpen = requests.filter((q) => q.status === "freigegeben" && inMonth(q.decided_at));
+  const submittedMonth = requests.filter((q) => inMonth(q.created_at));
+  const rejectedMonth = requests.filter((q) => q.status === "abgelehnt" && inMonth(q.decided_at));
+  const paidOutSum = paidOutMonth.reduce((a, q) => a + Number(q.amount), 0);
+  const nameOf = (id: string) => members.find((x) => x.id === id)?.display_name ?? "?";
+
   // ── Kalender, To-dos, Bienchen, Pinnwand ──
   // inkl. wiederkehrender Termine (z. B. Geburtstage)
   const eventsMonth = occurrencesBetween(events, from, addDays(to, -1)).map((o) => ({ ...o.event, title: displayTitle(o.event), id: `${o.event.id}-${o.day}`, day: o.day }));
@@ -123,7 +132,7 @@ export default function Bericht() {
   const reportText = () => {
     const L: string[] = [`🏠 ${household.name} – Monatsbericht ${monthName}`, ""];
     L.push(`🧽 ${doneAreas}/${areaResults.length} Putzbereiche erledigt`, `🛒 ${boughtMonth.length} Sachen eingekauft`,
-      `💶 ${euro(total)} Ausgaben`, `🐝 ${praisesMonth.length} Bienchen verteilt`);
+      `💶 ${euro(total)} Ausgaben`, ...(paidOutMonth.length ? [`📝 ${euro(paidOutSum)} vom Haushaltsausschuss ausgezahlt`] : []), `🐝 ${praisesMonth.length} Bienchen verteilt`);
     if (awards.length) {
       L.push("", "🏆 Auszeichnungen");
       for (const a of awards) L.push(`${a.icon} ${a.title}: ${a.w!.m.display_name} (${a.money ? euro(a.w!.n) : `${a.w!.n} ${a.unit}`})`);
@@ -144,6 +153,15 @@ export default function Bericht() {
       L.push("", "💶 Kosten", `${euro(total)} in ${spending.length} Ausgaben`);
       L.push(`Bezahlt: ${paidBy.filter((x) => x.sum).map((x) => `${x.m.display_name} ${euro(x.sum)}`).join(", ")}`);
       if (biggest) L.push(`Größte Ausgabe: ${biggest.title} (${euro(Number(biggest.amount))})`);
+    }
+    if (paidOutMonth.length || approvedOpen.length || submittedMonth.length) {
+      L.push("", "📝 Haushaltsausschuss (eingereichte Kosten)");
+      if (paidOutMonth.length) {
+        L.push(`Ausgezahlt: ${euro(paidOutSum)}`);
+        for (const q of paidOutMonth) L.push(`• ${q.title} – ${nameOf(q.created_by)} – ${euro(Number(q.amount))}`);
+      }
+      if (approvedOpen.length) L.push(`Freigegeben, Auszahlung offen: ${approvedOpen.map((q) => `${q.title} (${nameOf(q.created_by)}, ${euro(Number(q.amount))})`).join(", ")}`);
+      L.push(`${submittedMonth.length} eingereicht${rejectedMonth.length ? `, ${rejectedMonth.length} abgelehnt` : ""}`);
     }
     if (todosDone.length) L.push("", `✅ ${todosDone.length} To-dos erledigt: ${todosDone.slice(0, 8).map((t) => t.title).join(", ")}`);
     if (eventsMonth.length || holidays.length) {
@@ -167,7 +185,7 @@ export default function Bericht() {
   async function copy() { await navigator.clipboard.writeText(reportText()); flash("📋 Text kopiert"); }
   const mailto = () => `mailto:?subject=${encodeURIComponent(`${household.name}: Monatsbericht ${monthName}`)}&body=${encodeURIComponent(reportText())}`;
 
-  const nothing = !rounds.length && !itemsMonth.length && !spending.length && !eventsMonth.length && !todosCreated.length && !praisesMonth.length && !notesMonth.length;
+  const nothing = !rounds.length && !itemsMonth.length && !spending.length && !submittedMonth.length && !paidOutMonth.length && !eventsMonth.length && !todosCreated.length && !praisesMonth.length && !notesMonth.length;
 
   return (
     <div onTouchStart={(e) => { touch.current = e.touches[0].clientX; }}
@@ -292,6 +310,35 @@ export default function Bericht() {
                 <div className="border-t border-line pt-3">
                   {paidBy.map(({ m, sum }) => <Bar key={m.id} m={m} value={total ? sum / total : 0} label={`${euro(sum)} bezahlt`} />)}
                 </div>
+              </Card>
+            </>
+          )}
+
+          {(paidOutMonth.length > 0 || approvedOpen.length > 0 || submittedMonth.length > 0) && (
+            <>
+              <SectionTitle>📝 Haushaltsausschuss</SectionTitle>
+              <Card className="space-y-3">
+                <p className="text-sm">
+                  <b>{euro(paidOutSum)}</b> ausgezahlt · {submittedMonth.length} {submittedMonth.length === 1 ? "Antrag" : "Anträge"} eingereicht
+                  {rejectedMonth.length > 0 && <>, {rejectedMonth.length} abgelehnt</>}
+                  <span className="block text-xs text-muted">Eingereichte Kosten – getrennt von „Kosten teilen“.</span>
+                </p>
+                {paidOutMonth.length > 0 && (
+                  <div className="divide-y divide-line border-t border-line">
+                    {paidOutMonth.map((q) => (
+                      <div key={q.id} className="flex items-center gap-2 py-1.5 text-sm">
+                        <span>💸</span>
+                        <span className="min-w-0 flex-1 truncate">{q.title} <span className="text-muted">· {nameOf(q.created_by)}</span></span>
+                        <span className="shrink-0 font-semibold tabular-nums">{euro(Number(q.amount))}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {approvedOpen.length > 0 && (
+                  <p className="rounded-xl bg-amber-400/15 px-3 py-2 text-sm">
+                    ⏳ Freigegeben, Auszahlung offen: {approvedOpen.map((q) => `${q.title} (${nameOf(q.created_by)}, ${euro(Number(q.amount))})`).join(", ")}
+                  </p>
+                )}
               </Card>
             </>
           )}
