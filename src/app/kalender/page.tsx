@@ -9,7 +9,7 @@ import type { CalEvent, ChoreArea, ChoreCheck, ChoreTask } from "@/lib/types";
 import { areaStatuses, isOverdue, periodOf, periodRange, type AreaStatus } from "@/lib/cleaning";
 import { formatDate, fromISO, toISO, todayISO } from "@/lib/dates";
 import { holidayOn } from "@/lib/holidays";
-import { birthdayName, displayTitle, eventKind, isPrivate, KIND_STYLE, occurrencesOn, RECURRENCE_LABEL, rangeLabel, type Occurrence } from "@/lib/events";
+import { birthdayName, birthYear, displayTitle, eventKind, isBirthday, isPrivate, KIND_STYLE, type Occurrence, occurrencesOn, rangeLabel, RECURRENCE_LABEL } from "@/lib/events";
 import { addDays } from "@/lib/dates";
 import { Avatar, btnCls, Card, DeleteButton, inputCls, PageTitle, SectionTitle } from "@/components/ui";
 import { Polls, useOpenPollCount } from "@/components/Polls";
@@ -69,6 +69,7 @@ function CalendarView() {
   const [recurrence, setRecurrence] = useState<NonNullable<CalEvent["recurrence"]>>("keine");
   const [audience, setAudience] = useState<string[] | null>(null); // null = alle
   const [err, setErr] = useState<string | null>(null);
+  const [editing, setEditing] = useState<CalEvent | null>(null); // Eintrag, der gerade bearbeitet wird
 
   const cs = household.cleaning_start;
 
@@ -113,7 +114,7 @@ function CalendarView() {
 
   const titleRef = useRef<HTMLInputElement>(null);
   function resetForm() {
-    setBirthYearInput("");
+    setBirthYearInput(""); setEditing(null);
     setTitle(""); setTime(""); setEndDay(""); setRecurrence("keine"); setAudience(null); setErr(null); setFormOpen(false); setKind("termin");
   }
   function openForm(k: Kind) {
@@ -121,6 +122,28 @@ function CalendarView() {
     if (k === "urlaub" && (!endDay || endDay <= selected)) setEndDay(addDays(selected, 6));
     setTimeout(() => titleRef.current?.focus(), 50);
   }
+  /** Eintrag zum Bearbeiten ins Formular laden */
+  function startEdit(ev: CalEvent) {
+    const k: Kind = isBirthday(ev) ? "geburtstag" : ev.end_day && ev.end_day > ev.day ? "urlaub" : "termin";
+    setEditing(ev); setKind(k); setErr(null);
+    if (k === "geburtstag") {
+      // Tag im angezeigten Jahr wählen, Geburtsjahr (falls bekannt) ins Feld
+      const y = birthYear(ev);
+      setSelected(`${selected.slice(0, 4)}-${ev.day.slice(5)}`);
+      setBirthYearInput(y ? String(y) : "");
+      setTitle(birthdayName(ev.title));
+    } else {
+      setSelected(ev.day);
+      setTitle(ev.title);
+    }
+    setTime(k === "termin" && ev.time ? ev.time.slice(0, 5) : "");
+    setEndDay(k === "urlaub" ? ev.end_day ?? "" : "");
+    setRecurrence(k === "termin" ? ev.recurrence ?? "keine" : "keine");
+    setAudience(ev.visible_to?.length ? ev.visible_to.filter((id) => id !== myId) : null);
+    setFormOpen(true);
+    setTimeout(() => { titleRef.current?.focus(); titleRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }); }, 50);
+  }
+
   async function add(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
@@ -144,6 +167,16 @@ function CalendarView() {
       if (kind === "urlaub") row.end_day = endDay;
       // Wer es einträgt, sieht es immer
       row.visible_to = audience === null ? null : [...new Set([...audience, myId])];
+    }
+    if (editing) {
+      // Beim Bearbeiten alle Felder setzen (auch zurücksetzen, z. B. Urlaub → Termin)
+      const upd = { title: row.title, day: row.day, time: row.time, recurrence: rec, end_day: kind === "urlaub" ? endDay : null,
+        visible_to: audience === null ? null : [...new Set([...audience, myId])] };
+      const { error } = await supabase.from("events").update(upd).eq("id", editing.id);
+      if (error) { setErr(error.message); return; }
+      resetForm();
+      reload();
+      return;
     }
     const { error } = await supabase.from("events").insert(row);
     if (error) {
@@ -229,9 +262,8 @@ function CalendarView() {
                     <span key={e.id} title={displayTitle(e, iso)}
                       className={`truncate px-0.5 text-[9px] font-semibold leading-[13px] md:px-1 md:text-[11px] md:leading-4 ${KIND_STYLE[eventKind(e, myId)].chip}
                         ${total > 1 && dayNo > 1 ? "-ml-1 rounded-r md:-ml-1.5" : "rounded"} ${total > 1 && dayNo < total ? "-mr-1 rounded-l md:-mr-1.5" : ""}`}>
-                      {total > 1 && dayNo > 1 && fromISO(iso).getDay() !== 1
-                        ? <span className="opacity-0">.</span>
-                        : <>{isPrivate(e, myId) && "🔒"}<span className="hidden md:inline">{e.time && `${e.time.slice(0, 5)} `}</span>{displayTitle(e, iso)}</>}
+                      {/* mehrtägig (z. B. Urlaub): Beschreibung an jedem Tag */}
+                      {<>{isPrivate(e, myId) && "🔒"}<span className="hidden md:inline">{e.time && `${e.time.slice(0, 5)} `}</span>{displayTitle(e, iso)}</>}
                     </span>
                   ))}
                   {evs.length > MAX_EVENTS_IN_TILE && (
@@ -296,6 +328,7 @@ function CalendarView() {
       {!isGuest && formOpen && (
         <Card className="mb-3">
           <form onSubmit={add} className="space-y-4">
+            {editing && <p className="text-sm font-semibold">✏️ Eintrag bearbeiten{(editing.recurrence ?? "keine") !== "keine" && <span className="font-normal text-muted"> · gilt für alle Wiederholungen</span>}</p>}
             {/* Art */}
             <div className="grid grid-cols-3 gap-1 rounded-xl bg-line/50 p-1 text-sm font-medium">
               {([["termin", "📅 Termin"], ["geburtstag", "🎂 Geburtstag"], ["urlaub", "🏖️ Urlaub"]] as [Kind, string][]).map(([k, label]) => (
@@ -393,7 +426,7 @@ function CalendarView() {
 
             {err && <p className="text-sm text-red-600">{err}</p>}
             <div className="flex gap-2">
-              <button className={`${btnCls} flex-1`}>Eintragen</button>
+              <button className={`${btnCls} flex-1`}>{editing ? "Speichern" : "Eintragen"}</button>
               <button type="button" onClick={resetForm} className="rounded-xl border border-line px-4 text-sm">Abbrechen</button>
             </div>
           </form>
@@ -422,6 +455,10 @@ function CalendarView() {
                 </span>
               )}
             </span>
+            {!isGuest && (
+              <button onClick={() => startEdit(ev)} aria-label={`„${ev.title}“ bearbeiten`} title="Bearbeiten"
+                className="rounded-lg px-2 py-1 text-base text-muted transition hover:bg-line/50 hover:text-fg">✏️</button>
+            )}
             {!isGuest && <DeleteButton onClick={() => remove(ev)} />}
           </Card>
         ))}
