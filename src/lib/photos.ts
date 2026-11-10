@@ -75,6 +75,8 @@ export async function downloadPhoto(url: string, filename: string): Promise<"get
   const res = await fetch(url);
   if (!res.ok) throw new Error("Foto konnte nicht geladen werden.");
   const blob = await res.blob();
+  // Ohne Endung: passend zum Bildformat ergänzen
+  if (!/\.[a-z0-9]{3,4}$/i.test(filename)) filename += blob.type === "image/webp" ? ".webp" : blob.type === "image/png" ? ".png" : ".jpg";
   const file = new File([blob], filename, { type: blob.type || "image/jpeg" });
   const touch = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
   if (touch && navigator.canShare?.({ files: [file] })) {

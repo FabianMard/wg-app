@@ -1,7 +1,7 @@
 "use client";
 
 import { NewDot, useMarkSeen, useNews } from "@/lib/news";
-import { useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { notify } from "@/lib/push";
 import { useRows, useWG } from "@/lib/wg";
@@ -227,10 +227,18 @@ function CalendarView() {
             const inMonth = fromISO(iso).getMonth() === month.getMonth();
             const isToday = iso === todayISO();
             const isSel = iso === selected;
-            const evs = eventsOn(iso);
+            // Mehrtägiges zuerst (dann laufen die Balken über die Tage auf einer Linie), danach Feiertag und der Rest
+            const evs = [...eventsOn(iso)].sort((a, b) => Number(b.total > 1) - Number(a.total > 1));
+            const multiCount = evs.slice(0, MAX_EVENTS_IN_TILE).filter((o) => o.total > 1).length;
+
             const chores = statusByPeriod(periodOf(cs, iso));
             const ms = milestone(iso);
             const holiday = holidayOn(iso);
+            const HOLIDAY = holiday ? (
+<span title={`Feiertag: ${holiday}`} className="line-clamp-2 hyphens-auto break-words rounded bg-red-500/15 px-0.5 text-[9px] font-semibold leading-[11px] text-red-700 dark:text-red-300 md:truncate md:px-1 md:text-[11px] md:leading-4">
+                      {holiday}
+                    </span>
+            ) : null;
             return (
               <button key={iso} onClick={() => setSelected(iso)} lang="de"
                 className={`relative flex min-h-[104px] flex-col gap-0.5 p-1 text-left transition md:min-h-[120px] md:p-1.5
@@ -253,19 +261,30 @@ function CalendarView() {
 
                 {/* Termine */}
                 <span className={`flex min-w-0 flex-col gap-0.5 ${inMonth ? "" : "opacity-50"}`}>
-                  {holiday && (
-                    <span title={`Feiertag: ${holiday}`} className="line-clamp-2 hyphens-auto break-words rounded bg-red-500/15 px-0.5 text-[9px] font-semibold leading-[11px] text-red-700 dark:text-red-300 md:truncate md:px-1 md:text-[11px] md:leading-4">
-                      {holiday}
-                    </span>
-                  )}
-                  {evs.slice(0, MAX_EVENTS_IN_TILE).map(({ event: e, dayNo, total }) => (
-                    <span key={e.id} title={displayTitle(e, iso)}
-                      className={`truncate px-0.5 text-[9px] font-semibold leading-[13px] md:px-1 md:text-[11px] md:leading-4 ${KIND_STYLE[eventKind(e, myId)].chip}
-                        ${total > 1 && dayNo > 1 ? "-ml-1 rounded-r md:-ml-1.5" : "rounded"} ${total > 1 && dayNo < total ? "-mr-1 rounded-l md:-mr-1.5" : ""}`}>
-                      {/* mehrtägig (z. B. Urlaub): Beschreibung an jedem Tag */}
-                      {<>{isPrivate(e, myId) && "🔒"}<span className="hidden md:inline">{e.time && `${e.time.slice(0, 5)} `}</span>{displayTitle(e, iso)}</>}
-                    </span>
-                  ))}
+
+                  {evs.slice(0, MAX_EVENTS_IN_TILE).map(({ event: e, dayNo, total }, idx) => {
+                    const label = <>{isPrivate(e, myId) && "🔒"}<span className="hidden md:inline">{e.time && `${e.time.slice(0, 5)} `}</span>{displayTitle(e, iso)}</>;
+                    const chip = `px-0.5 text-[9px] font-semibold leading-[13px] md:px-1 md:text-[11px] md:leading-4 ${KIND_STYLE[eventKind(e, myId)].chip}`;
+                    const holidayHere = idx === multiCount && holiday ? HOLIDAY : null;
+                    if (total <= 1) return <Fragment key={e.id}>{holidayHere}<span title={displayTitle(e, iso)} className={`truncate rounded ${chip}`}>{label}</span></Fragment>;
+                    // Mehrtägig (z. B. Urlaub): ein durchgehender Balken; die Beschreibung steht einmal und läuft über die Tage –
+                    // am ersten Tag und am Anfang jeder neuen Kalenderzeile (Montag)
+                    const weekday = (fromISO(iso).getDay() + 6) % 7; // Mo = 0
+                    const showText = dayNo === 1 || weekday === 0;
+                    const span = Math.min(total - dayNo + 1, 7 - weekday);
+                    return (
+                      <span key={e.id} title={displayTitle(e, iso)}
+                        className={`relative ${chip} ${dayNo > 1 ? "-ml-1 md:-ml-1.5" : ""} ${dayNo < total ? "-mr-1 md:-mr-1.5" : ""}
+                          ${dayNo === 1 ? "rounded-l" : ""} ${dayNo === total ? "rounded-r" : ""}`}>
+                        <span className="invisible">.</span>
+                        {showText && (
+                          <span className="absolute inset-y-0 left-0 z-[11] block overflow-hidden text-ellipsis whitespace-nowrap px-0.5 md:px-1"
+                            style={{ width: `calc(${span * 100}% + ${(span - 1) * 6}px)` }}>{label}</span>
+                        )}
+                      </span>
+                    );
+                  })}
+                  {multiCount === Math.min(evs.length, MAX_EVENTS_IN_TILE) && holiday && HOLIDAY}
                   {evs.length > MAX_EVENTS_IN_TILE && (
                     <span className="px-0.5 text-[9px] leading-3 text-muted md:px-1 md:text-[10px]">+{evs.length - MAX_EVENTS_IN_TILE}<span className="hidden md:inline"> weitere</span></span>
                   )}

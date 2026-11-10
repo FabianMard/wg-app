@@ -4,6 +4,10 @@ import { useWG } from "@/lib/wg";
 import type { GameScore } from "@/lib/types";
 import { Avatar } from "@/components/ui";
 
+/** Platz mit Gleichstand: gleiche Punkte = gleicher Platz (1, 1, 3 …) */
+export const rankOf = (sorted: { best: number }[], i: number) => 1 + sorted.filter((x) => x.best > sorted[i].best).length;
+export const medal = (rank: number) => ["🥇", "🥈", "🥉"][rank - 1] ?? `${rank}.`;
+
 /** Bestenliste der WG – Rekorde aller, die schon gespielt haben */
 export function Leaderboard({ scores, error }: { scores: GameScore[]; error?: string | null }) {
   const { everyone, myId } = useWG();
@@ -18,7 +22,7 @@ export function Leaderboard({ scores, error }: { scores: GameScore[]; error?: st
           const m = everyone.find((x) => x.id === s.member_id);
           return (
             <li key={s.member_id} className={`flex items-center gap-2 rounded-xl px-2 py-1 text-sm ${s.member_id === myId ? "bg-accent/10 font-semibold" : ""}`}>
-              <span className="w-6 text-center">{["🥇", "🥈", "🥉"][i] ?? `${i + 1}.`}</span>
+              <span className="w-6 text-center">{medal(rankOf(list, i))}</span>
               <Avatar member={m} size={22} />
               <span className="min-w-0 flex-1 truncate">{m?.display_name ?? "?"}{s.member_id === myId && " (du)"}</span>
               <span className="tabular-nums">{s.best}</span>

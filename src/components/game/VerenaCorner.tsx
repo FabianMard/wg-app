@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useWG } from "@/lib/wg";
 import type { Member, RoomPicture, WallArt } from "@/lib/types";
-import { resizePhoto, useSignedUrl } from "@/lib/photos";
+import { downloadPhoto, resizePhoto, useSignedUrl } from "@/lib/photos";
 import { formatDate } from "@/lib/dates";
 
 /** Verenas Paper – Auswahl zum Lesen (öffnet die Verlagsseite) */
@@ -52,7 +52,7 @@ export function Papers() {
 const SITE = "verenapluempe.wordpress.com";
 type Art = { title: string; img: string; fallback: string; file: string; url: string; kind: string; year?: string };
 /** Vorher aufbereitet: Vercel verkleinert das Original einmal (WebP) und speichert es zwischen. w muss eine Next-Bildgröße sein. */
-export const optimized = (file: string, w: 128 | 384 | 828 = 828) => `/_next/image?url=${encodeURIComponent(file)}&w=${w}&q=70`;
+export const optimized = (file: string, w: 128 | 384 | 828 | 1920 = 828) => `/_next/image?url=${encodeURIComponent(file)}&w=${w}&q=70`;
 type WpItem = { title: string; URL: string; content: string };
 
 /** Seiten mit Kunst (About/Projects/Latest posts zeigen Fotos bzw. Banner) */
@@ -185,7 +185,10 @@ export function ArtGallery({ onPick, pickLabel = "🖼️ Hier aufhängen" }: { 
           )
       )}
       {hangMsg && <p className={`text-sm ${hangMsg.startsWith("✓") ? "text-green-700 dark:text-green-400" : "text-red-600"}`}>{hangMsg}</p>}
-      <a href={a.url} target="_blank" rel="noopener noreferrer" className="inline-block text-xs font-medium text-accent hover:underline">Auf verenapluempe.wordpress.com ansehen ↗</a>
+      <div className="flex flex-wrap items-center gap-3">
+        <SaveImageButton src={optimized(a.file, 1920)} title={a.title} />
+        <a href={a.url} target="_blank" rel="noopener noreferrer" className="inline-block text-xs font-medium text-accent hover:underline">Auf verenapluempe.wordpress.com ansehen ↗</a>
+      </div>
     </div>
   );
 }
@@ -226,6 +229,7 @@ export function WallArtView({ owner }: { owner: Member }) {
         <p className="text-xs text-muted">{art.kind}{art.year ? ` · ${art.year}` : ""} · von Verena Plümpe · hängt bei {mine ? "dir" : owner.display_name}</p>
       </div>
       <div className="flex flex-wrap justify-center gap-2">
+        <SaveImageButton src={optimized(art.file, 1920)} title={art.title} />
         <a href={art.url} target="_blank" rel="noopener noreferrer" className="rounded-xl border border-line px-3 py-1.5 text-sm font-medium">Auf der Website ansehen ↗</a>
         {mine && <button onClick={takeDown} className="rounded-xl border border-line px-3 py-1.5 text-sm font-medium">Abhängen</button>}
       </div>
@@ -342,7 +346,10 @@ export function RoomPictureView({ slot, pic, onChanged }: { slot: RoomPicture["s
             <p className="text-xs text-muted">
               {pic.kind === "kunst" ? "von Verena Plümpe" : "📷 Foto"} · aufgehängt von {by ? (by.id === myId ? "dir" : by.display_name) : "?"} am {formatDate(pic.updated_at.slice(0, 10))}
             </p>
-            {pic.kind === "kunst" && pic.url && <a href={pic.url} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-accent hover:underline">Auf der Website ansehen ↗</a>}
+            <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+              <SaveImageButton src={pic.kind === "kunst" && pic.file ? optimized(pic.file, 1920) : src} title={pic.title} />
+              {pic.kind === "kunst" && pic.url && <a href={pic.url} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-accent hover:underline">Auf der Website ansehen ↗</a>}
+            </div>
           </div>
         </>
       ) : (
@@ -361,5 +368,27 @@ export function RoomPictureView({ slot, pic, onChanged }: { slot: RoomPicture["s
       {pic && <button onClick={takeDown} className="w-full text-center text-sm font-medium text-muted">Abhängen</button>}
       {err && <p className="text-sm text-red-600">{err}</p>}
     </div>
+  );
+}
+
+/** Dateiname aus dem Bildtitel */
+const fileNameOf = (title: string | null | undefined, fallback: string) =>
+  (title ?? fallback).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase() || fallback;
+
+/** „⬇️ Speichern“: Kunstwerk in guter Auflösung bzw. das hochgeladene Foto (Handy: Teilen-Menü → „Bild sichern“) */
+export function SaveImageButton({ src, title, className = "" }: { src: string | null; title: string | null | undefined; className?: string }) {
+  const [state, setState] = useState<"" | "lädt" | "ok" | "fehler">("");
+  if (!src) return null;
+  return (
+    <button type="button" disabled={state === "lädt"}
+      onClick={async () => {
+        setState("lädt");
+        try { const r = await downloadPhoto(src, fileNameOf(title, "bild")); setState(r === "abgebrochen" ? "" : "ok"); }
+        catch { setState("fehler"); }
+        setTimeout(() => setState(""), 2500);
+      }}
+      className={`rounded-xl border border-line px-3 py-1.5 text-sm font-medium ${className}`}>
+      {state === "lädt" ? "Lädt …" : state === "ok" ? "✓ Gespeichert" : state === "fehler" ? "Hat nicht geklappt" : "⬇️ Speichern"}
+    </button>
   );
 }
