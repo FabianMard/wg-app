@@ -36,6 +36,7 @@ import { KiteGame } from "./KiteGame";
 import { TennisGame, type LiveMatch } from "./TennisGame";
 import { ArtGallery, Papers } from "./VerenaCorner";
 import { WateringGame } from "./WateringGame";
+import { HallOfFame } from "./HallOfFame";
 
 type PageAction = Exclude<Action, "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine" | "kitegame" | "tennis" | "giessspiel">;
 const WatchlistPanel = () => <Watchlist />;
@@ -46,7 +47,7 @@ const KitePanel = () => <KiteWeather />;
 const RESIDENT_ONLY: Action[] = ["start", "putzplan", "einkauf", "kosten", "todos", "wg"];
 const PANELS: Record<PageAction, React.ComponentType> = {
   start: StartPage, putzplan: PutzplanPage, einkauf: EinkaufPage, kosten: KostenPage,
-  watchlist: WatchlistPanel, pinnwand: PinnwandPanel, musik: MusikPanel, kite: KitePanel, paper: Papers, kunst: ArtGallery,
+  watchlist: WatchlistPanel, pinnwand: PinnwandPanel, musik: MusikPanel, kite: KitePanel, paper: Papers, kunst: ArtGallery, bestenliste: HallOfFame,
   kalender: KalenderPage, todos: TodosPage, wg: WGPage,
 };
 
@@ -657,7 +658,7 @@ export function Game() {
         <div className="w-full max-w-sm animate-[pop_.2s_ease-out] rounded-3xl border-2 border-red-500/50 bg-bg p-4 text-center shadow-2xl">
           <p className="text-4xl">🎾</p>
           <p className="mt-1 font-semibold">{everyone.find((m) => m.id === invite.from)?.display_name ?? "Jemand"} fordert dich zum Tennis heraus!</p>
-          <p className="text-xs text-muted">Live · bis 7 Punkte, 2 Vorsprung</p>
+          <p className="text-xs text-muted">Live · bis 6 Punkte (bei 5:5 bis 7, bei 6:6 entscheidet der nächste Punkt)</p>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <button onClick={() => answerInvite(false)} className="rounded-2xl border border-line py-2.5 font-semibold">Ablehnen</button>
             <button onClick={() => answerInvite(true)} className="rounded-2xl bg-red-600 py-2.5 font-semibold text-white">Annehmen</button>
@@ -668,7 +669,7 @@ export function Game() {
 
       {panel && (
         <Sheet onClose={() => { if (panel.type === "member" || panel.type === "chat") reloadMessages(); setPanel(null); }} light={panel.type === "member"} fill={panel.type === "chat"}
-          title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : panel.type === "wardrobe" ? (panel.ownerId && panel.ownerId !== myId ? `👚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Kleiderschrank` : "👚 Dein Kleiderschrank") : panel.type === "object" ? (panel.obj.action === "kite" ? "🪁 Stefans Kite-Wetter" : panel.obj.action === "paper" ? "📄 Verenas Paper" : panel.obj.action === "kunst" ? "🎨 Verenas Kunst" : `${panel.obj.icon} ${panel.obj.label}`) : panel.type === "books" ? `📚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Bücher` : panel.type === "dishwasher" ? "🫧 Spülmaschine einräumen" : panel.type === "kitegame" ? "🏄 Kitesurfen" : panel.type === "tennis" ? "🎾 Tennis" : panel.type === "giessspiel" ? "💧 Verenas Dschungel" : panel.type === "chat" ? "💬 Chat" : ""}>
+          title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : panel.type === "wardrobe" ? (panel.ownerId && panel.ownerId !== myId ? `👚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Kleiderschrank` : "👚 Dein Kleiderschrank") : panel.type === "object" ? (panel.obj.action === "kite" ? "🪁 Stefans Kite-Wetter" : panel.obj.action === "paper" ? "📄 Verenas Paper" : panel.obj.action === "kunst" ? "🎨 Verenas Kunst" : panel.obj.action === "bestenliste" ? "🏆 Bestenliste der WG" : `${panel.obj.icon} ${panel.obj.label}`) : panel.type === "books" ? `📚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Bücher` : panel.type === "dishwasher" ? "🫧 Spülmaschine einräumen" : panel.type === "kitegame" ? "🏄 Kitesurfen" : panel.type === "tennis" ? "🎾 Tennis" : panel.type === "giessspiel" ? "💧 Verenas Dschungel" : panel.type === "chat" ? "💬 Chat" : ""}>
           {panel.type === "member" && targetMember ? (
             <TalkDialog target={targetMember} online={onlineIds.has(targetMember.id)}
               onEmote={(em, on) => say(em === "🐝" && on ? on : myId, em)}

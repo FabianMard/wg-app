@@ -188,7 +188,8 @@ export function TennisGame({ onResult, live }: { onResult?: (score: number, best
       </button>
       {live && (
         <div className="rounded-2xl border-2 border-red-500/40 p-3">
-          <p className="mb-2 flex items-center justify-center gap-1.5 text-sm font-semibold"><span className="h-2 w-2 animate-pulse rounded-full bg-red-600" />Live gegen alle, die online sind · bis {WIN_AT}</p>
+          <p className="mb-2 flex items-center justify-center gap-1.5 text-sm font-semibold"><span className="h-2 w-2 animate-pulse rounded-full bg-red-600" />Live gegen alle, die online sind</p>
+          <p className="-mt-1 mb-2 text-xs text-muted">{RULES_SHORT}</p>
           {live.pendingTo ? (
             <div className="space-y-2">
               <p className="animate-pulse text-sm">Warte auf {everyone.find((m) => m.id === live.pendingTo)?.display_name} …</p>
@@ -452,7 +453,12 @@ export type LiveTennisProps = {
   onStopWatching: () => void;
 };
 
-const WIN_AT = 7;
+/**
+ * Live-Duell: bis 6 Punkte. Bei 5:5 geht es bis 7, bei 6:6 entscheidet der nächste Punkt.
+ * → gewonnen mit 6 Punkten und 2 Vorsprung (6:0 … 6:4) oder mit 7 Punkten (7:5, 7:6).
+ */
+export const matchWon = (a: number, b: number) => (a >= 6 && a - b >= 2) || a >= 7;
+const RULES_SHORT = "bis 6 · bei 5:5 bis 7 · bei 6:6 entscheidet der nächste Punkt";
 type Shot = { seq: number; fx: number; tx: number; v: number; rally: number; to: string };
 type PointMsg = { seq: number; winner: string; reason: "aus" | "verpasst"; host: number; guest: number; nextServer: string };
 
@@ -544,7 +550,7 @@ function LiveTennisMatch({ me, opponent, match, onEnd, onFinished }: { me: Membe
       const iWon = p.winner === me.id;
       say(iWon ? (p.reason === "aus" ? "Aus! Punkt für dich" : "Punkt für dich!") : (p.reason === "aus" ? "Aus! 😬" : `Punkt für ${opponent.display_name}`));
       const a = mine(), b = theirs();
-      if ((a >= WIN_AT || b >= WIN_AT) && Math.abs(a - b) >= 2) {
+      if (matchWon(a, b) || matchWon(b, a)) {
         st.phase = "ende"; st.over = true;
         const won = a > b;
         st.overText = won ? "Gewonnen! 🏆" : `${opponent.display_name} gewinnt`;
@@ -673,7 +679,7 @@ function LiveTennisMatch({ me, opponent, match, onEnd, onFinished }: { me: Membe
         <span className="font-semibold">Du <b className="text-lg tabular-nums">{hud.mine}</b> : <b className="text-lg tabular-nums">{hud.theirs}</b> {opponent.display_name}</span>
         <span className="flex items-center gap-1 text-xs font-semibold text-red-600">{viewers > 0 && <span className="mr-1 text-muted">👀 {viewers}</span>}<span className="h-2 w-2 animate-pulse rounded-full bg-red-600" />LIVE</span>
       </div>
-      <p className="text-center text-xs text-muted">{hud.status || `Bis ${WIN_AT} Punkte, 2 Vorsprung`}</p>
+      <p className="text-center text-xs text-muted">{hud.status || (hud.mine === 6 && hud.theirs === 6 ? "6:6 – der nächste Punkt entscheidet!" : hud.mine >= 5 && hud.theirs >= 5 ? "Verlängerung: bis 7" : RULES_SHORT)}</p>
       <div ref={wrapRef} className="relative mx-auto max-w-md touch-none select-none overflow-hidden rounded-2xl" style={{ height: H }}
         onPointerDown={(e) => { e.preventDefault(); (e.target as Element).setPointerCapture?.(e.pointerId); toTarget(e); }}
         onPointerMove={(e) => { if (e.buttons || e.pointerType === "touch") toTarget(e); }}
@@ -696,7 +702,7 @@ function LiveTennisMatch({ me, opponent, match, onEnd, onFinished }: { me: Membe
 }
 
 /** Statistik: wer hat wie oft gegen wen gewonnen */
-function TennisStats() {
+export function TennisStats() {
   const { everyone } = useWG();
   const { rows, loaded } = useRows<TennisMatch>("tennis_matches", "created_at", false);
   const name = (id: string) => everyone.find((m) => m.id === id);
@@ -779,7 +785,7 @@ function SpectateMatch({ matchId, host, guest, onEnd }: { matchId: string; host:
     const finish = (text: string) => { if (st.ended) return; st.ended = true; st.over = true; st.overText = text; st.ball.live = false; setHud((h) => ({ ...h, ended: true, status: "" })); };
     const scoreUpdate = (h: number, g: number) => {
       setHud((x) => ({ ...x, host: h, guest: g, status: "" }));
-      if ((h >= WIN_AT || g >= WIN_AT) && Math.abs(h - g) >= 2) finish(`${h > g ? host.display_name : guest.display_name} gewinnt!`);
+      if (matchWon(h, g) || matchWon(g, h)) finish(`${h > g ? host.display_name : guest.display_name} gewinnt!`);
     };
 
     const ch = supabase.channel(`tennis-${matchId}`, { config: { presence: { key: myId }, broadcast: { self: false } } });

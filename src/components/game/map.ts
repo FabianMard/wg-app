@@ -25,7 +25,7 @@ export const COLS = MAP[0].length;
 export const ROWS = MAP.length;
 
 export type Action = "start" | "putzplan" | "einkauf" | "kosten" | "kalender" | "todos" | "wg" | "watchlist" | "pinnwand" | "musik"
-  | "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine" | "kite" | "kitegame" | "tennis" | "paper" | "kunst" | "giessspiel";
+  | "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine" | "kite" | "kitegame" | "tennis" | "paper" | "kunst" | "giessspiel" | "bestenliste";
 
 /** owner = Index des Mitbewohners (members.sort), dem der Gegenstand gehört */
 export type GameObject = { x: number; y: number; icon: string; label: string; action: Action; hint: string; owner?: number };
@@ -52,6 +52,7 @@ export const OBJECTS: GameObject[] = [
   { x: 15, y: 5, icon: "🪴", label: "Pflanze", action: "giessen", hint: "Gießen 💧" },
   // Flur (Kalender hängt an der Wand)
   { x: 8, y: 6, icon: "📅", label: "Kalender", action: "kalender", hint: "Termine ansehen & eintragen" },
+  { x: 14, y: 6, icon: "🏆", label: "Bestenliste", action: "bestenliste", hint: "Rekorde aller Spiele ansehen" },
   { x: 21, y: 8, icon: "🧹", label: "Besen", action: "putzplan", hint: "Putzplan ansehen" },
   { x: 0, y: 7, icon: "🚪", label: "Haustür", action: "wg", hint: "Mitbewohner einladen" },
   // Zimmer
