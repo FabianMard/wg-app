@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useWG } from "@/lib/wg";
-import type { Member, WallArt } from "@/lib/types";
+import type { Member, RoomPicture, WallArt } from "@/lib/types";
+import { resizePhoto, useSignedUrl } from "@/lib/photos";
+import { formatDate } from "@/lib/dates";
 
 /** Verenas Paper – Auswahl zum Lesen (öffnet die Verlagsseite) */
 const PAPERS = [
@@ -96,7 +98,11 @@ function collectArt(posts: WpItem[], pages: WpItem[]): Art[] {
   return [...seen.values()];
 }
 
-export function ArtGallery() {
+/** Kunstwerk, wie es zum Aufhängen weitergegeben wird */
+export type PickedArt = { title: string; file: string; url: string; kind: string; year?: string };
+
+/** Galerie. Mit onPick: Auswahl-Modus (z. B. für ein Bild im Wohnzimmer) statt „in mein Zimmer hängen“. */
+export function ArtGallery({ onPick, pickLabel = "🖼️ Hier aufhängen" }: { onPick?: (a: PickedArt) => void; pickLabel?: string } = {}) {
   const { me, isGuest, refresh } = useWG();
   const [hangMsg, setHangMsg] = useState<string | null>(null);
   const [hanging, setHanging] = useState(false);
@@ -164,7 +170,11 @@ export function ArtGallery() {
         </div>
         <button onClick={next} className="shrink-0 rounded-full bg-accent px-3 py-1.5 text-sm font-semibold text-white active:scale-95">🎲 Anderes Bild</button>
       </div>
-      {!isGuest && me && (
+      {onPick && (
+        <button onClick={() => onPick({ title: a.title, file: a.file, url: a.url, kind: a.kind, ...(a.year ? { year: a.year } : {}) })}
+          className="w-full rounded-2xl bg-amber-500 px-3 py-2.5 text-sm font-semibold text-white transition active:scale-[.98]">{pickLabel}</button>
+      )}
+      {!onPick && !isGuest && me && (
         me.wall_art?.file === a.file
           ? <p className="rounded-xl bg-green-500/10 px-3 py-2 text-sm font-medium text-green-700 dark:text-green-400">🖼️ Hängt schon in deinem Zimmer</p>
           : (
@@ -220,6 +230,136 @@ export function WallArtView({ owner }: { owner: Member }) {
         {mine && <button onClick={takeDown} className="rounded-xl border border-line px-3 py-1.5 text-sm font-medium">Abhängen</button>}
       </div>
       {mine && <p className="text-center text-xs text-muted">Austauschen: in Verenas Zimmer an der 🎨 Farbpalette ein anderes Bild aussuchen.</p>}
+    </div>
+  );
+}
+
+/* ───────────── Bilder in den Gemeinschaftsräumen (Wohnzimmer, Küche, Bad) ───────────── */
+
+const ROOM_NAME: Record<RoomPicture["slot"], string> = {
+  "wohnzimmer-1": "Wohnzimmer", "wohnzimmer-2": "Wohnzimmer", "wohnzimmer-3": "Wohnzimmer",
+  "kueche-1": "Küche", "kueche-2": "Küche", "bad-1": "Bad",
+};
+
+/** Bildquelle für ein Raumbild (Kunstwerk vorab verkleinert, Foto über signierte URL) */
+export function useRoomPictureSrc(pic: RoomPicture | null | undefined, w: 128 | 384 | 828 = 828) {
+  const photo = useSignedUrl(pic?.kind === "foto" ? pic.image_path : null);
+  if (!pic) return null;
+  return pic.kind === "kunst" && pic.file ? optimized(pic.file, w) : photo;
+}
+
+/** Kleines Gemälde im Goldrahmen für die Karte */
+export function RoomThumb({ pic, size, bounce }: { pic: RoomPicture; size: number; bounce?: boolean }) {
+  const src = useRoomPictureSrc(pic, 128);
+  return (
+    <span className={`block overflow-hidden rounded-[3px] shadow ${bounce ? "animate-bounce" : ""}`}
+      style={{ width: size * 0.82, height: size * 0.82, padding: Math.max(2, size * 0.07), background: "linear-gradient(135deg,#f5d77a,#b8860b 50%,#f5d77a)" }}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      {src ? <img src={src} alt={pic.title ?? "Bild"} className="h-full w-full object-cover" loading="lazy" /> : <span className="block h-full w-full bg-white/70" />}
+    </span>
+  );
+}
+
+/** Ein Bild an der Wand eines Gemeinschaftsraums: ansehen, Kunstwerk aussuchen, Foto hochladen, abhängen – alle dürfen das */
+export function RoomPictureView({ slot, pic, onChanged }: { slot: RoomPicture["slot"]; pic: RoomPicture | null; onChanged: () => void }) {
+  const { household, member, myId } = useWG();
+  const [mode, setMode] = useState<"ansicht" | "kunst">("ansicht");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const src = useRoomPictureSrc(pic);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const DB = "Datenbank-Update fehlt: Bitte supabase/025_raumbilder.sql im SQL Editor ausführen.";
+
+  async function save(row: Partial<RoomPicture>) {
+    const old = pic?.kind === "foto" ? pic.image_path : null;
+    const { error } = await supabase.from("room_pictures").upsert({
+      household_id: household.id, slot, set_by: myId, updated_at: new Date().toISOString(),
+      title: null, file: null, url: null, image_path: null, ...row,
+    });
+    if (error) { setErr(error.message.includes("room_pictures") ? DB : error.message); return false; }
+    // altes eigenes Foto aus dem Speicher entfernen
+    if (old && old !== row.image_path) await supabase.storage.from("pinnwand").remove([old]);
+    setLoaded(false);
+    onChanged();
+    return true;
+  }
+  async function pickArt(a: PickedArt) {
+    setBusy(true); setErr(null);
+    if (await save({ kind: "kunst", title: a.title, file: a.file, url: a.url })) setMode("ansicht");
+    setBusy(false);
+  }
+  async function upload(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    setBusy(true); setErr(null);
+    try {
+      const blob = await resizePhoto(f, 1600);
+      const path = `${household.id}/wand/${slot}-${Date.now()}.jpg`;
+      const up = await supabase.storage.from("pinnwand").upload(path, blob, { contentType: "image/jpeg" });
+      if (up.error) throw new Error(/row-level|policy|not found/i.test(up.error.message) ? DB : up.error.message);
+      const name = f.name.replace(/\.[a-z0-9]+$/i, "").replace(/[_-]+/g, " ").slice(0, 60);
+      if (!(await save({ kind: "foto", image_path: path, title: /^(img|dsc|photo|bild)\s*\d+/i.test(name) ? null : name }))) {
+        await supabase.storage.from("pinnwand").remove([path]);
+      }
+    } catch (x) { setErr((x as Error).message); }
+    setBusy(false);
+  }
+  async function takeDown() {
+    if (!pic || !confirm("Bild abhängen?")) return;
+    await supabase.from("room_pictures").delete().eq("household_id", household.id).eq("slot", slot);
+    if (pic.kind === "foto" && pic.image_path) await supabase.storage.from("pinnwand").remove([pic.image_path]);
+    onChanged();
+  }
+
+  if (mode === "kunst") {
+    return (
+      <div className="space-y-3">
+        <button onClick={() => setMode("ansicht")} className="text-sm font-medium text-accent">← zurück</button>
+        <p className="text-sm text-muted">Such ein Bild von Verena für {ROOM_NAME[slot] === "Küche" ? "die" : "das"} {ROOM_NAME[slot]} aus:</p>
+        <ArtGallery onPick={pickArt} pickLabel={busy ? "Wird aufgehängt …" : `🖼️ ${slot.startsWith("kueche") ? "In die Küche" : `Ins ${ROOM_NAME[slot]}`} hängen`} />
+        {err && <p className="text-sm text-red-600">{err}</p>}
+      </div>
+    );
+  }
+
+  const by = pic ? member(pic.set_by) : null;
+  return (
+    <div className="space-y-4">
+      {pic && src ? (
+        <>
+          <div className="mx-auto w-fit max-w-full rounded-md p-2.5 shadow-xl" style={{ background: "linear-gradient(135deg,#f5d77a,#b8860b 45%,#f5d77a 70%,#a87408)" }}>
+            <div className="relative bg-white p-2">
+              {!loaded && <div className="flex aspect-square w-64 max-w-full animate-pulse items-center justify-center text-4xl">🖼️</div>}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={src} alt={pic.title ?? "Bild"} onLoad={() => setLoaded(true)}
+                className={`max-h-[45dvh] max-w-full object-contain ${loaded ? "" : "absolute inset-0 opacity-0"}`} />
+            </div>
+          </div>
+          <div className="text-center">
+            {pic.title && <p className="font-semibold">„{pic.title}“</p>}
+            <p className="text-xs text-muted">
+              {pic.kind === "kunst" ? "von Verena Plümpe" : "📷 Foto"} · aufgehängt von {by ? (by.id === myId ? "dir" : by.display_name) : "?"} am {formatDate(pic.updated_at.slice(0, 10))}
+            </p>
+            {pic.kind === "kunst" && pic.url && <a href={pic.url} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-accent hover:underline">Auf der Website ansehen ↗</a>}
+          </div>
+        </>
+      ) : (
+        <div className="space-y-1 py-4 text-center">
+          <p className="text-5xl">🖼️</p>
+          <p className="font-semibold">Hier hängt noch nichts.</p>
+          <p className="text-sm text-muted">Alle in der WG können das Bild aussuchen – auch Gäste.</p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-2">
+        <button onClick={() => setMode("kunst")} disabled={busy} className="rounded-2xl bg-amber-500 px-3 py-2.5 text-sm font-semibold text-white active:scale-[.98] disabled:opacity-50">🎨 Bild von Verena</button>
+        <button onClick={() => fileRef.current?.click()} disabled={busy} className="rounded-2xl border-2 border-line px-3 py-2.5 text-sm font-semibold active:scale-[.98] disabled:opacity-50">{busy ? "Lädt hoch …" : "📷 Foto hochladen"}</button>
+      </div>
+      <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={upload} />
+      {pic && <button onClick={takeDown} className="w-full text-center text-sm font-medium text-muted">Abhängen</button>}
+      {err && <p className="text-sm text-red-600">{err}</p>}
     </div>
   );
 }

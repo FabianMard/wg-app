@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { useRows, useWG } from "@/lib/wg";
-import type { Member, Message } from "@/lib/types";
+import type { RoomPicture, Member, Message } from "@/lib/types";
 import {
   BEDROOM_LABELS, COLS, findPath, floorColor, HOME_SPOTS, isAdjacent, isWalkable, MAP, neighbors,
   objectAt, OBJECTS, ROOM_LABELS, ROWS, type Action, type GameObject, type Pos,
@@ -34,11 +34,12 @@ import { Dishwasher } from "./Dishwasher";
 import { KiteWeather } from "./KiteWeather";
 import { KiteGame } from "./KiteGame";
 import { TennisGame, type LiveMatch } from "./TennisGame";
-import { ArtGallery, optimized, Papers, WallArtView } from "./VerenaCorner";
+import { ArtGallery, optimized, Papers, RoomPictureView, RoomThumb, WallArtView } from "./VerenaCorner";
+import type { RoomSlot } from "./map";
 import { WateringGame } from "./WateringGame";
 import { HallOfFame } from "./HallOfFame";
 
-type PageAction = Exclude<Action, "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine" | "kitegame" | "tennis" | "giessspiel" | "wandbild">;
+type PageAction = Exclude<Action, "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine" | "kitegame" | "tennis" | "giessspiel" | "wandbild" | "raumbild">;
 const WatchlistPanel = () => <Watchlist />;
 const PinnwandPanel = () => <Pinboard />;
 const MusikPanel = () => <MusicList />;
@@ -55,7 +56,7 @@ const STEP_MS = 120;
 const BUBBLE_MS = 6000;
 
 type Target = { type: "object"; obj: GameObject } | { type: "member"; id: string } | { type: "cat" };
-type Panel = Target | { type: "wardrobe"; first?: boolean; ownerId?: string } | { type: "books"; ownerId: string } | { type: "dishwasher" } | { type: "kitegame" } | { type: "tennis" } | { type: "giessspiel" } | { type: "chat"; with?: string } | { type: "wandbild"; ownerId: string };
+type Panel = Target | { type: "wardrobe"; first?: boolean; ownerId?: string } | { type: "books"; ownerId: string } | { type: "dishwasher" } | { type: "kitegame" } | { type: "tennis" } | { type: "giessspiel" } | { type: "chat"; with?: string } | { type: "wandbild"; ownerId: string } | { type: "raumbild"; slot: RoomSlot };
 const CAT_LINES = ["Schnurrrr … 💕", "Miau! 😺", "*kuschelt sich an* 🐾", "Prrrrr 😻", "Mehr! Mehr! 🐱"];
 const CAT_SEE = 3; // so nah muss man sein, um die Katze zu entdecken
 const dist = (a: Pos, b: Pos) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
@@ -111,6 +112,7 @@ export function Game() {
   const [path, setPath] = useState<Pos[]>([]);
   const pending = useRef<Target | null>(null);
   const [panel, setPanel] = useState<Panel | null>(null);
+  const { rows: roomPics, reload: reloadRoomPics } = useRows<RoomPicture>("room_pictures", "updated_at");
   // ── Live-Tennis ──
   const [invite, setInvite] = useState<InvitePayload | null>(null);          // an mich
   const [tennisPending, setTennisPending] = useState<InvitePayload | null>(null); // von mir, wartet auf Antwort
@@ -394,6 +396,7 @@ export function Game() {
     if (t.type === "object" && t.obj.action === "kitegame") { setPanel({ type: "kitegame" }); return; }
     if (t.type === "object" && t.obj.action === "tennis") { setPanel({ type: "tennis" }); return; }
     if (t.type === "object" && t.obj.action === "giessspiel") { setPanel({ type: "giessspiel" }); return; }
+    if (t.type === "object" && t.obj.action === "raumbild" && t.obj.slot) { setPanel({ type: "raumbild", slot: t.obj.slot }); return; }
     if (t.type === "object" && t.obj.action === "wandbild") {
       const owner = [...members].sort((a, b) => a.sort - b.sort)[t.obj.owner ?? -1];
       if (owner) setPanel({ type: "wandbild", ownerId: owner.id });
@@ -534,6 +537,11 @@ export function Game() {
                 className={`absolute flex cursor-pointer items-center justify-center rounded-lg transition ${hot ? "z-[5] scale-110 bg-white/70 ring-2 ring-accent" : "hover:bg-white/40"}`}
                 style={{ left: o.x * tile, top: o.y * tile, width: tile, height: tile, fontSize: tile * 0.68 }}>
                 {(() => {
+                  // Bilder in Wohnzimmer, Küche, Bad
+                  if (o.action === "raumbild") {
+                    const pic = roomPics.find((r) => r.slot === o.slot);
+                    return pic ? <RoomThumb pic={pic} size={tile} bounce={hot} /> : <span className={`opacity-60 ${hot ? "animate-bounce" : ""}`}>{o.icon}</span>;
+                  }
                   // Bilderrahmen: das aufgehängte Bild als kleines Gemälde zeigen
                   const art = o.action === "wandbild" ? [...members].sort((a, b) => a.sort - b.sort)[o.owner ?? -1]?.wall_art : null;
                   if (!art) return <span className={hot ? "animate-bounce" : ""}>{o.icon}</span>;
@@ -685,11 +693,13 @@ export function Game() {
 
       {panel && (
         <Sheet onClose={() => { if (panel.type === "member" || panel.type === "chat") reloadMessages(); setPanel(null); }} light={panel.type === "member"} fill={panel.type === "chat"}
-          title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : panel.type === "wardrobe" ? (panel.ownerId && panel.ownerId !== myId ? `👚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Kleiderschrank` : "👚 Dein Kleiderschrank") : panel.type === "object" ? (panel.obj.action === "kite" ? "🪁 Stefans Kite-Wetter" : panel.obj.action === "paper" ? "📄 Verenas Paper" : panel.obj.action === "kunst" ? "🎨 Verenas Kunst" : panel.obj.action === "bestenliste" ? "🏆 Bestenliste der WG" : `${panel.obj.icon} ${panel.obj.label}`) : panel.type === "books" ? `📚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Bücher` : panel.type === "dishwasher" ? "🫧 Spülmaschine einräumen" : panel.type === "kitegame" ? "🏄 Kitesurfen" : panel.type === "tennis" ? "🎾 Tennis" : panel.type === "giessspiel" ? "💧 Verenas Dschungel" : panel.type === "chat" ? "💬 Chat" : panel.type === "wandbild" ? `🖼️ ${panel.ownerId === myId ? "Dein Bild" : `Bild bei ${members.find((m) => m.id === panel.ownerId)?.display_name}`}` : ""}>
+          title={panel.type === "member" ? `Gespräch mit ${targetMember?.display_name}` : panel.type === "wardrobe" ? (panel.ownerId && panel.ownerId !== myId ? `👚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Kleiderschrank` : "👚 Dein Kleiderschrank") : panel.type === "object" ? (panel.obj.action === "kite" ? "🪁 Stefans Kite-Wetter" : panel.obj.action === "paper" ? "📄 Verenas Paper" : panel.obj.action === "kunst" ? "🎨 Verenas Kunst" : panel.obj.action === "bestenliste" ? "🏆 Bestenliste der WG" : `${panel.obj.icon} ${panel.obj.label}`) : panel.type === "books" ? `📚 ${members.find((m) => m.id === panel.ownerId)?.display_name}s Bücher` : panel.type === "dishwasher" ? "🫧 Spülmaschine einräumen" : panel.type === "kitegame" ? "🏄 Kitesurfen" : panel.type === "tennis" ? "🎾 Tennis" : panel.type === "giessspiel" ? "💧 Verenas Dschungel" : panel.type === "chat" ? "💬 Chat" : panel.type === "raumbild" ? `🖼️ Bild ${panel.slot.startsWith("kueche") ? "in der Küche" : panel.slot.startsWith("bad") ? "im Bad" : "im Wohnzimmer"}` : panel.type === "wandbild" ? `🖼️ ${panel.ownerId === myId ? "Dein Bild" : `Bild bei ${members.find((m) => m.id === panel.ownerId)?.display_name}`}` : ""}>
           {panel.type === "member" && targetMember ? (
             <TalkDialog target={targetMember} online={onlineIds.has(targetMember.id)}
               onEmote={(em, on) => say(em === "🐝" && on ? on : myId, em)}
               onOpenChat={() => setPanel({ type: "chat", with: targetMember.id })} onClose={() => { reloadMessages(); setPanel(null); }} />
+          ) : panel.type === "raumbild" ? (
+            <RoomPictureView slot={panel.slot} pic={roomPics.find((r) => r.slot === panel.slot) ?? null} onChanged={reloadRoomPics} />
           ) : panel.type === "wandbild" && members.find((m) => m.id === panel.ownerId) ? (
             <WallArtView owner={members.find((m) => m.id === panel.ownerId)!} />
           ) : panel.type === "chat" ? (

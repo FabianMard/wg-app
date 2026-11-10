@@ -87,3 +87,24 @@ export async function downloadPhoto(url: string, filename: string): Promise<"get
   setTimeout(() => URL.revokeObjectURL(href), 10_000);
   return "geladen";
 }
+
+/** Foto verkleinern (längste Seite max. `max` px), Seitenverhältnis bleibt → JPEG */
+export async function resizePhoto(file: File, max = 1280): Promise<Blob> {
+  const src = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new Error("Dieses Bildformat kann der Browser nicht öffnen."));
+      i.src = src;
+    });
+    const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(img.naturalWidth * scale); canvas.height = Math.round(img.naturalHeight * scale);
+    canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Foto konnte nicht verarbeitet werden."))), "image/jpeg", 0.85));
+  } finally {
+    URL.revokeObjectURL(src);
+  }
+}

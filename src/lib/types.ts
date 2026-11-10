@@ -232,3 +232,15 @@ export type CostRequest = {
   expense_id: string | null;
   created_at: string;
 };
+
+export type RoomPicture = {
+  household_id: string;
+  slot: "wohnzimmer-1" | "wohnzimmer-2" | "wohnzimmer-3" | "kueche-1" | "kueche-2" | "bad-1";
+  kind: "kunst" | "foto";
+  title: string | null;
+  file: string | null;
+  url: string | null;
+  image_path: string | null;
+  set_by: string | null;
+  updated_at: string;
+};

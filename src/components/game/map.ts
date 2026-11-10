@@ -25,10 +25,11 @@ export const COLS = MAP[0].length;
 export const ROWS = MAP.length;
 
 export type Action = "start" | "putzplan" | "einkauf" | "kosten" | "kalender" | "todos" | "wg" | "watchlist" | "pinnwand" | "musik"
-  | "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine" | "kite" | "kitegame" | "tennis" | "paper" | "kunst" | "giessspiel" | "bestenliste" | "wandbild";
+  | "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine" | "kite" | "kitegame" | "tennis" | "paper" | "kunst" | "giessspiel" | "bestenliste" | "wandbild" | "raumbild";
 
 /** owner = Index des Mitbewohners (members.sort), dem der Gegenstand gehört */
-export type GameObject = { x: number; y: number; icon: string; label: string; action: Action; hint: string; owner?: number };
+export type GameObject = { x: number; y: number; icon: string; label: string; action: Action; hint: string; owner?: number; slot?: RoomSlot };
+export type RoomSlot = "wohnzimmer-1" | "wohnzimmer-2" | "wohnzimmer-3" | "kueche-1" | "kueche-2" | "bad-1";
 
 export const OBJECTS: GameObject[] = [
   // Küche
@@ -65,6 +66,13 @@ export const OBJECTS: GameObject[] = [
     [5, 14, "🌷"], [6, 14, "🪴"], [6, 13, "🌿"], [6, 12, "🎋"], [5, 12, "🍀"],
   ] as const).map(([x, y, icon]) => ({ x, y, icon, label: "Pflanze", action: "giessspiel" as const, hint: "Minispiel: Verenas Dschungel gießen 💧", owner: 0 })),
   { x: 6, y: 10, icon: "👚", label: "Kleiderschrank", action: "kleiderschrank", hint: "Verenas Schrank – ausleihen erlaubt", owner: 0 },
+  // Bilder in den Gemeinschaftsräumen (obere Wand) – alle können sie austauschen
+  { x: 2, y: 0, icon: "🖼️", label: "Bild", action: "raumbild", hint: "Bild in der Küche ansehen & austauschen", slot: "kueche-1" },
+  { x: 4, y: 0, icon: "🖼️", label: "Bild", action: "raumbild", hint: "Bild in der Küche ansehen & austauschen", slot: "kueche-2" },
+  { x: 10, y: 0, icon: "🖼️", label: "Bild", action: "raumbild", hint: "Bild im Bad ansehen & austauschen", slot: "bad-1" },
+  { x: 15, y: 0, icon: "🖼️", label: "Bild", action: "raumbild", hint: "Bild im Wohnzimmer ansehen & austauschen", slot: "wohnzimmer-1" },
+  { x: 17, y: 0, icon: "🖼️", label: "Bild", action: "raumbild", hint: "Bild im Wohnzimmer ansehen & austauschen", slot: "wohnzimmer-2" },
+  { x: 20, y: 0, icon: "🖼️", label: "Bild", action: "raumbild", hint: "Bild im Wohnzimmer ansehen & austauschen", slot: "wohnzimmer-3" },
   // Bilderrahmen an der Wand zum Flur – jede*r kann eins von Verenas Bildern aufhängen
   { x: 3, y: 9, icon: "🖼️", label: "Bild", action: "wandbild", hint: "Bild an der Wand ansehen", owner: 0 },
   { x: 9, y: 9, icon: "🖼️", label: "Bild", action: "wandbild", hint: "Bild an der Wand ansehen", owner: 1 },
