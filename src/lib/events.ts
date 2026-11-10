@@ -88,8 +88,28 @@ export function birthdayName(title: string): string {
   return t || title;
 }
 
-/** Anzeigename: Geburtstage kurz als "🎂 Name" */
-export const displayTitle = (e: CalEvent) => (isBirthday(e) ? `🎂 ${birthdayName(e.title)}` : e.title);
+/**
+ * Geburtsjahr bekannt? Ohne Jahr wird der Geburtstag im aktuellen Jahr gespeichert,
+ * mit Jahr liegt das Datum vor dem Jahr, in dem er eingetragen wurde.
+ */
+export function birthYear(e: CalEvent & { created_at?: string }): number | null {
+  if (!isBirthday(e)) return null;
+  const y = Number(e.day.slice(0, 4));
+  const entered = e.created_at ? Number(e.created_at.slice(0, 4)) : new Date().getFullYear();
+  return y < entered ? y : null;
+}
+/** Wie alt wird die Person an diesem Tag? (null = Jahr unbekannt) */
+export function ageOn(e: CalEvent & { created_at?: string }, day: string): number | null {
+  const y = birthYear(e);
+  return y === null ? null : Number(day.slice(0, 4)) - y;
+}
+
+/** Anzeigename: Geburtstage kurz als "🎂 Name", mit Tag (Vorkommen) auch das Alter: "🎂 Verena (30)" */
+export const displayTitle = (e: CalEvent & { created_at?: string }, day?: string) => {
+  if (!isBirthday(e)) return e.title;
+  const age = day ? ageOn(e, day) : null;
+  return `🎂 ${birthdayName(e.title)}${age !== null && age > 0 ? ` (${age})` : ""}`;
+};
 
 /** Nur für mich sichtbar? */
 export const isPrivate = (e: CalEvent, myId: string) => !!e.visible_to && e.visible_to.length > 0 && e.visible_to.every((id) => id === myId);

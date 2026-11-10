@@ -120,6 +120,7 @@ export type CalEvent = {
   /** null = alle; sonst nur diese Personen (+ wer es eingetragen hat) */
   visible_to?: string[] | null;
   created_by?: string | null;
+  created_at?: string;
 };
 
 export type Todo = {

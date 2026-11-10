@@ -108,7 +108,7 @@ export default function Bericht() {
 
   // ── Kalender, To-dos, Bienchen, Pinnwand ──
   // inkl. wiederkehrender Termine (z. B. Geburtstage)
-  const eventsMonth = occurrencesBetween(events, from, addDays(to, -1)).map((o) => ({ ...o.event, title: displayTitle(o.event), id: `${o.event.id}-${o.day}`, day: o.day }));
+  const eventsMonth = occurrencesBetween(events, from, addDays(to, -1)).map((o) => ({ ...o.event, title: displayTitle(o.event, o.day), id: `${o.event.id}-${o.day}`, day: o.day }));
   const holidays = holidaysSachsen(month.getFullYear()).filter((h) => inMonth(h.date));
   const todosCreated = todos.filter((t) => inMonth(t.created_at));
   const todosDone = todos.filter((t) => t.done && inMonth(t.done_at));

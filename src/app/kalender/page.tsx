@@ -60,6 +60,7 @@ function CalendarView() {
   const [selected, setSelected] = useState(todayISO());
   const [title, setTitle] = useState("");
   const [time, setTime] = useState("");
+  const [birthYearInput, setBirthYearInput] = useState(""); // optional beim Geburtstag
   // Neuer Eintrag: Art bestimmt, welche Felder es gibt
   type Kind = "termin" | "geburtstag" | "urlaub";
   const [formOpen, setFormOpen] = useState(false);
@@ -112,6 +113,7 @@ function CalendarView() {
 
   const titleRef = useRef<HTMLInputElement>(null);
   function resetForm() {
+    setBirthYearInput("");
     setTitle(""); setTime(""); setEndDay(""); setRecurrence("keine"); setAudience(null); setErr(null); setFormOpen(false); setKind("termin");
   }
   function openForm(k: Kind) {
@@ -131,7 +133,9 @@ function CalendarView() {
     const row: Record<string, unknown> = {
       household_id: household.id,
       title: kind === "geburtstag" ? `🎂 ${birthdayName(t)}` : kind === "urlaub" ? (t || "🏖️ Urlaub") : t,
-      day: selected,
+      // Geburtstag mit Jahr: im Geburtsjahr speichern (daraus wird das Alter berechnet)
+      day: kind === "geburtstag" && /^(19|20)\d\d$/.test(birthYearInput) && Number(birthYearInput) < Number(selected.slice(0, 4))
+        ? `${birthYearInput}-${selected.slice(5)}` : selected,
       time: kind === "termin" ? time || null : null,
     };
     const rec = kind === "geburtstag" ? "jaehrlich" : kind === "termin" ? recurrence : "keine";
@@ -222,12 +226,12 @@ function CalendarView() {
                     </span>
                   )}
                   {evs.slice(0, MAX_EVENTS_IN_TILE).map(({ event: e, dayNo, total }) => (
-                    <span key={e.id} title={displayTitle(e)}
+                    <span key={e.id} title={displayTitle(e, iso)}
                       className={`truncate px-0.5 text-[9px] font-semibold leading-[13px] md:px-1 md:text-[11px] md:leading-4 ${KIND_STYLE[eventKind(e, myId)].chip}
                         ${total > 1 && dayNo > 1 ? "-ml-1 rounded-r md:-ml-1.5" : "rounded"} ${total > 1 && dayNo < total ? "-mr-1 rounded-l md:-mr-1.5" : ""}`}>
                       {total > 1 && dayNo > 1 && fromISO(iso).getDay() !== 1
                         ? <span className="opacity-0">.</span>
-                        : <>{isPrivate(e, myId) && "🔒"}<span className="hidden md:inline">{e.time && `${e.time.slice(0, 5)} `}</span>{displayTitle(e)}</>}
+                        : <>{isPrivate(e, myId) && "🔒"}<span className="hidden md:inline">{e.time && `${e.time.slice(0, 5)} `}</span>{displayTitle(e, iso)}</>}
                     </span>
                   ))}
                   {evs.length > MAX_EVENTS_IN_TILE && (
@@ -335,7 +339,20 @@ function CalendarView() {
                 </div>
               )}
               {kind === "geburtstag" && (
-                <p className="rounded-xl border border-line bg-bg px-3 py-2 text-sm">📅 {formatDate(selected, { day: "numeric", month: "long" })} · ganztägig · 🔁 jedes Jahr</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="min-w-0">
+                    <span className="mb-1 block text-[11px] font-medium text-muted">📅 Tag</span>
+                    <span className="flex h-[42px] items-center rounded-xl border border-line bg-bg px-3 text-sm">{formatDate(selected, { day: "numeric", month: "long" })} · 🔁 jährlich</span>
+                  </label>
+                  <label className="min-w-0">
+                    <span className="mb-1 block text-[11px] font-medium text-muted">🎈 Geburtsjahr (optional)</span>
+                    <input className={`${inputCls} h-[42px] py-2`} inputMode="numeric" maxLength={4} placeholder="z. B. 1996"
+                      value={birthYearInput} onChange={(e) => setBirthYearInput(e.target.value.replace(/\D/g, "").slice(0, 4))} />
+                  </label>
+                  {/^(19|20)\d\d$/.test(birthYearInput) && Number(birthYearInput) < Number(selected.slice(0, 4)) && (
+                    <p className="col-span-2 text-xs text-muted">🎂 Wird am {formatDate(selected, { day: "numeric", month: "long" })} {Number(selected.slice(0, 4)) - Number(birthYearInput)}.</p>
+                  )}
+                </div>
               )}
               {kind === "urlaub" && (
                 <div className="grid grid-cols-[auto_1fr] items-center gap-2 text-sm">
@@ -396,7 +413,7 @@ function CalendarView() {
               {ev.time ? ev.time.slice(0, 5) : total > 1 ? `${dayNo}/${total}` : <span className="text-xs font-medium">ganzt.</span>}
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block truncate font-medium">{displayTitle(ev)}</span>
+              <span className="block truncate font-medium">{displayTitle(ev, start)}</span>
               {(total > 1 || (ev.recurrence ?? "keine") !== "keine" || audienceLabel(ev)) && (
                 <span className="mt-1 flex flex-wrap gap-1">
                   {total > 1 && <span className="rounded-full bg-line/60 px-2 py-0.5 text-[11px] text-muted">📆 {rangeLabel(start, total)}</span>}

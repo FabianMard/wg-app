@@ -9,7 +9,7 @@ import { beesOf } from "@/components/Praise";
 import { computeBalances } from "@/lib/balances";
 import { addDays, euro, formatDate, todayISO } from "@/lib/dates";
 import { holidayOn } from "@/lib/holidays";
-import { birthdayName, displayTitle, isBirthday, nextBirthdays, occurrencesBetween } from "@/lib/events";
+import { displayTitle, isBirthday, nextBirthdays, occurrencesBetween } from "@/lib/events";
 import { Avatar, Card, PageTitle } from "@/components/ui";
 import { Pinboard } from "@/components/Pinboard";
 
@@ -83,7 +83,7 @@ function ResidentHome() {
           {birthdays.length === 0
             ? <Muted>Noch keine Geburtstage eingetragen – im Kalender mit „🎂 Geburtstag“.</Muted>
             : birthdays.map((b) => (
-              <Row key={b.event.id} label={`🎂 ${birthdayName(b.event.title)}`}
+              <Row key={b.event.id} label={displayTitle(b.event, b.day)}
                 right={`${formatDate(b.day)} · ${b.inDays === 0 ? "heute! 🎉" : b.inDays === 1 ? "morgen" : `in ${b.inDays} Tagen`}`} warn={b.inDays <= 1} />
             ))}
         </Tile>
