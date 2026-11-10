@@ -66,3 +66,24 @@ export async function squarePhoto(file: File, size = 400): Promise<Blob> {
     URL.revokeObjectURL(src);
   }
 }
+
+/**
+ * Foto herunterladen. Handy: Teilen-Menü mit „Bild sichern“ (landet in den Fotos);
+ * Computer: normaler Download. Gibt "geteilt" | "geladen" | "abgebrochen" zurück.
+ */
+export async function downloadPhoto(url: string, filename: string): Promise<"geteilt" | "geladen" | "abgebrochen"> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Foto konnte nicht geladen werden.");
+  const blob = await res.blob();
+  const file = new File([blob], filename, { type: blob.type || "image/jpeg" });
+  const touch = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+  if (touch && navigator.canShare?.({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); return "geteilt"; }
+    catch (e) { if ((e as Error).name === "AbortError") return "abgebrochen"; /* sonst normal herunterladen */ }
+  }
+  const href = URL.createObjectURL(blob);
+  const a = Object.assign(document.createElement("a"), { href, download: filename });
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 10_000);
+  return "geladen";
+}

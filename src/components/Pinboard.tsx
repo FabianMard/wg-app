@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { notify } from "@/lib/push";
+import { downloadPhoto } from "@/lib/photos";
 import { useRows, useWG } from "@/lib/wg";
 import type { Note, NoteColor } from "@/lib/types";
 
@@ -66,7 +67,18 @@ export function Pinboard() {
   const [photo, setPhoto] = useState<{ blob: Blob; preview: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [urls, setUrls] = useState<Record<string, string>>({});
-  const [big, setBig] = useState<string | null>(null);
+  const [big, setBig] = useState<{ src: string; name: string } | null>(null);
+  const [saving, setSaving] = useState<string | null>(null);
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const fileName = (n: Note) => `pinnwand-${n.created_at.slice(0, 10)}-${n.id.slice(0, 6)}.jpg`;
+  async function save(src: string, name: string) {
+    setSaving(name); setSaveMsg(null);
+    try {
+      const r = await downloadPhoto(src, name);
+      if (r === "geladen") setSaveMsg("✓ Foto heruntergeladen");
+    } catch (e) { setSaveMsg((e as Error).message); }
+    finally { setSaving(null); setTimeout(() => setSaveMsg(null), 3000); }
+  }
   const fileRef = useRef<HTMLInputElement>(null);
   const requested = useRef(new Set<string>()); // jedes Foto nur einmal anfragen
 
@@ -200,8 +212,14 @@ export function Pinboard() {
               <span className="truncate">
                 {by ? (by.id === myId ? "du" : by.display_name) : "?"} · {new Date(n.created_at).toLocaleDateString("de-DE", { day: "numeric", month: "numeric" })}
               </span>
-              {!isGuest && <button onClick={() => remove(n)} aria-label={n.image_path ? "Foto abnehmen" : "Zettel abnehmen"} title="Abnehmen"
-                className="rounded px-1 text-neutral-500 hover:bg-black/10 hover:text-neutral-800">✕</button>}
+              <span className="flex shrink-0 items-center">
+                {n.image_path && urls[n.image_path] && (
+                  <button onClick={() => save(urls[n.image_path!], fileName(n))} aria-label="Foto herunterladen" title="Herunterladen"
+                    className="rounded px-1 text-neutral-500 hover:bg-black/10 hover:text-neutral-800">{saving === fileName(n) ? "…" : "⬇️"}</button>
+                )}
+                {!isGuest && <button onClick={() => remove(n)} aria-label={n.image_path ? "Foto abnehmen" : "Zettel abnehmen"} title="Abnehmen"
+                  className="rounded px-1 text-neutral-500 hover:bg-black/10 hover:text-neutral-800">✕</button>}
+              </span>
             </p>
           );
           if (n.image_path) {
@@ -212,7 +230,7 @@ export function Pinboard() {
                 className="group relative flex flex-col bg-white p-2 pb-2.5 shadow-[2px_4px_8px_rgba(0,0,0,.3)] transition hover:z-10 hover:rotate-0 hover:scale-[1.03]"
                 style={{ transform: `rotate(${TILTS[i % TILTS.length]}deg)` }}>
                 <Pin color={by?.color} />
-                <button onClick={() => src && setBig(src)} className="block aspect-square w-full overflow-hidden bg-neutral-200" aria-label="Foto groß anzeigen">
+                <button onClick={() => src && setBig({ src, name: fileName(n) })} className="block aspect-square w-full overflow-hidden bg-neutral-200" aria-label="Foto groß anzeigen">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   {src ? <img src={src} alt={n.text || "Foto"} className="h-full w-full object-cover" loading="lazy" />
                     : <span className="flex h-full items-center justify-center text-2xl text-neutral-400">📷</span>}
@@ -250,12 +268,17 @@ export function Pinboard() {
         </button>
       )}
       {big && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4" onClick={() => setBig(null)} role="dialog" aria-label="Foto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 pb-20" onClick={() => setBig(null)} role="dialog" aria-label="Foto">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={big} alt="Foto" className="max-h-full max-w-full rounded shadow-2xl" />
+          <img src={big.src} alt="Foto" className="max-h-full max-w-full rounded shadow-2xl" />
           <button className="absolute right-4 top-4 rounded-full bg-white/90 px-3 py-1 text-sm font-semibold text-neutral-800">Schließen ✕</button>
+          <button onClick={(e) => { e.stopPropagation(); save(big.src, big.name); }}
+            className="absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-white px-5 py-2.5 text-base font-semibold text-neutral-900 shadow-lg active:scale-95">
+            {saving === big.name ? "Lädt …" : "⬇️ Speichern"}
+          </button>
         </div>
       )}
+      {saveMsg && <p className="fixed bottom-24 left-1/2 z-[60] -translate-x-1/2 rounded-full bg-neutral-900 px-4 py-2 text-sm text-white shadow-lg">{saveMsg}</p>}
     </section>
   );
 }
