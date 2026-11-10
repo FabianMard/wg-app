@@ -8,8 +8,34 @@ import type { Expense } from "@/lib/types";
 import { computeBalances, suggestTransfers, type Transfer } from "@/lib/balances";
 import { euro, formatDate, todayISO } from "@/lib/dates";
 import { Avatar, btnCls, btnGhostCls, Card, DeleteButton, Empty, inputCls, PageTitle, SectionTitle } from "@/components/ui";
+import { CostRequests, useOpenRequestCount } from "@/components/CostRequests";
 
+type Tab = "kosten" | "einreichen";
+
+/** Kosten mit Reiter „Kosten einreichen“ (?tab=einreichen) */
 export default function Kosten() {
+  const [tab, setTab] = useState<Tab>(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tab") === "einreichen" ? "einreichen" : "kosten");
+  const openCount = useOpenRequestCount();
+  const go = (t: Tab) => { setTab(t); window.history.replaceState(null, "", t === "kosten" ? location.pathname : "?tab=einreichen"); };
+  return (
+    <>
+      <PageTitle sub={tab === "einreichen" ? "Etwas für die WG ausgelegt? Einreichen – der Vorsitz des Haushaltsausschusses gibt frei." : "Ausgaben eintragen und am Ende mit möglichst wenigen Überweisungen ausgleichen."}>
+        {tab === "einreichen" ? "Kosten einreichen" : "Kosten teilen"}
+      </PageTitle>
+      <div className="mb-4 grid grid-cols-2 gap-1 rounded-xl bg-line/50 p-1 text-sm font-semibold">
+        <button onClick={() => go("kosten")} className={`rounded-lg py-2 transition ${tab === "kosten" ? "bg-card shadow-sm" : "text-muted"}`}>💶 Kosten</button>
+        <button onClick={() => go("einreichen")} className={`rounded-lg py-2 transition ${tab === "einreichen" ? "bg-card shadow-sm" : "text-muted"}`}>
+          📝 Kosten einreichen
+          {openCount > 0 && <span className="ml-1.5 rounded-full bg-red-500 px-1.5 py-0.5 text-[11px] font-bold text-white">{openCount}</span>}
+        </button>
+      </div>
+      {tab === "einreichen" ? <CostRequests /> : <CostsView />}
+    </>
+  );
+}
+
+function CostsView() {
   const { household, members, member, myId } = useWG();
   const { rows: expenses, loaded, reload } = useRows<Expense>("expenses", "created_at", false);
   const [title, setTitle] = useState("");
@@ -55,7 +81,6 @@ export default function Kosten() {
 
   return (
     <>
-      <PageTitle sub="Ausgaben eintragen und am Ende mit möglichst wenigen Überweisungen ausgleichen.">Kosten teilen</PageTitle>
 
       <Card className="mb-5">
         <form onSubmit={add} className="space-y-3">

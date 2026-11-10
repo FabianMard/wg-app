@@ -7,6 +7,8 @@ export type Household = {
   shopping_favorites: string[] | null;
   /** WG-Foto (ab 009_wg_foto.sql) */
   photo_path?: string | null;
+  /** Vorsitz des Haushaltsausschusses – gibt eingereichte Kosten frei (ab 023) */
+  finance_chair?: string | null;
 };
 
 export type Member = {
@@ -212,3 +214,19 @@ export type Poll = {
 };
 export type PollOption = { id: string; poll_id: string; household_id: string; label: string; day: string | null; time: string | null; sort: number };
 export type PollVote = { option_id: string; poll_id: string; household_id: string; member_id: string; created_at: string };
+
+export type CostRequest = {
+  id: string;
+  household_id: string;
+  created_by: string;
+  title: string;
+  amount: number;
+  spent_on: string;
+  note: string | null;
+  status: "offen" | "freigegeben" | "abgelehnt";
+  decided_by: string | null;
+  decided_at: string | null;
+  decision_note: string | null;
+  expense_id: string | null;
+  created_at: string;
+};
