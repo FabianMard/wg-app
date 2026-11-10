@@ -9,20 +9,20 @@ import type { CostRequest } from "@/lib/types";
 import { Avatar, btnCls, Card, Empty, inputCls } from "@/components/ui";
 
 /**
- * Kosten einreichen: Wer etwas für die WG ausgelegt hat, reicht es ein.
- * Der Vorsitz des Haushaltsausschusses gibt frei → wird automatisch als Ausgabe eingetragen (geteilt durch alle).
+ * Kosten einreichen – für größere Ausgaben, getrennt von „Kosten teilen“:
+ * einreichen → Vorsitz des Haushaltsausschusses gibt frei → zahlt das Geld direkt an die Person aus.
  */
 
 /** Offene Anträge, die ich als Vorsitz entscheiden muss (für die Zahl am Reiter) */
 export function useOpenRequestCount() {
   const { household, myId } = useWG();
   const { rows } = useRows<CostRequest>("cost_requests", "created_at", false);
-  return household.finance_chair === myId ? rows.filter((r) => r.status === "offen").length : 0;
+  return household.finance_chair === myId ? rows.filter((r) => r.status === "offen" || r.status === "freigegeben").length : 0;
 }
 
-const DB_HINT = "Datenbank-Update fehlt: Bitte supabase/023_kosten_freigabe.sql im SQL Editor ausführen.";
+const DB_HINT = "Datenbank-Update fehlt: Bitte supabase/023_kosten_freigabe.sql und 024_kosten_auszahlung.sql im SQL Editor ausführen.";
 
-export function CostRequests({ onApproved }: { onApproved?: () => void }) {
+export function CostRequests() {
   const { household, members, member, myId, refresh } = useWG();
   const { rows, loaded, reload } = useRows<CostRequest>("cost_requests", "created_at", false);
   const chair = member(household.finance_chair ?? null);
@@ -37,7 +37,8 @@ export function CostRequests({ onApproved }: { onApproved?: () => void }) {
   const [changingChair, setChangingChair] = useState(false);
 
   const open = rows.filter((r) => r.status === "offen");
-  const done = rows.filter((r) => r.status !== "offen").slice(0, 15);
+  const toPay = rows.filter((r) => r.status === "freigegeben");
+  const done = rows.filter((r) => r.status === "ausgezahlt" || r.status === "abgelehnt").slice(0, 15);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -62,9 +63,15 @@ export function CostRequests({ onApproved }: { onApproved?: () => void }) {
     if (!approve && !confirm(`„${r.title}“ (${euro(r.amount)}) ablehnen?`)) return;
     const { error } = await supabase.rpc("decide_cost_request", { p_id: r.id, p_approve: approve, p_note: reason || null });
     if (error) return setMsg({ ok: false, text: error.message.includes("decide_cost_request") ? DB_HINT : error.message });
-    if (r.created_by !== myId) notify("freigabe", `${approve ? "✅ Freigegeben" : "❌ Abgelehnt"}: ${r.title} – ${euro(r.amount)}${reason ? ` („${reason}“)` : ""}`, { to: [r.created_by] });
+    if (r.created_by !== myId) notify("freigabe", `${approve ? "✅ Freigegeben – Auszahlung folgt" : "❌ Abgelehnt"}: ${r.title} – ${euro(r.amount)}${reason ? ` („${reason}“)` : ""}`, { to: [r.created_by] });
     reload();
-    if (approve) onApproved?.();
+  }
+
+  async function paidOut(r: CostRequest) {
+    const { error } = await supabase.rpc("mark_cost_paid", { p_id: r.id });
+    if (error) return setMsg({ ok: false, text: error.message.includes("mark_cost_paid") ? DB_HINT : error.message });
+    if (r.created_by !== myId) notify("freigabe", `💸 Ausgezahlt: ${euro(r.amount)} für ${r.title}`, { to: [r.created_by] });
+    reload();
   }
 
   async function withdraw(r: CostRequest) {
@@ -122,7 +129,7 @@ export function CostRequests({ onApproved }: { onApproved?: () => void }) {
           <input className={`${inputCls} py-2 text-sm`} placeholder="Notiz (optional), z. B. Laden oder Grund" value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} />
           <button disabled={busy} className={`${btnCls} w-full`}>{busy ? "…" : chair && !iAmChair ? `Bei ${chair.display_name} einreichen` : "Einreichen"}</button>
           {msg && <p className={`text-sm ${msg.ok ? "text-green-700 dark:text-green-400" : "text-red-600"}`}>{msg.text}</p>}
-          <p className="text-xs text-muted">Nach der Freigabe wird der Betrag unter Kosten eingetragen: bezahlt von dir, geteilt durch alle.</p>
+          <p className="text-xs text-muted">Für größere Ausgaben für die WG. Läuft getrennt von „Kosten teilen“: Nach der Freigabe zahlt {chair && !iAmChair ? chair.display_name : "der Vorsitz"} dir das Geld direkt aus.</p>
         </form>
       </Card>
 
@@ -167,18 +174,50 @@ export function CostRequests({ onApproved }: { onApproved?: () => void }) {
         </div>
       </div>
 
+      {/* Freigegeben – Auszahlung steht noch aus */}
+      {toPay.length > 0 && (
+        <div className={pendingFirst ? "order-2" : "order-3"}>
+          <p className="mb-2 flex items-baseline justify-between text-xs font-semibold uppercase tracking-wider text-muted">
+            <span>Freigegeben – {iAmChair ? "noch auszuzahlen" : "Auszahlung folgt"}</span>
+            <span className="normal-case tracking-normal">zusammen {euro(toPay.reduce((a, r) => a + Number(r.amount), 0))}</span>
+          </p>
+          <div className="space-y-2">
+            {toPay.map((r) => {
+              const by = member(r.created_by);
+              return (
+                <Card key={r.id} className="flex items-center gap-3">
+                  <Avatar member={by} size={32} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold">{r.title}</p>
+                    <p className="truncate text-xs text-muted">an {by?.id === myId ? "dich" : by?.display_name ?? "?"} · freigegeben {r.decided_at && formatDate(r.decided_at.slice(0, 10))}{r.decision_note && ` · „${r.decision_note}“`}</p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="font-bold tabular-nums">{euro(r.amount)}</p>
+                    {iAmChair
+                      ? <button onClick={() => paidOut(r)} className="mt-1 rounded-lg bg-green-600 px-2.5 py-1 text-xs font-semibold text-white">💸 Ausgezahlt</button>
+                      : <p className="text-[11px] text-muted">⏳ Auszahlung folgt</p>}
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Erledigt */}
       {done.length > 0 && (
         <div className="order-4">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">Entschieden</p>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">Erledigt</p>
           <Card className="divide-y divide-line p-0">
             {done.map((r) => (
               <div key={r.id} className="flex items-center gap-3 px-3 py-2 text-sm">
-                <span className="text-lg">{r.status === "freigegeben" ? "✅" : "❌"}</span>
+                <span className="text-lg">{r.status === "ausgezahlt" ? "💸" : "❌"}</span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium">{r.title}</p>
                   <p className="truncate text-xs text-muted">
-                    {member(r.created_by)?.display_name ?? "?"} · {r.status === "freigegeben" ? "freigegeben" : "abgelehnt"}{r.decided_at && ` am ${formatDate(r.decided_at.slice(0, 10))}`}
+                    {member(r.created_by)?.display_name ?? "?"} · {r.status === "ausgezahlt"
+                      ? `ausgezahlt${r.paid_out_at ? ` am ${formatDate(r.paid_out_at.slice(0, 10))}` : ""}`
+                      : `abgelehnt${r.decided_at ? ` am ${formatDate(r.decided_at.slice(0, 10))}` : ""}`}
                     {r.decision_note && ` · „${r.decision_note}“`}
                   </p>
                 </div>

@@ -223,7 +223,8 @@ export type CostRequest = {
   amount: number;
   spent_on: string;
   note: string | null;
-  status: "offen" | "freigegeben" | "abgelehnt";
+  status: "offen" | "freigegeben" | "ausgezahlt" | "abgelehnt";
+  paid_out_at?: string | null;
   decided_by: string | null;
   decided_at: string | null;
   decision_note: string | null;

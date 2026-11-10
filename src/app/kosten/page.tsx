@@ -20,7 +20,7 @@ export default function Kosten() {
   const go = (t: Tab) => { setTab(t); window.history.replaceState(null, "", t === "kosten" ? location.pathname : "?tab=einreichen"); };
   return (
     <>
-      <PageTitle sub={tab === "einreichen" ? "Etwas für die WG ausgelegt? Einreichen – der Vorsitz des Haushaltsausschusses gibt frei." : "Ausgaben eintragen und am Ende mit möglichst wenigen Überweisungen ausgleichen."}>
+      <PageTitle sub={tab === "einreichen" ? "Größere Ausgaben für die WG einreichen – der Vorsitz des Haushaltsausschusses gibt frei und zahlt direkt aus. Getrennt von „Kosten teilen“." : "Ausgaben eintragen und am Ende mit möglichst wenigen Überweisungen ausgleichen."}>
         {tab === "einreichen" ? "Kosten einreichen" : "Kosten teilen"}
       </PageTitle>
       <div className="mb-4 grid grid-cols-2 gap-1 rounded-xl bg-line/50 p-1 text-sm font-semibold">
