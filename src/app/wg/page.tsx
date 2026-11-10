@@ -18,7 +18,21 @@ const MEMBER_COLORS = [
   "#be123c", "#78716c", "#334155",
 ];
 
+type Tab = "ich" | "wg" | "gaeste" | "daten";
+const TAB_KEYS: Tab[] = ["ich", "wg", "gaeste", "daten"];
+const TAB_SUB: Record<Tab, string> = {
+  ich: "Dein Profil, deine Farbe und welche Push-Nachrichten du bekommst.",
+  wg: "Mitbewohner einladen, WG-Foto und Name.",
+  gaeste: "Gäste einladen und verwalten.",
+  daten: "Sicherung aller WG-Daten und Aufräumen des Fotospeichers.",
+};
+
 export default function WGSettings() {
+  const [tab, setTab] = useState<Tab>(() => {
+    const t = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("tab") : null;
+    return TAB_KEYS.includes(t as Tab) ? (t as Tab) : "ich";
+  });
+  const go = (t: Tab) => { setTab(t); window.history.replaceState(null, "", t === "ich" ? location.pathname : `?tab=${t}`); };
   const { household, members, myId, me, refresh } = useWG();
   const [colorErr, setColorErr] = useState<string | null>(null);
   const [myColor, setMyColor] = useState<string | null>(null); // sofort anzeigen
@@ -131,111 +145,130 @@ export default function WGSettings() {
     await supabase.auth.signOut();
   }
 
+  const TABS: { key: Tab; label: string }[] = [
+    { key: "ich", label: "👤 Ich" }, { key: "wg", label: "🏠 WG" }, { key: "gaeste", label: "🧳 Gäste" }, { key: "daten", label: "💾 Daten" },
+  ];
   return (
     <>
-      <PageTitle>{household.name}</PageTitle>
-
-      <Card>
-        <p className="font-semibold">Mitbewohner einladen</p>
-        <p className="mt-1 text-sm text-muted">
-          Wer diesen Link hat, kann sich ohne Anmeldung als Mitbewohner eintragen. Teilt ihn nur in eurer WG-Gruppe.
-        </p>
-        <p className="mt-3 break-all rounded-xl bg-line/40 px-3 py-2 font-mono text-sm">{link}</p>
-        <div className="mt-3 flex gap-2">
-          <button onClick={share} className={btnCls}>Link teilen</button>
-          <button onClick={copy} className={btnGhostCls}>{copied ? "Kopiert ✓" : "Kopieren"}</button>
-        </div>
-        <p className="mt-3 text-xs text-muted">Code zum Eintippen: <b className="font-mono tracking-widest">{household.invite_code}</b></p>
-      </Card>
-
-      <SectionTitle>🔔 Push-Nachrichten</SectionTitle>
-      <PushSettings />
-
-      <SectionTitle>WG-Foto</SectionTitle>
-      <Card className="flex items-center gap-4">
-        {wgPhoto
-          // eslint-disable-next-line @next/next/no-img-element
-          ? <img src={wgPhoto} alt="WG-Foto" className="h-[72px] w-[72px] shrink-0 rounded-2xl object-cover ring-1 ring-line" />
-          : <span className="flex h-[72px] w-[72px] shrink-0 items-center justify-center rounded-2xl bg-line/50 text-3xl">🏠</span>}
-        <div className="flex flex-1 flex-col gap-2">
-          <div className="flex flex-wrap gap-2">
-            <button onClick={() => wgCamRef.current?.click()} disabled={photoBusy} className={btnGhostCls}>📷 Foto machen</button>
-            <button onClick={() => wgGalRef.current?.click()} disabled={photoBusy} className={btnGhostCls}>🖼️ Aus Galerie</button>
-          </div>
-          {household.photo_path && <button onClick={removeWgPhoto} className="self-start text-xs text-muted underline">WG-Foto entfernen</button>}
-          <p className="text-xs text-muted">Erscheint oben neben dem WG-Namen – für alle in der WG.</p>
-        </div>
-        <input ref={wgCamRef} type="file" accept="image/*" capture="environment" onChange={uploadWgPhoto} className="hidden" />
-        <input ref={wgGalRef} type="file" accept="image/*" onChange={uploadWgPhoto} className="hidden" />
-      </Card>
-
-      <SectionTitle>Profilfoto</SectionTitle>
-      <Card className="flex items-center gap-4">
-        <Avatar member={me} size={72} />
-        <div className="flex flex-1 flex-col gap-2">
-          <div className="flex flex-wrap gap-2">
-            <button onClick={() => camRef.current?.click()} disabled={photoBusy} className={btnCls}>📷 Foto machen</button>
-            <button onClick={() => galRef.current?.click()} disabled={photoBusy} className={btnGhostCls}>🖼️ Aus Galerie</button>
-          </div>
-          {me?.photo_path && <button onClick={removePhoto} className="self-start text-xs text-muted underline">Foto entfernen</button>}
-          {photoBusy && <p className="text-xs text-muted">Wird hochgeladen …</p>}
-          {photoErr && <p className="text-sm text-red-600">{photoErr}</p>}
-          <p className="text-xs text-muted">Nur eure WG kann das Foto sehen.</p>
-        </div>
-        <input ref={camRef} type="file" accept="image/*" capture="user" onChange={uploadPhoto} className="hidden" />
-        <input ref={galRef} type="file" accept="image/*" onChange={uploadPhoto} className="hidden" />
-      </Card>
-
-      <SectionTitle>Deine Farbe</SectionTitle>
-      <Card>
-        <p className="mb-3 text-sm text-muted">So erscheinst du überall in der App: Kreis, Kalender-Balken, Putzplan.</p>
-        <div className="flex flex-wrap gap-2.5">
-          {MEMBER_COLORS.map((c) => {
-            const current = (myColor ?? me?.color) === c;
-            const takenBy = members.find((m) => m.id !== myId && m.color === c);
-            return (
-              <button key={c} onClick={() => !takenBy && !current && pickColor(c)} disabled={!!takenBy}
-                title={takenBy ? `Schon vergeben an ${takenBy.display_name}` : c}
-                aria-label={takenBy ? `Farbe vergeben an ${takenBy.display_name}` : `Farbe ${c} wählen`}
-                className={`relative flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold text-white transition active:scale-90
-                  ${current ? "ring-[3px] ring-accent ring-offset-2 ring-offset-card" : ""} ${takenBy ? "cursor-not-allowed opacity-35" : "hover:scale-110"}`}
-                style={{ background: c }}>
-                {current ? "✓" : takenBy ? takenBy.display_name.slice(0, 1) : ""}
-              </button>
-            );
-          })}
-        </div>
-        <p className="mt-2 text-xs text-muted">Blasse Farben mit Buchstaben sind schon vergeben.</p>
-        {colorErr && <p className="mt-2 text-sm text-red-600">{colorErr}</p>}
-      </Card>
-
-      <SectionTitle>Gäste</SectionTitle>
-      <GuestManager />
-
-      <SectionTitle>Mitbewohner ({members.length})</SectionTitle>
-      <Card className="divide-y divide-line p-0">
-        {members.map((m) => (
-          <div key={m.id} className="flex items-center gap-3 px-4 py-3">
-            <Avatar member={m} />
-            <span className="flex-1">{m.display_name}{m.id === myId && <span className="text-muted"> (du)</span>}</span>
-            {!m.user_id && <span className="text-xs text-muted">noch nicht dabei</span>}
-            <span className="text-sm font-medium">🐝 {beesOf(praises, m.id)}</span>
-          </div>
+      <PageTitle sub={TAB_SUB[tab]}>{household.name}</PageTitle>
+      <div className="mb-2 grid grid-cols-4 gap-1 rounded-xl bg-line/50 p-1 text-sm font-semibold" role="tablist">
+        {TABS.map((t) => (
+          <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => go(t.key)}
+            className={`rounded-lg px-1 py-2 transition ${tab === t.key ? "bg-card shadow-sm" : "text-muted"}`}>
+            {t.label}
+          </button>
         ))}
-      </Card>
-
-      <SectionTitle>💾 Datensicherung &amp; Speicher</SectionTitle>
-      <BackupCard />
-
-      <SectionTitle>Name der WG</SectionTitle>
-      <form onSubmit={saveName} className="flex gap-2">
-        <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} />
-        <button className={btnCls}>Speichern</button>
-      </form>
-
-      <div className="mt-8 flex flex-wrap gap-2">
-        <button onClick={signOut} className={btnGhostCls}>Auf diesem Gerät abmelden</button>
       </div>
+
+      {tab === "ich" && (<>
+        <SectionTitle>Profilfoto</SectionTitle>
+        <Card className="flex items-center gap-4">
+          <Avatar member={me} size={72} />
+          <div className="flex flex-1 flex-col gap-2">
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => camRef.current?.click()} disabled={photoBusy} className={btnCls}>📷 Foto machen</button>
+              <button onClick={() => galRef.current?.click()} disabled={photoBusy} className={btnGhostCls}>🖼️ Aus Galerie</button>
+            </div>
+            {me?.photo_path && <button onClick={removePhoto} className="self-start text-xs text-muted underline">Foto entfernen</button>}
+            {photoBusy && <p className="text-xs text-muted">Wird hochgeladen …</p>}
+            {photoErr && <p className="text-sm text-red-600">{photoErr}</p>}
+            <p className="text-xs text-muted">Nur eure WG kann das Foto sehen.</p>
+          </div>
+          <input ref={camRef} type="file" accept="image/*" capture="user" onChange={uploadPhoto} className="hidden" />
+          <input ref={galRef} type="file" accept="image/*" onChange={uploadPhoto} className="hidden" />
+        </Card>
+
+        <SectionTitle>Deine Farbe</SectionTitle>
+        <Card>
+          <p className="mb-3 text-sm text-muted">So erscheinst du überall in der App: Kreis, Kalender-Balken, Putzplan.</p>
+          <div className="flex flex-wrap gap-2.5">
+            {MEMBER_COLORS.map((c) => {
+              const current = (myColor ?? me?.color) === c;
+              const takenBy = members.find((m) => m.id !== myId && m.color === c);
+              return (
+                <button key={c} onClick={() => !takenBy && !current && pickColor(c)} disabled={!!takenBy}
+                  title={takenBy ? `Schon vergeben an ${takenBy.display_name}` : c}
+                  aria-label={takenBy ? `Farbe vergeben an ${takenBy.display_name}` : `Farbe ${c} wählen`}
+                  className={`relative flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold text-white transition active:scale-90
+                    ${current ? "ring-[3px] ring-accent ring-offset-2 ring-offset-card" : ""} ${takenBy ? "cursor-not-allowed opacity-35" : "hover:scale-110"}`}
+                  style={{ background: c }}>
+                  {current ? "✓" : takenBy ? takenBy.display_name.slice(0, 1) : ""}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-xs text-muted">Blasse Farben mit Buchstaben sind schon vergeben.</p>
+          {colorErr && <p className="mt-2 text-sm text-red-600">{colorErr}</p>}
+        </Card>
+
+        <SectionTitle>🔔 Push-Nachrichten</SectionTitle>
+        <PushSettings />
+
+        <div className="mt-8 flex flex-wrap gap-2">
+          <button onClick={signOut} className={btnGhostCls}>Auf diesem Gerät abmelden</button>
+        </div>
+      </>)}
+
+      {tab === "wg" && (<>
+        <SectionTitle>Mitbewohner einladen</SectionTitle>
+        <Card>
+          <p className="text-sm text-muted">
+            Wer diesen Link hat, kann sich ohne Anmeldung als Mitbewohner eintragen. Teilt ihn nur in eurer WG-Gruppe.
+          </p>
+          <p className="mt-3 break-all rounded-xl bg-line/40 px-3 py-2 font-mono text-sm">{link}</p>
+          <div className="mt-3 flex gap-2">
+            <button onClick={share} className={btnCls}>Link teilen</button>
+            <button onClick={copy} className={btnGhostCls}>{copied ? "Kopiert ✓" : "Kopieren"}</button>
+          </div>
+          <p className="mt-3 text-xs text-muted">Code zum Eintippen: <b className="font-mono tracking-widest">{household.invite_code}</b></p>
+        </Card>
+
+        <SectionTitle>Mitbewohner ({members.length})</SectionTitle>
+        <Card className="divide-y divide-line p-0">
+          {members.map((m) => (
+            <div key={m.id} className="flex items-center gap-3 px-4 py-3">
+              <Avatar member={m} />
+              <span className="flex-1">{m.display_name}{m.id === myId && <span className="text-muted"> (du)</span>}</span>
+              {!m.user_id && <span className="text-xs text-muted">noch nicht dabei</span>}
+              <span className="text-sm font-medium">🐝 {beesOf(praises, m.id)}</span>
+            </div>
+          ))}
+        </Card>
+
+        <SectionTitle>WG-Foto</SectionTitle>
+        <Card className="flex items-center gap-4">
+          {wgPhoto
+            // eslint-disable-next-line @next/next/no-img-element
+            ? <img src={wgPhoto} alt="WG-Foto" className="h-[72px] w-[72px] shrink-0 rounded-2xl object-cover ring-1 ring-line" />
+            : <span className="flex h-[72px] w-[72px] shrink-0 items-center justify-center rounded-2xl bg-line/50 text-3xl">🏠</span>}
+          <div className="flex flex-1 flex-col gap-2">
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => wgCamRef.current?.click()} disabled={photoBusy} className={btnGhostCls}>📷 Foto machen</button>
+              <button onClick={() => wgGalRef.current?.click()} disabled={photoBusy} className={btnGhostCls}>🖼️ Aus Galerie</button>
+            </div>
+            {household.photo_path && <button onClick={removeWgPhoto} className="self-start text-xs text-muted underline">WG-Foto entfernen</button>}
+            <p className="text-xs text-muted">Erscheint oben neben dem WG-Namen – für alle in der WG.</p>
+          </div>
+          <input ref={wgCamRef} type="file" accept="image/*" capture="environment" onChange={uploadWgPhoto} className="hidden" />
+          <input ref={wgGalRef} type="file" accept="image/*" onChange={uploadWgPhoto} className="hidden" />
+        </Card>
+
+        <SectionTitle>Name der WG</SectionTitle>
+        <form onSubmit={saveName} className="flex gap-2">
+          <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} />
+          <button className={btnCls}>Speichern</button>
+        </form>
+      </>)}
+
+      {tab === "gaeste" && (<>
+        <SectionTitle>Gäste</SectionTitle>
+        <GuestManager />
+      </>)}
+
+      {tab === "daten" && (<>
+        <SectionTitle>💾 Datensicherung &amp; Speicher</SectionTitle>
+        <BackupCard />
+      </>)}
     </>
   );
 }
