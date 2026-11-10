@@ -45,7 +45,9 @@ export function Papers() {
 
 /** Verenas Kunst – zufälliges Bild von ihrer Website (live geladen, bleibt dort) */
 const SITE = "verenapluempe.wordpress.com";
-type Art = { title: string; img: string; url: string; kind: string; year?: string };
+type Art = { title: string; img: string; fallback: string; url: string; kind: string; year?: string };
+/** Vorher aufbereitet: Vercel verkleinert das Original einmal auf Handy-Größe (WebP) und speichert es zwischen */
+const optimized = (file: string) => `/_next/image?url=${encodeURIComponent(file)}&w=828&q=70`;
 type WpItem = { title: string; URL: string; content: string };
 
 /** Seiten mit Kunst (About/Projects/Latest posts zeigen Fotos bzw. Banner) */
@@ -56,8 +58,9 @@ const decode = (t: string) => { const el = document.createElement("textarea"); e
 /** "52_castle_7_HQ" → "Castle 7", "2023_08_forest" → "Forest" (2023), "IMG_6574" → null */
 function niceTitle(raw: string): { title: string | null; year?: string } {
   let t = decode(raw).trim();
-  const year = t.match(/^(20\d\d)[_-]/)?.[1];
-  t = t.replace(/^(20\d\d)[_-](\d\d[_-])?/, "").replace(/^\d+[_-]/, "").replace(/[_-]?HQ\d*$/i, "").replace(/[_-]protected$/i, "").replace(/[_ -](small|klein|web|final)$/i, "").replace(/[_-]+/g, " ").trim();
+  // Jahr vorne: "2021_x", "2021x", "2023_08_x", "20240624_x"
+  const year = t.match(/^(20\d\d)(?:\d{4}[_-]|[_-]|(?=[a-z]))/i)?.[1];
+  t = t.replace(/^(20\d\d)(?:\d{4}[_-]|[_-](\d\d[_-])?|(?=[a-z]))/i, "").replace(/^\d+[_-]/, "").replace(/[_-]?HQ\d*$/i, "").replace(/[_-]protected$/i, "").replace(/[_ -](small|klein|web|final)$/i, "").replace(/[_-]+/g, " ").replace(/([a-zäöü])(\d+)$/i, "$1 $2").trim();
   if (!t || /^(img|dsc|albumtemp|\d{6,}|[0-9a-f]{8} ?[0-9a-f]{4})/i.test(t)) return { title: null, year };
   return { title: t.charAt(0).toUpperCase() + t.slice(1), year };
 }
@@ -76,7 +79,9 @@ function collectArt(posts: WpItem[], pages: WpItem[]): Art[] {
       seen.set(file, {
         title: postTitle || nt.title || "Ohne Titel", year: nt.year, kind, url: item.URL,
         // Über WordPress' Bild-Server laden – direkt von der Seite blockieren Handys das Bild teils (Mobil-Weiterleitung)
-        img: `https://i0.wp.com/${file.replace(/^https?:\/\//, "")}?w=900`,
+        img: optimized(file),
+        // Notlösung, falls die Aufbereitung einmal scheitert: WordPress' eigener Bild-Server
+        fallback: `https://i0.wp.com/${file.replace(/^https?:\/\//, "")}?w=900`,
       });
     }
   };
@@ -93,6 +98,7 @@ export function ArtGallery() {
   const [err, setErr] = useState(false);
   const [i, setI] = useState(0);
   const [loadedImg, setLoadedImg] = useState(false);
+  const [useFallback, setUseFallback] = useState(false);
 
   useEffect(() => {
     const api = `https://public-api.wordpress.com/rest/v1.1/sites/${SITE}/posts?number=100&fields=title,URL,content`;
@@ -109,9 +115,15 @@ export function ArtGallery() {
       .catch(() => setErr(true));
   }, []);
 
+  // Die nächsten zwei Bilder schon im Hintergrund laden → „Anderes Bild“ zeigt sofort etwas
+  useEffect(() => {
+    if (!arts || arts.length < 2) return;
+    for (const k of [1, 2]) { const im = new Image(); im.src = arts[(i + k) % arts.length].img; }
+  }, [arts, i]);
+
   const next = useCallback(() => {
     if (!arts || arts.length < 2) return;
-    setLoadedImg(false);
+    setLoadedImg(false); setUseFallback(false);
     setI((cur) => (cur + 1) % arts.length);
   }, [arts]);
 
@@ -123,9 +135,10 @@ export function ArtGallery() {
   return (
     <div className="space-y-3">
       <div className="relative overflow-hidden rounded-2xl border border-line bg-line/30">
-        {!loadedImg && <div className="flex aspect-[4/3] items-center justify-center text-4xl">🎨</div>}
+        {!loadedImg && <div className="flex aspect-[4/3] animate-pulse flex-col items-center justify-center gap-1 text-4xl">🎨<span className="text-xs text-muted">Bild wird vorbereitet …</span></div>}
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img key={a.img} src={a.img} alt={a.title} onLoad={() => setLoadedImg(true)}
+        <img key={a.img + (useFallback ? "-fb" : "")} src={useFallback ? a.fallback : a.img} alt={a.title} onLoad={() => setLoadedImg(true)}
+          onError={() => { if (!useFallback) setUseFallback(true); }}
           className={`max-h-[55dvh] w-full object-contain ${loadedImg ? "" : "absolute inset-0 opacity-0"}`} />
       </div>
       <div className="flex items-center justify-between gap-2">
