@@ -25,7 +25,7 @@ export const COLS = MAP[0].length;
 export const ROWS = MAP.length;
 
 export type Action = "start" | "putzplan" | "einkauf" | "kosten" | "kalender" | "todos" | "wg" | "watchlist" | "pinnwand" | "musik"
-  | "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine" | "kite" | "kitegame" | "tennis" | "paper" | "kunst" | "giessspiel" | "bestenliste";
+  | "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine" | "kite" | "kitegame" | "tennis" | "paper" | "kunst" | "giessspiel" | "bestenliste" | "wandbild";
 
 /** owner = Index des Mitbewohners (members.sort), dem der Gegenstand gehört */
 export type GameObject = { x: number; y: number; icon: string; label: string; action: Action; hint: string; owner?: number };
@@ -65,6 +65,10 @@ export const OBJECTS: GameObject[] = [
     [5, 14, "🌷"], [6, 14, "🪴"], [6, 13, "🌿"], [6, 12, "🎋"], [5, 12, "🍀"],
   ] as const).map(([x, y, icon]) => ({ x, y, icon, label: "Pflanze", action: "giessspiel" as const, hint: "Minispiel: Verenas Dschungel gießen 💧", owner: 0 })),
   { x: 6, y: 10, icon: "👚", label: "Kleiderschrank", action: "kleiderschrank", hint: "Verenas Schrank – ausleihen erlaubt", owner: 0 },
+  // Bilderrahmen an der Wand zum Flur – jede*r kann eins von Verenas Bildern aufhängen
+  { x: 3, y: 9, icon: "🖼️", label: "Bild", action: "wandbild", hint: "Bild an der Wand ansehen", owner: 0 },
+  { x: 9, y: 9, icon: "🖼️", label: "Bild", action: "wandbild", hint: "Bild an der Wand ansehen", owner: 1 },
+  { x: 16, y: 9, icon: "🖼️", label: "Bild", action: "wandbild", hint: "Bild an der Wand ansehen", owner: 2 },
   // Verenas Schreibtisch: Paper & Kunst
   { x: 5, y: 10, icon: "📄", label: "Paper", action: "paper", hint: "Verenas Forschung lesen", owner: 0 },
   { x: 2, y: 13, icon: "🎨", label: "Farbpalette", action: "kunst", hint: "Ein Bild von Verena ansehen", owner: 0 },

@@ -21,6 +21,7 @@ export type Member = {
   photo_path?: string | null;
   /** "Ich lese gerade" (ab 011_buecher.sql) */
   reading?: Reading | null;
+  wall_art?: WallArt | null;   // Bild an der Wand im eigenen Zimmer
   /** ab 012: Mitbewohner oder Gast */
   role?: "mitbewohner" | "gast";
   /** Freigaben eines Gastes */
@@ -191,3 +192,5 @@ export type TennisMatch = {
   loser_points: number;
   created_at: string;
 };
+
+export type WallArt = { title: string; file: string; url: string; kind: string; year?: string };

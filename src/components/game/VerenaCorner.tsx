@@ -1,6 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
+import { useWG } from "@/lib/wg";
+import type { Member, WallArt } from "@/lib/types";
 
 /** Verenas Paper – Auswahl zum Lesen (öffnet die Verlagsseite) */
 const PAPERS = [
@@ -45,9 +48,9 @@ export function Papers() {
 
 /** Verenas Kunst – zufälliges Bild von ihrer Website (live geladen, bleibt dort) */
 const SITE = "verenapluempe.wordpress.com";
-type Art = { title: string; img: string; fallback: string; url: string; kind: string; year?: string };
-/** Vorher aufbereitet: Vercel verkleinert das Original einmal auf Handy-Größe (WebP) und speichert es zwischen */
-const optimized = (file: string) => `/_next/image?url=${encodeURIComponent(file)}&w=828&q=70`;
+type Art = { title: string; img: string; fallback: string; file: string; url: string; kind: string; year?: string };
+/** Vorher aufbereitet: Vercel verkleinert das Original einmal (WebP) und speichert es zwischen. w muss eine Next-Bildgröße sein. */
+export const optimized = (file: string, w: 128 | 384 | 828 = 828) => `/_next/image?url=${encodeURIComponent(file)}&w=${w}&q=70`;
 type WpItem = { title: string; URL: string; content: string };
 
 /** Seiten mit Kunst (About/Projects/Latest posts zeigen Fotos bzw. Banner) */
@@ -79,7 +82,7 @@ function collectArt(posts: WpItem[], pages: WpItem[]): Art[] {
       seen.set(file, {
         title: postTitle || nt.title || "Ohne Titel", year: nt.year, kind, url: item.URL,
         // Über WordPress' Bild-Server laden – direkt von der Seite blockieren Handys das Bild teils (Mobil-Weiterleitung)
-        img: optimized(file),
+        img: optimized(file), file,
         // Notlösung, falls die Aufbereitung einmal scheitert: WordPress' eigener Bild-Server
         fallback: `https://i0.wp.com/${file.replace(/^https?:\/\//, "")}?w=900`,
       });
@@ -94,6 +97,19 @@ function collectArt(posts: WpItem[], pages: WpItem[]): Art[] {
 }
 
 export function ArtGallery() {
+  const { me, isGuest, refresh } = useWG();
+  const [hangMsg, setHangMsg] = useState<string | null>(null);
+  const [hanging, setHanging] = useState(false);
+  async function hang(a: Art) {
+    if (!me) return;
+    setHanging(true); setHangMsg(null);
+    const wall: WallArt = { title: a.title, file: a.file, url: a.url, kind: a.kind, ...(a.year ? { year: a.year } : {}) };
+    const { error } = await supabase.from("members").update({ wall_art: wall }).eq("id", me.id);
+    setHanging(false);
+    if (error) { setHangMsg(error.message.includes("wall_art") ? "Datenbank-Update fehlt: Bitte supabase/021_wandbild.sql im SQL Editor ausführen." : error.message); return; }
+    await refresh();
+    setHangMsg(`✓ „${a.title}“ hängt jetzt in deinem Zimmer`);
+  }
   const [arts, setArts] = useState<Art[] | null>(null);
   const [err, setErr] = useState(false);
   const [i, setI] = useState(0);
@@ -148,7 +164,62 @@ export function ArtGallery() {
         </div>
         <button onClick={next} className="shrink-0 rounded-full bg-accent px-3 py-1.5 text-sm font-semibold text-white active:scale-95">🎲 Anderes Bild</button>
       </div>
+      {!isGuest && me && (
+        me.wall_art?.file === a.file
+          ? <p className="rounded-xl bg-green-500/10 px-3 py-2 text-sm font-medium text-green-700 dark:text-green-400">🖼️ Hängt schon in deinem Zimmer</p>
+          : (
+            <button onClick={() => hang(a)} disabled={hanging}
+              className="w-full rounded-2xl border-2 border-amber-500/60 bg-amber-400/10 px-3 py-2.5 text-sm font-semibold transition active:scale-[.98] disabled:opacity-50">
+              {hanging ? "Wird aufgehängt …" : me.wall_art ? <>🖼️ Austauschen – statt „{me.wall_art.title}“ in mein Zimmer</> : "🖼️ In mein Zimmer hängen"}
+            </button>
+          )
+      )}
+      {hangMsg && <p className={`text-sm ${hangMsg.startsWith("✓") ? "text-green-700 dark:text-green-400" : "text-red-600"}`}>{hangMsg}</p>}
       <a href={a.url} target="_blank" rel="noopener noreferrer" className="inline-block text-xs font-medium text-accent hover:underline">Auf verenapluempe.wordpress.com ansehen ↗</a>
+    </div>
+  );
+}
+
+/** Das Bild an der Wand eines Zimmers */
+export function WallArtView({ owner }: { owner: Member }) {
+  const { me, refresh } = useWG();
+  const [loaded, setLoaded] = useState(false);
+  const mine = me?.id === owner.id;
+  const art = owner.wall_art;
+  async function takeDown() {
+    if (!confirm(`„${art?.title}“ abhängen?`)) return;
+    await supabase.from("members").update({ wall_art: null }).eq("id", owner.id);
+    await refresh();
+  }
+  if (!art) {
+    return (
+      <div className="space-y-2 py-4 text-center">
+        <p className="text-5xl">🖼️</p>
+        <p className="font-semibold">{mine ? "Dein Bilderrahmen ist noch leer." : `${owner.display_name} hat noch kein Bild aufgehängt.`}</p>
+        {mine && <p className="text-sm text-muted">Such dir eins aus: in Verenas Zimmer an der 🎨 Farbpalette → „In mein Zimmer hängen“.</p>}
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      {/* Goldrahmen */}
+      <div className="mx-auto w-fit max-w-full rounded-md p-2.5 shadow-xl" style={{ background: "linear-gradient(135deg,#f5d77a,#b8860b 45%,#f5d77a 70%,#a87408)" }}>
+        <div className="relative bg-white p-2">
+          {!loaded && <div className="flex aspect-square w-64 max-w-full animate-pulse items-center justify-center text-4xl">🎨</div>}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={optimized(art.file)} alt={art.title} onLoad={() => setLoaded(true)}
+            className={`max-h-[50dvh] max-w-full object-contain ${loaded ? "" : "absolute inset-0 opacity-0"}`} />
+        </div>
+      </div>
+      <div className="text-center">
+        <p className="font-semibold">„{art.title}“</p>
+        <p className="text-xs text-muted">{art.kind}{art.year ? ` · ${art.year}` : ""} · von Verena Plümpe · hängt bei {mine ? "dir" : owner.display_name}</p>
+      </div>
+      <div className="flex flex-wrap justify-center gap-2">
+        <a href={art.url} target="_blank" rel="noopener noreferrer" className="rounded-xl border border-line px-3 py-1.5 text-sm font-medium">Auf der Website ansehen ↗</a>
+        {mine && <button onClick={takeDown} className="rounded-xl border border-line px-3 py-1.5 text-sm font-medium">Abhängen</button>}
+      </div>
+      {mine && <p className="text-center text-xs text-muted">Austauschen: in Verenas Zimmer an der 🎨 Farbpalette ein anderes Bild aussuchen.</p>}
     </div>
   );
 }

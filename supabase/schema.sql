@@ -850,5 +850,8 @@ create policy "Eigene Nachrichten lesen" on public.messages for select
 create policy "Nachricht schreiben" on public.messages for insert
   with check (is_member(household_id) and from_member = my_member_id() and (to_member is null or to_member <> from_member));
 
+-- ───────────── Bild an der Wand ─────────────
+alter table public.members add column if not exists wall_art jsonb;   -- { title, file, url, kind, year }
+
 -- Euer Einladungslink: https://<eure-adresse>/?code=<invite_code>
 select name, invite_code from public.households;
