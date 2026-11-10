@@ -194,3 +194,21 @@ export type TennisMatch = {
 };
 
 export type WallArt = { title: string; file: string; url: string; kind: string; year?: string };
+
+export type Poll = {
+  id: string;
+  household_id: string;
+  created_by: string | null;
+  title: string;
+  note: string | null;
+  kind: "termin" | "janein" | "auswahl";
+  rule: "mehrheit" | "einstimmig";
+  multi: boolean;
+  deadline: string | null;
+  closed_at: string | null;
+  result: string | null;
+  event_id: string | null;
+  created_at: string;
+};
+export type PollOption = { id: string; poll_id: string; household_id: string; label: string; day: string | null; time: string | null; sort: number };
+export type PollVote = { option_id: string; poll_id: string; household_id: string; member_id: string; created_at: string };

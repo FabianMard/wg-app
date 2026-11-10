@@ -3,13 +3,14 @@ import { supabase } from "./supabase";
 /** Öffentlicher VAPID-Schlüssel (darf öffentlich sein; der private liegt nur auf Vercel) */
 export const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "BLE36QcPepvr8b04GqQwSOSdP2-AjqQMbXreTT2UREyOA5p1bf5tTUwo1ZIMJF5EzcuRYfjVCYfptSql4-UcbrI";
 
-export type PushArea = "einkauf" | "kosten" | "kalender" | "todos" | "pinnwand" | "watchlist" | "musik" | "chat";
+export type PushArea = "einkauf" | "kosten" | "kalender" | "abstimmung" | "todos" | "pinnwand" | "watchlist" | "musik" | "chat";
 export type PushMode = "aus" | "jeder" | "taeglich";
 
 export const PUSH_AREAS: { id: PushArea; label: string; icon: string; url: string; hint: string }[] = [
   { id: "einkauf", label: "Einkaufsliste", icon: "🛒", url: "/einkauf", hint: "Neue Sachen auf der Liste" },
   { id: "kosten", label: "Kosten", icon: "💶", url: "/kosten", hint: "Neue Ausgaben" },
   { id: "kalender", label: "Kalender", icon: "📅", url: "/kalender", hint: "Neue Termine, die du sehen darfst" },
+  { id: "abstimmung", label: "Abstimmungen", icon: "🗳️", url: "/kalender?tab=abstimmung", hint: "Neue Abstimmungen & Ergebnisse" },
   { id: "todos", label: "To-dos", icon: "✅", url: "/todos", hint: "Neue Aufgaben" },
   { id: "pinnwand", label: "Pinnwand", icon: "📌", url: "/pinnwand", hint: "Neue Zettel & Fotos" },
   { id: "watchlist", label: "Watchlist", icon: "📺", url: "/todos?tab=watchlist", hint: "Neue Filme & Serien" },
@@ -20,7 +21,7 @@ export const PUSH_AREAS: { id: PushArea; label: string; icon: string; url: strin
 /** Vorschlag beim Einschalten: Nachrichten an mich immer, alles andere 1× am Tag, Geburtstage morgens um 9 */
 export const DEFAULT_PREFS: Record<PushArea, PushMode> & { geburtstag: PushMode; geburtstag_zeit: string } = {
   geburtstag: "taeglich", geburtstag_zeit: "09",
-  einkauf: "taeglich", kosten: "taeglich", kalender: "taeglich", todos: "taeglich",
+  einkauf: "taeglich", kosten: "taeglich", kalender: "taeglich", abstimmung: "jeder", todos: "taeglich",
   pinnwand: "taeglich", watchlist: "taeglich", musik: "taeglich", chat: "jeder",
 };
 

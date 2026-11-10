@@ -11,11 +11,40 @@ import { holidayOn } from "@/lib/holidays";
 import { birthdayName, displayTitle, eventKind, isPrivate, KIND_STYLE, occurrencesOn, RECURRENCE_LABEL, rangeLabel, type Occurrence } from "@/lib/events";
 import { addDays } from "@/lib/dates";
 import { Avatar, btnCls, Card, DeleteButton, inputCls, PageTitle, SectionTitle } from "@/components/ui";
+import { Polls, useOpenPollCount } from "@/components/Polls";
 
 const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 const MAX_EVENTS_IN_TILE = 2;
 
+type Tab = "kalender" | "abstimmung";
+
+/** Kalender mit Reiter „Abstimmungen“ (?tab=abstimmung) */
 export default function Kalender() {
+  const { isGuest } = useWG();
+  const [tab, setTab] = useState<Tab>(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tab") === "abstimmung" ? "abstimmung" : "kalender");
+  const openPolls = useOpenPollCount();
+  const go = (t: Tab) => { setTab(t); window.history.replaceState(null, "", t === "kalender" ? location.pathname : "?tab=abstimmung"); };
+  return (
+    <>
+      <PageTitle sub={tab === "abstimmung" ? "Termine finden, Ja/Nein oder Auswahl – ihr entscheidet vorher, ob Mehrheit reicht." : undefined}>
+        {tab === "abstimmung" ? "Abstimmungen" : "Kalender"}
+      </PageTitle>
+      {!isGuest && (
+        <div className="mb-4 grid grid-cols-2 gap-1 rounded-xl bg-line/50 p-1 text-sm font-semibold">
+          <button onClick={() => go("kalender")} className={`rounded-lg py-2 transition ${tab === "kalender" ? "bg-card shadow-sm" : "text-muted"}`}>📅 Kalender</button>
+          <button onClick={() => go("abstimmung")} className={`relative rounded-lg py-2 transition ${tab === "abstimmung" ? "bg-card shadow-sm" : "text-muted"}`}>
+            🗳️ Abstimmungen
+            {openPolls > 0 && <span className="ml-1.5 rounded-full bg-red-500 px-1.5 py-0.5 text-[11px] font-bold text-white">{openPolls}</span>}
+          </button>
+        </div>
+      )}
+      {tab === "abstimmung" && !isGuest ? <Polls /> : <CalendarView />}
+    </>
+  );
+}
+
+function CalendarView() {
   const { household, members, everyone, myId, member, isGuest } = useWG();
   const { rows: events, reload } = useRows<CalEvent>("events", "day");
   const { rows: areas } = useRows<ChoreArea>("chore_areas", "sort");
@@ -140,7 +169,6 @@ export default function Kalender() {
 
   return (
     <>
-      <PageTitle>Kalender</PageTitle>
       <Card className="overflow-hidden p-0">
         <div className="flex items-center justify-between px-2 py-2">
           <button onClick={() => shift(-1)} className="rounded-lg px-3 py-1 text-lg hover:bg-line/50" aria-label="Vorheriger Monat">‹</button>
