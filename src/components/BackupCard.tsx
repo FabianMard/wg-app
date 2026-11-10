@@ -36,7 +36,7 @@ export function BackupCard() {
     setMsg(null); setBusy("Räume auf …");
     const r = await cleanupPhotos(household.id);
     setBusy(null);
-    setMsg(r.removed ? `🧹 ${r.removed} nicht mehr verwendete ${r.removed === 1 ? "Foto" : "Fotos"} gelöscht (${mb(r.bytes)} frei).` : "🧹 Alles sauber – keine verwaisten Fotos gefunden.");
+    setMsg(r.removed ? `🧹 ${r.removed} nicht mehr verwendete ${r.removed === 1 ? "Datei" : "Dateien"} gelöscht (${mb(r.bytes)} frei).` : "🧹 Alles sauber – keine verwaisten Fotos oder Songs gefunden.");
   }
 
   return (
@@ -55,10 +55,10 @@ export function BackupCard() {
       </label>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <button onClick={backup} disabled={!!busy} className={btnCls}>{busy && busy !== "Räume auf …" ? busy : "💾 Datensicherung herunterladen"}</button>
-        <button onClick={cleanup} disabled={!!busy} className="rounded-xl border border-line px-4 py-2.5 text-sm font-semibold">{busy === "Räume auf …" ? busy : "🧹 Fotospeicher aufräumen"}</button>
+        <button onClick={cleanup} disabled={!!busy} className="rounded-xl border border-line px-4 py-2.5 text-sm font-semibold">{busy === "Räume auf …" ? busy : "🧹 Speicher aufräumen"}</button>
       </div>
       {msg && <p className="text-sm">{msg}</p>}
-      <p className="text-xs text-muted">Aufräumen löscht nur Fotos, die nirgends mehr angezeigt werden. Das passiert außerdem automatisch einmal pro Woche.</p>
+      <p className="text-xs text-muted">Aufräumen löscht nur Fotos und Songs, die nirgends mehr verwendet werden. Das passiert außerdem automatisch einmal pro Woche.</p>
     </Card>
   );
 }

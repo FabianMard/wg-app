@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { supabase } from "@/lib/supabase";
+import type { GameSong } from "@/lib/types";
 
 /**
  * Drei eigene, kleine Chiptune-Melodien fürs WG-Spiel.
@@ -160,52 +162,41 @@ export function useGameMusic(songId: string | null) {
   useEffect(() => () => { ctxRef.current?.close(); ctxRef.current = null; }, []);
 }
 
-// ───────────── Eigener Song (bleibt nur auf diesem Gerät) ─────────────
+// ───────────── Eigene Songs der WG (für alle abspielbar) ─────────────
 
-export type CustomSongMeta = { name: string; start: number; end: number | null };
-const META_KEY = "wg-spiel-eigener-song";
-const DB = "wg-app", STORE = "dateien", FILE_KEY = "spiel-song";
-
-function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore(STORE);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-export async function saveCustomSong(file: Blob, meta: CustomSongMeta) {
-  const db = await openDb();
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).put(file, FILE_KEY);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-  saveCustomMeta(meta);
-}
-export async function loadCustomSong(): Promise<Blob | null> {
+/** Früher lag ein eigener Song nur auf dem Gerät – den Rest davon aufräumen */
+export function dropOldDeviceSong() {
   try {
-    const db = await openDb();
-    return await new Promise((resolve) => {
-      const req = db.transaction(STORE).objectStore(STORE).get(FILE_KEY);
-      req.onsuccess = () => resolve((req.result as Blob) ?? null);
-      req.onerror = () => resolve(null);
-    });
-  } catch { return null; }
-}
-export async function deleteCustomSong() {
-  try {
-    const db = await openDb();
-    db.transaction(STORE, "readwrite").objectStore(STORE).delete(FILE_KEY);
+    if (!localStorage.getItem("wg-spiel-eigener-song")) return;
+    localStorage.removeItem("wg-spiel-eigener-song");
+    const req = indexedDB.open("wg-app", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("dateien");
+    req.onsuccess = () => { try { req.result.transaction("dateien", "readwrite").objectStore("dateien").delete("spiel-song"); } catch { /* egal */ } };
   } catch { /* egal */ }
-  try { localStorage.removeItem(META_KEY); } catch { /* egal */ }
 }
-export function loadCustomMeta(): CustomSongMeta | null {
-  try { return JSON.parse(localStorage.getItem(META_KEY) ?? "null"); } catch { return null; }
+
+export const MAX_SONG_MB = 8;
+export const MAX_SONGS = 3;
+
+/** Song hochladen → für alle in der WG verfügbar */
+export async function uploadSong(householdId: string, file: File, start: number, end: number | null): Promise<string | null> {
+  if (file.size > MAX_SONG_MB * 1024 * 1024) return `Die Datei ist zu groß (max. ${MAX_SONG_MB} MB).`;
+  const ext = (file.name.match(/\.([a-z0-9]{2,5})$/i)?.[1] ?? "mp3").toLowerCase();
+  const path = `${householdId}/${crypto.randomUUID()}.${ext}`;
+  // Manche Handys liefern keinen Dateityp – dann anhand der Endung
+  const types: Record<string, string> = { mp3: "audio/mpeg", m4a: "audio/mp4", aac: "audio/aac", wav: "audio/wav", ogg: "audio/ogg", webm: "audio/webm", flac: "audio/flac", mp4: "audio/mp4" };
+  const contentType = file.type.startsWith("audio/") ? file.type : types[ext] ?? "audio/mpeg";
+  const up = await supabase.storage.from("musik").upload(path, file, { contentType });
+  if (up.error) return /size|exceed|too large/i.test(up.error.message) ? `Die Datei ist zu groß (max. ${MAX_SONG_MB} MB).` : up.error.message.includes("mime") ? "Dieses Dateiformat geht leider nicht (mp3, m4a, wav, ogg, flac)." : up.error.message;
+  const name = file.name.replace(/\.[^.]+$/, "").trim().slice(0, 60) || "Song";
+  const { error } = await supabase.from("game_songs").insert({ household_id: householdId, name, path, size: file.size, start_sec: start, end_sec: end });
+  if (error) { await supabase.storage.from("musik").remove([path]); return error.message; }
+  return null;
 }
-export function saveCustomMeta(meta: CustomSongMeta) {
-  try { localStorage.setItem(META_KEY, JSON.stringify(meta)); } catch { /* privater Modus */ }
+
+export async function deleteSong(song: GameSong) {
+  await supabase.from("game_songs").delete().eq("id", song.id);
+  await supabase.storage.from("musik").remove([song.path]);
 }
 
 /** "1:50" → 110 Sekunden; leer → null */
@@ -218,30 +209,27 @@ export function parseTime(s: string): number | null {
 }
 export const formatTime = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
 
-/** Spielt den eigenen Song von start bis end in Schleife, solange active = true. */
-export function useCustomSong(active: boolean, meta: CustomSongMeta | null) {
-  const start = meta?.start ?? 0, end = meta?.end ?? null;
+/** Spielt einen WG-Song von start bis end in Schleife (null = aus). */
+export function useSharedSong(song: GameSong | null) {
+  const path = song?.path ?? null, start = song?.start_sec ?? 0, end = song?.end_sec ?? null;
   useEffect(() => {
-    if (!active) return;
+    if (!path) return;
     let audio: HTMLAudioElement | null = null;
-    let url: string | null = null;
     let cancelled = false;
-    loadCustomSong().then((blob) => {
-      if (!blob || cancelled) return;
-      url = URL.createObjectURL(blob);
-      audio = new Audio(url);
-      audio.volume = 0.6;
-      const a = audio;
+    // Sofort ein (leeres) Audio-Element anlegen: iPhones erlauben Ton nur direkt nach dem Antippen
+    audio = new Audio();
+    audio.volume = 0.6;
+    const a = audio;
+    a.play().catch(() => {});
+    supabase.storage.from("musik").createSignedUrl(path, 60 * 60 * 6).then(({ data }) => {
+      if (!data?.signedUrl || cancelled) return;
       const toStart = () => { a.currentTime = start; };
       a.addEventListener("loadedmetadata", toStart, { once: true });
       a.addEventListener("timeupdate", () => { if (end !== null && a.currentTime >= end) toStart(); });
       a.addEventListener("ended", () => { toStart(); a.play().catch(() => {}); });
+      a.src = data.signedUrl;
       a.play().catch(() => {});
     });
-    return () => {
-      cancelled = true;
-      audio?.pause();
-      if (url) URL.revokeObjectURL(url);
-    };
-  }, [active, start, end]);
+    return () => { cancelled = true; a.pause(); a.removeAttribute("src"); a.load(); };
+  }, [path, start, end]);
 }

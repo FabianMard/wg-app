@@ -9,7 +9,7 @@ import { supabase } from "./supabase";
 export const BACKUP_TABLES = [
   "households", "members", "chore_areas", "chore_tasks", "chore_checks", "shopping_items", "expenses", "events",
   "todos", "praises", "notes", "messages", "watchlist", "playlists", "game_scores", "tennis_matches", "kite_spots",
-  "polls", "poll_options", "poll_votes", "cost_requests", "room_pictures",
+  "polls", "poll_options", "poll_votes", "cost_requests", "room_pictures", "game_songs",
 ] as const;
 
 export type Backup = {
@@ -113,11 +113,22 @@ export async function cleanupPhotos(householdId: string): Promise<{ removed: num
       if (data.length < 1000) break;
     }
   }
-  if (!orphans.length) return { removed: 0, bytes: 0 };
+  // Musik fürs Spiel (eigener Speicher „musik“)
+  const songs = await supabase.from("game_songs").select("path").eq("household_id", householdId);
+  const musicOrphans: typeof orphans = [];
+  if (!songs.error) {
+    const usedSongs = new Set((songs.data ?? []).map((r) => String(r.path)));
+    const { data } = await supabase.storage.from("musik").list(householdId, { limit: 1000 });
+    for (const f of data ?? []) {
+      const path = `${householdId}/${f.name}`;
+      const created = f.created_at ? new Date(f.created_at).getTime() : 0;
+      if (f.id && !usedSongs.has(path) && created < old) musicOrphans.push({ path, size: Number((f.metadata as { size?: number } | null)?.size ?? 0) });
+    }
+  }
   let removed = 0, bytes = 0;
-  for (let i = 0; i < orphans.length; i += 100) {
-    const chunk = orphans.slice(i, i + 100);
-    const { data, error } = await supabase.storage.from("pinnwand").remove(chunk.map((o) => o.path));
+  for (const [bucket, list] of [["pinnwand", orphans], ["musik", musicOrphans]] as const) for (let i = 0; i < list.length; i += 100) {
+    const chunk = list.slice(i, i + 100);
+    const { data, error } = await supabase.storage.from(bucket).remove(chunk.map((o) => o.path));
     if (error || !data) continue;
     // Supabase meldet die gelöschten Dateien zurück
     const done = new Set(data.map((d) => d.name));

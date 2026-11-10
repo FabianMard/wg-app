@@ -244,3 +244,15 @@ export type RoomPicture = {
   set_by: string | null;
   updated_at: string;
 };
+
+export type GameSong = {
+  id: string;
+  household_id: string;
+  name: string;
+  path: string;
+  size: number | null;
+  start_sec: number;
+  end_sec: number | null;
+  added_by: string | null;
+  created_at: string;
+};

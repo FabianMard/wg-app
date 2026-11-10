@@ -463,6 +463,62 @@ type Shot = { seq: number; fx: number; tx: number; v: number; rally: number; to:
 type PointMsg = { seq: number; winner: string; reason: "aus" | "verpasst"; host: number; guest: number; nextServer: string };
 
 /** Live-Match: jedes Handy entscheidet über Treffer/Aus auf seiner eigenen Seite. Übertragen werden nur Schläge, Punkte und Positionen. */
+// ───────────── Reaktionen im Live-Match: Spieler fluchen/jubeln, Zuschauer feuern an ─────────────
+
+type Reaction = { id: string; name: string; text: string; fan?: boolean };
+const CURSES = ["🤬 Mist!", "😤 Argh!", "🙄 Ernsthaft?!", "😩 War drin!"];
+const CHEERS = ["🎉 Jaaa!", "💪 Come on!", "😎 Zu easy", "🔥 Granate!"];
+const FAN_EMOJI = ["👏", "🔥", "😱", "🎉", "🍿"];
+
+/** Sprechblasen über den Spielern + Zuschauer-Zurufe; send() verschickt und zeigt es gleich auch selbst an */
+function useReactions() {
+  const [bubbles, setBubbles] = useState<Record<string, { text: string; n: number }>>({});
+  const [fans, setFans] = useState<{ n: number; name: string; text: string }[]>([]);
+  const n = useRef(0), lastSend = useRef(0);
+  const chRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const show = useCallback((r: Reaction) => {
+    const k = ++n.current, text = String(r.text).slice(0, 60);
+    if (r.fan) {
+      setFans((f) => [...f.slice(-3), { n: k, name: r.name, text }]);
+      setTimeout(() => setFans((f) => f.filter((x) => x.n !== k)), 6000);
+    } else {
+      setBubbles((b) => ({ ...b, [r.id]: { text, n: k } }));
+      setTimeout(() => setBubbles((b) => (b[r.id]?.n === k ? Object.fromEntries(Object.entries(b).filter(([id]) => id !== r.id)) : b)), 2600);
+    }
+  }, []);
+  const send = useCallback((r: Reaction) => {
+    const now = Date.now();
+    if (now - lastSend.current < 700 || !r.text.trim()) return; // nicht spammen
+    lastSend.current = now;
+    show(r);
+    chRef.current?.send({ type: "broadcast", event: "react", payload: r });
+  }, [show]);
+  return { bubbles, fans, show, send, chRef };
+}
+
+/** Sprechblase an einer Figur (oben am Platz: darunter, unten: darüber) */
+function Bubble({ text, below }: { text?: string; below?: boolean }) {
+  if (!text) return null;
+  return (
+    <span className={`absolute left-1/2 z-10 -translate-x-1/2 animate-[pop_.2s_ease-out] whitespace-nowrap rounded-xl bg-white px-2 py-1 text-xs font-bold text-neutral-900 shadow-lg ${below ? "top-full mt-1" : "bottom-full mb-1"}`}>
+      {text}
+    </span>
+  );
+}
+
+/** Zurufe der Zuschauer oben links im Platz */
+function FanTicker({ fans }: { fans: { n: number; name: string; text: string }[] }) {
+  return (
+    <div className="pointer-events-none absolute left-2 top-2 z-10 flex max-w-[75%] flex-col items-start gap-1">
+      {fans.map((f) => (
+        <span key={f.n} className="animate-[pop_.2s_ease-out] truncate rounded-lg bg-black/55 px-2 py-0.5 text-[11px] font-medium text-white">
+          📣 <b>{f.name}:</b> {f.text}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function LiveTennisMatch({ me, opponent, match, onEnd, onFinished }: { me: Member; opponent: Member; match: LiveMatch; onEnd: () => void; onFinished: () => void }) {
   const { household } = useWG();
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -479,6 +535,8 @@ function LiveTennisMatch({ me, opponent, match, onEnd, onFinished }: { me: Membe
   useEffect(() => { finishedRef.current = onFinished; }, [onFinished]);
   const [viewers, setViewers] = useState(0);
   useEffect(() => { if (hud.ended) finishedRef.current(); }, [hud.ended]);
+  const react = useReactions();
+  const { show: showReaction, chRef: reactCh } = react;
 
   useEffect(() => {
     const canvas = canvasRef.current!, wrap = wrapRef.current!, meEl = meRef.current!, oppEl = oppRef.current!;
@@ -519,6 +577,8 @@ function LiveTennisMatch({ me, opponent, match, onEnd, onFinished }: { me: Membe
 
     const ch = supabase.channel(`tennis-${match.matchId}`, { config: { presence: { key: me.id }, broadcast: { self: false } } });
     const send = (event: string, payload: object) => { ch.send({ type: "broadcast", event, payload }); };
+    reactCh.current = ch;
+    ch.on("broadcast", { event: "react" }, ({ payload }) => showReaction(payload as Reaction));
 
     // Ball aus einem Schlag (Welt-Daten) lokal starten
     function startBall(s: Shot) {
@@ -660,7 +720,7 @@ function LiveTennisMatch({ me, opponent, match, onEnd, onFinished }: { me: Membe
       if (st.phase !== "ende") send("leave", {});
       supabase.removeChannel(ch);
     };
-  }, [match, me.id, opponent.id, opponent.display_name, household.id]);
+  }, [match, me.id, opponent.id, opponent.display_name, household.id, showReaction, reactCh]);
 
   useEffect(() => {
     const set = (e: KeyboardEvent, v: boolean) => {
@@ -685,13 +745,26 @@ function LiveTennisMatch({ me, opponent, match, onEnd, onFinished }: { me: Membe
         onPointerMove={(e) => { if (e.buttons || e.pointerType === "touch") toTarget(e); }}
         role="application" aria-label="Live-Tennis: Finger hin- und herziehen zum Laufen">
         <canvas ref={canvasRef} className="absolute inset-0" />
+        <FanTicker fans={react.fans} />
         <div ref={oppRef} className="pointer-events-none absolute left-0 top-0 will-change-transform" style={{ width: FIG }}>
           <AvatarFigure look={lookOf(opponent)} size={FIG} />
+          <Bubble text={react.bubbles[opponent.id]?.text} below />
         </div>
         <div ref={meRef} className="pointer-events-none absolute left-0 top-0 will-change-transform" style={{ width: FIG }}>
           <AvatarFigure look={lookOf(me)} size={FIG} />
+          <Bubble text={react.bubbles[me.id]?.text} />
         </div>
       </div>
+      {!hud.ended && (
+        <div className="mx-auto grid max-w-md grid-cols-4 gap-1">
+          {[...CHEERS, ...CURSES].map((t) => (
+            <button key={t} onClick={() => react.send({ id: me.id, name: me.display_name, text: t })}
+              className={`truncate rounded-lg border px-1 py-1.5 text-[11px] font-medium transition active:scale-95 ${CHEERS.includes(t) ? "border-emerald-500/40 bg-emerald-500/10" : "border-red-500/40 bg-red-500/10"}`}>
+              {t}
+            </button>
+          ))}
+        </div>
+      )}
       {hud.ended && (
         <button onClick={() => endRef.current()} className="w-full rounded-2xl bg-accent py-3 font-semibold text-white">
           {hud.ended === "gewonnen" ? "🏆 Zurück" : "Zurück"}
@@ -760,6 +833,12 @@ function SpectateMatch({ matchId, host, guest, onEnd }: { matchId: string; host:
   const [hud, setHud] = useState({ host: 0, guest: 0, status: "Verbinde …", ended: false });
   const colors = useRef({ me: host.color, opp: guest.color });
   useEffect(() => { colors.current = { me: host.color, opp: guest.color }; }, [host.color, guest.color]);
+  const { everyone } = useWG();
+  const meName = everyone.find((m) => m.id === myId)?.display_name ?? "Zuschauer";
+  const react = useReactions();
+  const { show: showReaction, chRef: reactCh } = react;
+  const [shout, setShout] = useState("");
+  const fan = (text: string) => react.send({ id: myId, name: meName, text, fan: true });
 
   useEffect(() => {
     const canvas = canvasRef.current!, wrap = wrapRef.current!, hostEl = hostRef.current!, guestEl = guestRef.current!;
@@ -789,6 +868,8 @@ function SpectateMatch({ matchId, host, guest, onEnd }: { matchId: string; host:
     };
 
     const ch = supabase.channel(`tennis-${matchId}`, { config: { presence: { key: myId }, broadcast: { self: false } } });
+    reactCh.current = ch;
+    ch.on("broadcast", { event: "react" }, ({ payload }) => showReaction(payload as Reaction));
     ch.on("broadcast", { event: "pos" }, ({ payload }) => {
       const p = payload as { x: number; id?: string };
       if (p.id === host.id) st.hx = p.x; else if (p.id === guest.id) st.gx = p.x;
@@ -849,7 +930,7 @@ function SpectateMatch({ matchId, host, guest, onEnd }: { matchId: string; host:
     }
     raf = requestAnimationFrame(frame);
     return () => { cancelAnimationFrame(raf); ro.disconnect(); supabase.removeChannel(ch); };
-  }, [matchId, host.id, guest.id, host.display_name, guest.display_name, myId]);
+  }, [matchId, host.id, guest.id, host.display_name, guest.display_name, myId, showReaction, reactCh]);
 
   return (
     <div className="space-y-2">
@@ -860,13 +941,34 @@ function SpectateMatch({ matchId, host, guest, onEnd }: { matchId: string; host:
       <p className="text-center text-xs text-muted">{hud.status || `${host.display_name} unten · ${guest.display_name} oben`}</p>
       <div ref={wrapRef} className="relative mx-auto max-w-md select-none overflow-hidden rounded-2xl" style={{ height: COURT_H }}>
         <canvas ref={canvasRef} className="absolute inset-0" />
+        <FanTicker fans={react.fans} />
         <div ref={guestRef} className="pointer-events-none absolute left-0 top-0 will-change-transform" style={{ width: FIG }}>
           <AvatarFigure look={lookOf(guest)} size={FIG} />
+          <Bubble text={react.bubbles[guest.id]?.text} below />
         </div>
         <div ref={hostRef} className="pointer-events-none absolute left-0 top-0 will-change-transform" style={{ width: FIG }}>
           <AvatarFigure look={lookOf(host)} size={FIG} />
+          <Bubble text={react.bubbles[host.id]?.text} />
         </div>
       </div>
+      {!hud.ended && (
+        <div className="mx-auto max-w-md space-y-1.5">
+          <div className="flex flex-wrap gap-1">
+            <button onClick={() => fan(`Los ${host.display_name}! 📣`)} className="flex-1 truncate rounded-lg border border-line bg-card px-2 py-1.5 text-xs font-semibold active:scale-95">📣 Los {host.display_name}!</button>
+            <button onClick={() => fan(`Los ${guest.display_name}! 📣`)} className="flex-1 truncate rounded-lg border border-line bg-card px-2 py-1.5 text-xs font-semibold active:scale-95">📣 Los {guest.display_name}!</button>
+          </div>
+          <div className="flex gap-1">
+            {FAN_EMOJI.map((e) => (
+              <button key={e} onClick={() => fan(e)} className="flex-1 rounded-lg border border-line bg-card py-1 text-lg active:scale-90" aria-label={`${e} schicken`}>{e}</button>
+            ))}
+          </div>
+          <form onSubmit={(e) => { e.preventDefault(); if (shout.trim()) { fan(shout.trim()); setShout(""); } }} className="flex gap-1.5">
+            <input value={shout} onChange={(e) => setShout(e.target.value)} maxLength={60} placeholder="Etwas reinrufen …"
+              className="min-w-0 flex-1 rounded-lg border border-line bg-card px-2.5 py-1.5 text-sm" />
+            <button className="rounded-lg bg-accent px-3 text-sm font-medium text-white">📣</button>
+          </form>
+        </div>
+      )}
       <button onClick={onEnd} className={`w-full rounded-2xl py-3 font-semibold ${hud.ended ? "bg-accent text-white" : "border border-line"}`}>
         {hud.ended ? "Zurück" : "Zuschauen beenden"}
       </button>

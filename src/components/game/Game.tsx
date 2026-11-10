@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { useRows, useWG } from "@/lib/wg";
-import type { RoomPicture, Member, Message } from "@/lib/types";
+import type { GameSong, RoomPicture, Member, Message } from "@/lib/types";
 import {
   BEDROOM_LABELS, COLS, findPath, floorColor, HOME_SPOTS, isAdjacent, isWalkable, MAP, neighbors,
   objectAt, OBJECTS, ROOM_LABELS, ROWS, type Action, type GameObject, type Pos,
@@ -14,8 +14,7 @@ import { ChatPanel, useGroupUnread } from "./ChatPanel";
 import { BookShelf } from "./BookShelf";
 import { AvatarFigure, lookOf, Wardrobe, type AvatarLook } from "./avatar";
 import {
-  deleteCustomSong, formatTime, loadCustomMeta, parseTime, saveCustomMeta, saveCustomSong, SONGS,
-  useCustomSong, useGameMusic, type CustomSongMeta,
+  deleteSong, dropOldDeviceSong, formatTime, MAX_SONG_MB, MAX_SONGS, parseTime, SONGS, uploadSong, useGameMusic, useSharedSong,
 } from "./music";
 import { inputCls } from "@/components/ui";
 
@@ -146,28 +145,35 @@ export function Game() {
   const [live, setLive] = useState<"verbinde" | "live" | "offline">("verbinde");
   // Musik: standardmäßig aus, muss aktiv angemacht werden (wird nicht gespeichert)
   const [song, setSong] = useState<string | null>(null);
-  useGameMusic(song === "eigen" ? null : song);
-  const [custom, setCustom] = useState<CustomSongMeta | null>(() => (typeof window === "undefined" ? null : loadCustomMeta()));
-  useCustomSong(song === "eigen", custom);
+  // Eigene Songs der WG: alle können hochladen, alle hören
+  const { rows: wgSongs } = useRows<GameSong>("game_songs", "created_at");
+  const sharedSong = wgSongs.find((x) => `wg:${x.id}` === song) ?? null;
+  useGameMusic(song?.startsWith("wg:") ? null : song);
+  useSharedSong(sharedSong);
+  useEffect(() => { dropOldDeviceSong(); }, []);
+  // Ausgewählter Song verschwunden (von jemandem gelöscht) → aus
+  useEffect(() => { if (song?.startsWith("wg:") && !sharedSong) setSong(null); }, [song, sharedSong, wgSongs]);
   const [songSettings, setSongSettings] = useState(false);
-  const [from, setFrom] = useState(() => (custom ? formatTime(custom.start) : ""));
-  const [to, setTo] = useState(() => (custom?.end != null ? formatTime(custom.end) : ""));
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [songBusy, setSongBusy] = useState(false);
+  const [songErr, setSongErr] = useState<string | null>(null);
   const songFile = useRef<HTMLInputElement>(null);
   async function pickSong(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     e.target.value = "";
     if (!f) return;
-    const meta = { name: f.name.replace(/\.[^.]+$/, "").slice(0, 40), start: parseTime(from) ?? 0, end: parseTime(to) };
-    await saveCustomSong(f, meta);
-    setCustom(meta);
-    setSongSettings(true);
-    setSong("eigen");
+    if (f.size > MAX_SONG_MB * 1024 * 1024) { setSongErr(`Die Datei ist zu groß (${(f.size / 1048576).toFixed(1)} MB, max. ${MAX_SONG_MB} MB).`); return; }
+    setSongBusy(true); setSongErr(null);
+    const err = await uploadSong(household.id, f, parseTime(from) ?? 0, parseTime(to));
+    setSongBusy(false);
+    if (err) setSongErr(err); else { setFrom(""); setTo(""); }
   }
-  function applyRange() {
-    if (!custom) return;
-    const meta = { ...custom, start: parseTime(from) ?? 0, end: parseTime(to) };
-    saveCustomMeta(meta);
-    setCustom(meta);
+  async function saveRange(x: GameSong, f: string, t: string) {
+    const start = parseTime(f) ?? 0, end = parseTime(t);
+    if (end !== null && end <= start) { setSongErr("„bis“ muss nach „von“ liegen."); return; }
+    setSongErr(null);
+    await supabase.from("game_songs").update({ start_sec: start, end_sec: end }).eq("id", x.id);
   }
   const channel = useRef<RealtimeChannel | null>(null);
   const joined = useRef(false); // erst senden, wenn die Live-Verbindung steht
@@ -629,40 +635,45 @@ export function Game() {
           <div className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="Musik">
             <span className="text-xs font-medium text-muted">Musik:</span>
             {[{ id: null, name: "🔇 Aus" }, ...SONGS.map((x) => ({ id: x.id, name: `🎵 ${x.name}` })),
-              ...(custom ? [{ id: "eigen", name: `🎧 ${custom.name}` }] : [])].map((x) => (
+              ...wgSongs.map((x) => ({ id: `wg:${x.id}`, name: `🎧 ${x.name}` }))].map((x) => (
               <button key={x.id ?? "aus"} role="radio" aria-checked={song === x.id} onClick={() => setSong(x.id)}
-                className={`rounded-full border px-2.5 py-1 text-xs font-medium transition active:scale-95 ${
+                className={`max-w-[14rem] truncate rounded-full border px-2.5 py-1 text-xs font-medium transition active:scale-95 ${
                   song === x.id ? "border-accent bg-accent text-white" : "border-line bg-card text-muted hover:text-fg"}`}>
                 {x.name}
               </button>
             ))}
             <button onClick={() => setSongSettings(!songSettings)} className="rounded-full px-2 py-1 text-xs text-muted underline hover:text-fg">
-              {custom ? "Eigener Song …" : "+ Eigener Song"}
+              {songSettings ? "Fertig" : wgSongs.length ? "Songs der WG …" : "+ Eigener Song"}
             </button>
           </div>
           {songSettings && (
-            <div className="space-y-2 rounded-xl border border-dashed border-line p-3 text-xs">
+            <div className="space-y-3 rounded-xl border border-dashed border-line p-3 text-xs">
               <p className="text-muted">
-                Wähle eine Musikdatei von deinem Gerät. Sie bleibt <b>nur auf diesem Gerät</b> und wird nicht hochgeladen.
+                Lade einen Song hoch – er ist dann <b>für alle in der WG</b> im Spiel abspielbar (auch für Gäste). Platz für {MAX_SONGS} Songs, je max. {MAX_SONG_MB} MB (z. B. mp3 oder m4a).
               </p>
-              <div className="flex flex-wrap items-center gap-2">
-                <button onClick={() => songFile.current?.click()} className="rounded-lg border border-line bg-card px-3 py-1.5 font-medium">
-                  📁 {custom ? "Andere Datei wählen" : "Datei wählen"}
-                </button>
-                <input ref={songFile} type="file" accept="audio/*" onChange={pickSong} className="hidden" />
-                {custom && <span className="truncate text-muted">🎧 {custom.name}</span>}
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-muted">Abschnitt in Schleife: von</span>
-                <input value={from} onChange={(e) => setFrom(e.target.value)} onBlur={applyRange} placeholder="0:00" inputMode="numeric"
-                  className="w-16 rounded-lg border border-line bg-card px-2 py-1 text-center" aria-label="Start (mm:ss)" />
-                <span className="text-muted">bis</span>
-                <input value={to} onChange={(e) => setTo(e.target.value)} onBlur={applyRange} placeholder="Ende" inputMode="numeric"
-                  className="w-16 rounded-lg border border-line bg-card px-2 py-1 text-center" aria-label="Ende (mm:ss)" />
-              </div>
-              {custom && (
-                <button onClick={async () => { await deleteCustomSong(); setCustom(null); if (song === "eigen") setSong(null); }}
-                  className="text-red-600 underline">Eigenen Song entfernen</button>
+              {wgSongs.length >= MAX_SONGS ? (
+                <p className="font-medium">Alle {MAX_SONGS} Plätze sind belegt – lösche unten einen Song, um einen neuen hochzuladen.</p>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-muted">Abschnitt in Schleife: von</span>
+                  <input value={from} onChange={(e) => setFrom(e.target.value)} placeholder="0:00" inputMode="numeric"
+                    className="w-16 rounded-lg border border-line bg-card px-2 py-1 text-center" aria-label="Start (mm:ss)" />
+                  <span className="text-muted">bis</span>
+                  <input value={to} onChange={(e) => setTo(e.target.value)} placeholder="Ende" inputMode="numeric"
+                    className="w-16 rounded-lg border border-line bg-card px-2 py-1 text-center" aria-label="Ende (mm:ss)" />
+                  <button onClick={() => songFile.current?.click()} disabled={songBusy} className="rounded-lg bg-accent px-3 py-1.5 font-medium text-white disabled:opacity-60">
+                    {songBusy ? "Wird hochgeladen …" : "📁 Song hochladen"}
+                  </button>
+                  <input ref={songFile} type="file" accept="audio/*,.mp3,.m4a,.wav,.ogg,.flac,.aac" onChange={pickSong} className="hidden" />
+                </div>
+              )}
+              {songErr && <p className="text-red-600">{songErr}</p>}
+              {wgSongs.length > 0 && (
+                <ul className="divide-y divide-line rounded-lg border border-line bg-card">
+                  {wgSongs.map((x) => <SongRow key={`${x.id}-${x.start_sec}-${x.end_sec}`} song={x} by={everyone.find((m) => m.id === x.added_by)?.display_name}
+                    onSave={(f, t) => saveRange(x, f, t)}
+                    onDelete={async () => { if (!confirm(`„${x.name}“ für alle löschen?`)) return; if (song === `wg:${x.id}`) setSong(null); await deleteSong(x); }} />)}
+                </ul>
               )}
             </div>
           )}
@@ -778,5 +789,28 @@ function Sheet({ title, onClose, children, light, fill }: { title: string; onClo
         {fill ? <div className="min-h-0 flex-1">{children}</div> : <div className="overflow-y-auto px-4 pb-8 pt-4">{children}</div>}
       </div>
     </div>
+  );
+}
+
+/** Ein WG-Song in der Liste: Abschnitt ändern, löschen */
+function SongRow({ song, by, onSave, onDelete }: { song: GameSong; by?: string; onSave: (from: string, to: string) => void; onDelete: () => void }) {
+  const [f, setF] = useState(song.start_sec ? formatTime(song.start_sec) : "");
+  const [t, setT] = useState(song.end_sec != null ? formatTime(song.end_sec) : "");
+  const dirty = f !== (song.start_sec ? formatTime(song.start_sec) : "") || t !== (song.end_sec != null ? formatTime(song.end_sec) : "");
+  return (
+    <li className="space-y-1.5 px-2.5 py-2">
+      <div className="flex items-center gap-2">
+        <span className="min-w-0 flex-1 truncate font-medium">🎧 {song.name}</span>
+        {by && <span className="shrink-0 text-muted">von {by}</span>}
+        <button onClick={onDelete} className="shrink-0 text-red-600" aria-label={`${song.name} löschen`}>🗑️</button>
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-muted">Schleife von</span>
+        <input value={f} onChange={(e) => setF(e.target.value)} placeholder="0:00" inputMode="numeric" className="w-14 rounded-md border border-line bg-bg px-1.5 py-0.5 text-center" aria-label="Start (mm:ss)" />
+        <span className="text-muted">bis</span>
+        <input value={t} onChange={(e) => setT(e.target.value)} placeholder="Ende" inputMode="numeric" className="w-14 rounded-md border border-line bg-bg px-1.5 py-0.5 text-center" aria-label="Ende (mm:ss)" />
+        {dirty && <button onClick={() => onSave(f, t)} className="rounded-md bg-accent px-2 py-0.5 font-medium text-white">Speichern</button>}
+      </div>
+    </li>
   );
 }
