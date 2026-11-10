@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRows, useWG } from "@/lib/wg";
 import type { ChoreArea, ChoreCheck, ChoreTask, Expense, Member, Message, Praise, Todo } from "@/lib/types";
-import { areaStatuses, isOverdue, periodOf, phaseOf } from "@/lib/cleaning";
+import { areaStatuses, currentPeriod, isOverdue, phaseOf } from "@/lib/cleaning";
 import { computeBalances, suggestTransfers } from "@/lib/balances";
 import { euro, formatDate } from "@/lib/dates";
 import { AvatarFigure, lookOf } from "./avatar";
@@ -41,7 +41,7 @@ export function TalkDialog({ target, online, onEmote, onOpenChat, onClose }: {
   const unread = chat.filter((m) => m.from_member === target.id && !m.read_at).length;
 
   const [greeting] = useState(() => GREETINGS[Math.floor(Math.random() * GREETINGS.length)]);
-  const period = periodOf(household.cleaning_start);
+  const period = currentPeriod(household.cleaning_start);
   const current = areaStatuses(areas, tasks, checks, members, period);
   const previous = period > 0 ? areaStatuses(areas, tasks, checks, members, period - 1) : [];
   const myArea = current.find((s) => s.assignee?.id === target.id);

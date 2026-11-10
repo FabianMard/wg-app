@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useWG, useRows } from "@/lib/wg";
 import type { CalEvent, ChoreArea, ChoreCheck, ChoreTask, Expense, Praise, ShoppingItem, Todo } from "@/lib/types";
-import { areaStatuses, isOverdue, periodOf, periodRange, phaseOf } from "@/lib/cleaning";
+import { areaStatuses, beforeStart, currentPeriod, isOverdue, periodRange, phaseOf } from "@/lib/cleaning";
 import { beesOf } from "@/components/Praise";
 import { computeBalances } from "@/lib/balances";
 import { addDays, euro, formatDate, todayISO } from "@/lib/dates";
@@ -23,7 +23,8 @@ function ResidentHome() {
   const { rows: events } = useRows<CalEvent>("events", "day");
   const { rows: todos } = useRows<Todo>("todos", "created_at");
 
-  const period = periodOf(household.cleaning_start);
+  const period = currentPeriod(household.cleaning_start);
+  const notYet = beforeStart(household.cleaning_start);
   const range = periodRange(household.cleaning_start, period);
   const phase = phaseOf(household.cleaning_start, period);
   const mine = areaStatuses(areas, tasks, checks, members, period).filter((s) => s.assignee?.id === myId);
@@ -46,13 +47,13 @@ function ResidentHome() {
       </PageTitle>
       <Pinboard />
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Tile href="/putzplan" icon="🧽" title="Dein Putzbereich"
+        <Tile href="/putzplan" icon="🧽" title={notYet ? `Dein Putzbereich ab ${formatDate(household.cleaning_start)}` : "Dein Putzbereich"}
           tone={mine.length && mine.some((s) => isOverdue(s, household.cleaning_start, period)) ? "red"
             : mine.length && mine.every((s) => s.done) ? "green" : undefined}>
           {mine.length === 0 ? <Muted>Diese Runde nichts</Muted> : mine.map((s) => (
             <div key={s.area.id}>
               <Row label={`${s.area.icon} ${s.area.name}`} right={s.done ? "✓ erledigt" : `${s.doneCount}/${s.tasks.length}`} warn={isOverdue(s, household.cleaning_start, period)} />
-              {s.done
+              {notYet ? <Muted>Putzplan startet am {formatDate(household.cleaning_start)}</Muted> : s.done
                 ? phase !== "putzwoche" && <Muted>Frei bis {formatDate(range.end)} 😎</Muted>
                 : isOverdue(s, household.cleaning_start, period)
                   ? <p className="text-sm font-semibold text-red-600">⚠️ Überfällig – bitte nachholen!</p>

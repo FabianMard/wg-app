@@ -63,7 +63,13 @@ export function phaseOf(start: string, period: number, day = todayISO()): Phase 
   return "vorbei";
 }
 
-/** Nicht in der Putzwoche erledigt (und die Putzwoche ist vorbei) */
+/** Nicht in der Putzwoche erledigt (und die Putzwoche ist vorbei). Vor dem Start des Putzplans ist nichts überfällig. */
 export function isOverdue(s: AreaStatus, start: string, period: number, day = todayISO()): boolean {
+  if (period < 0 || day < start) return false;
   return !s.done && s.tasks.length > 0 && day > periodRange(start, period).due;
 }
+
+/** Hat der Putzplan schon begonnen? (Startdatum kann in der Zukunft liegen) */
+export const beforeStart = (start: string, day = todayISO()) => day < start;
+/** Aktuelle Runde – vor dem Start wird die erste Runde gezeigt */
+export const currentPeriod = (start: string, day = todayISO()) => Math.max(0, periodOf(start, day));

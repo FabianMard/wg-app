@@ -4,7 +4,7 @@ import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRows, useWG } from "@/lib/wg";
 import type { ChoreArea, ChoreCheck, ChoreTask, Praise } from "@/lib/types";
-import { areaStatuses, isOverdue, periodOf, periodRange, phaseOf, type AreaStatus } from "@/lib/cleaning";
+import { areaStatuses, beforeStart, currentPeriod, isOverdue, periodRange, phaseOf, type AreaStatus } from "@/lib/cleaning";
 import { formatDate } from "@/lib/dates";
 import { Avatar, Card, Check, DeleteButton, inputCls, PageTitle, SectionTitle } from "@/components/ui";
 import { Bees, beesOf, PraiseButton } from "@/components/Praise";
@@ -17,7 +17,8 @@ export default function Putzplan() {
   const { rows: praises, reload: reloadPraises } = useRows<Praise>("praises", "created_at");
 
   const start = household.cleaning_start;
-  const period = periodOf(start);
+  const period = currentPeriod(start);
+  const notYet = beforeStart(start);
   const range = periodRange(start, period);
   const phase = phaseOf(start, period);
 
@@ -43,7 +44,9 @@ export default function Putzplan() {
       <div className={`mb-5 rounded-2xl px-4 py-3 text-sm ${
         phase === "putzwoche" ? "bg-accent/10 text-accent"
         : overdueCount ? "bg-red-500/15 text-red-700 dark:text-red-300" : "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200"}`}>
-        {phase === "putzwoche"
+        {notYet
+          ? <>🗓️ <b>Der Putzplan startet am {dayLong(start)}</b> So ist die erste Putzwoche verteilt – vorher abhaken zählt schon mit.</>
+          : phase === "putzwoche"
           ? <>🧽 <b>Putzwoche!</b> Alles bis <b>{dayLong(range.due)}</b> erledigen. Danach habt ihr eine Woche frei.</>
           : overdueCount
             ? <>⚠️ <b>Freie Woche, aber {overdueCount === 1 ? "ein Bereich ist" : `${overdueCount} Bereiche sind`} noch nicht fertig.</b> Bitte nachholen! Ab {dayLong(periodRange(start, period + 1).from)} gibt es neue Aufgaben.</>
