@@ -153,7 +153,7 @@ create table public.praises (
   id           uuid primary key default gen_random_uuid(),
   household_id uuid not null references public.households on delete cascade,
   from_member  uuid not null default public.my_member_id() references public.members on delete cascade,
-  to_member    uuid references public.members on delete cascade,   -- leer = Gruppen-Nachricht an alle
+  to_member    uuid not null references public.members on delete cascade,
   kind         text not null check (kind in ('putzen', 'todo')),
   ref          text not null,   -- z. B. "<area_id>:<period>" oder todo-id
   created_at   timestamptz not null default now(),
@@ -842,6 +842,8 @@ begin
 end $$;
 
 -- ───────────── WG-Chat für alle ─────────────
+alter table public.messages alter column to_member drop not null;
+
 drop policy if exists "Eigene Nachrichten lesen" on public.messages;
 drop policy if exists "Nachricht schreiben" on public.messages;
 -- Private Nachrichten: nur Absender & Empfänger. Gruppen-Nachrichten (to_member leer): alle in der WG.

@@ -5,6 +5,7 @@ import { isConfigured, supabase } from "@/lib/supabase";
 import { useWGState } from "@/lib/wg";
 import { BottomNav, guestMayOpen, Header } from "./Nav";
 import { NewsProvider } from "@/lib/news";
+import { cleanupPhotos } from "@/lib/backup";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useWG } from "@/lib/wg";
@@ -21,6 +22,7 @@ export function Gate({ children }: { children: React.ReactNode }) {
 
   return (
     <NewsProvider>
+      <WeeklyCleanup />
       <Header />
       <main className="mx-auto max-w-3xl px-4 pb-28 pt-6 md:pb-12"><GuestGuard>{children}</GuestGuard></main>
       <BottomNav />
@@ -274,3 +276,20 @@ function ResidentSetup() {
 }
 
 const ErrorText = ({ children }: { children: React.ReactNode }) => <p className="mt-3 text-sm text-red-600">{children}</p>;
+
+/** Einmal pro Woche (je Gerät) verwaiste Fotos löschen – nur Mitbewohner, da Gäste nicht alle Daten sehen */
+function WeeklyCleanup() {
+  const { household, isGuest } = useWG();
+  useEffect(() => {
+    if (isGuest) return;
+    const KEY = "wg-letztes-aufraeumen";
+    let last = 0;
+    try { last = Number(localStorage.getItem(KEY) ?? 0); } catch { /* egal */ }
+    if (Date.now() - last < 7 * 86_400_000) return;
+    const t = setTimeout(() => {
+      cleanupPhotos(household.id).then(() => { try { localStorage.setItem(KEY, String(Date.now())); } catch { /* egal */ } }).catch(() => {});
+    }, 8000); // nicht beim Start bremsen
+    return () => clearTimeout(t);
+  }, [household.id, isGuest]);
+  return null;
+}

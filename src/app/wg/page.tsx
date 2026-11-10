@@ -8,6 +8,7 @@ import type { Praise } from "@/lib/types";
 import { beesOf } from "@/components/Praise";
 import { GuestManager } from "@/components/GuestManager";
 import { PushSettings } from "@/components/PushSettings";
+import { BackupCard } from "@/components/BackupCard";
 import { Avatar, btnCls, btnGhostCls, Card, inputCls, PageTitle, SectionTitle } from "@/components/ui";
 
 // Gut unterscheidbare Farben, die auch mit weißer Schrift lesbar sind
@@ -222,6 +223,9 @@ export default function WGSettings() {
           </div>
         ))}
       </Card>
+
+      <SectionTitle>💾 Datensicherung &amp; Speicher</SectionTitle>
+      <BackupCard />
 
       <SectionTitle>Name der WG</SectionTitle>
       <form onSubmit={saveName} className="flex gap-2">
