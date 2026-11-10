@@ -1,5 +1,6 @@
 "use client";
 
+import { useMarkSeen } from "@/lib/news";
 import Link from "next/link";
 import { useWG, useRows } from "@/lib/wg";
 import type { CalEvent, ChoreArea, ChoreCheck, ChoreTask, Expense, Praise, ShoppingItem, Todo } from "@/lib/types";
@@ -139,6 +140,7 @@ const Row = ({ label, right, warn }: { label: string; right: string; warn?: bool
 );
 
 export default function Home() {
+  useMarkSeen("start");
   const { isGuest } = useWG();
   return isGuest ? <GuestHome /> : <ResidentHome />;
 }

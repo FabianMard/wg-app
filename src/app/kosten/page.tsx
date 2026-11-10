@@ -1,5 +1,6 @@
 "use client";
 
+import { NewDot, useMarkSeen, useNews } from "@/lib/news";
 import { useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { notify } from "@/lib/push";
@@ -17,6 +18,8 @@ export default function Kosten() {
   const [tab, setTab] = useState<Tab>(() =>
     typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tab") === "einreichen" ? "einreichen" : "kosten");
   const openCount = useOpenRequestCount();
+  const { has } = useNews();
+  useMarkSeen(tab === "einreichen" ? "kosten.einreichen" : "kosten");
   const go = (t: Tab) => { setTab(t); window.history.replaceState(null, "", t === "kosten" ? location.pathname : "?tab=einreichen"); };
   return (
     <>
@@ -24,10 +27,13 @@ export default function Kosten() {
         {tab === "einreichen" ? "Kosten einreichen" : "Kosten teilen"}
       </PageTitle>
       <div className="mb-4 grid grid-cols-2 gap-1 rounded-xl bg-line/50 p-1 text-sm font-semibold">
-        <button onClick={() => go("kosten")} className={`rounded-lg py-2 transition ${tab === "kosten" ? "bg-card shadow-sm" : "text-muted"}`}>💶 Kosten</button>
-        <button onClick={() => go("einreichen")} className={`rounded-lg py-2 transition ${tab === "einreichen" ? "bg-card shadow-sm" : "text-muted"}`}>
+        <button onClick={() => go("kosten")} className={`relative rounded-lg py-2 transition ${tab === "kosten" ? "bg-card shadow-sm" : "text-muted"}`}>
+          💶 Kosten{tab !== "kosten" && has("kosten") && <NewDot className="absolute right-1.5 top-1.5" />}
+        </button>
+        <button onClick={() => go("einreichen")} className={`relative rounded-lg py-2 transition ${tab === "einreichen" ? "bg-card shadow-sm" : "text-muted"}`}>
           📝 Kosten einreichen
           {openCount > 0 && <span className="ml-1.5 rounded-full bg-red-500 px-1.5 py-0.5 text-[11px] font-bold text-white">{openCount}</span>}
+          {openCount === 0 && tab !== "einreichen" && has("kosten.einreichen") && <NewDot className="absolute right-1.5 top-1.5" />}
         </button>
       </div>
       {tab === "einreichen" ? <CostRequests /> : <CostsView />}

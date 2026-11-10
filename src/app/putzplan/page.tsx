@@ -1,5 +1,6 @@
 "use client";
 
+import { useMarkSeen } from "@/lib/news";
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRows, useWG } from "@/lib/wg";
@@ -10,6 +11,7 @@ import { Avatar, Card, Check, DeleteButton, inputCls, PageTitle, SectionTitle } 
 import { Bees, beesOf, PraiseButton } from "@/components/Praise";
 
 export default function Putzplan() {
+  useMarkSeen("putzen");
   const { household, members, myId } = useWG();
   const { rows: areas } = useRows<ChoreArea>("chore_areas", "sort");
   const { rows: tasks, reload: reloadTasks } = useRows<ChoreTask>("chore_tasks", "sort");

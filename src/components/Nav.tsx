@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { NAV_NEWS, NewDot, useNews } from "@/lib/news";
 import { usePathname } from "next/navigation";
 import { useWG } from "@/lib/wg";
 import { Avatar } from "./ui";
@@ -68,12 +69,21 @@ export function Header() {
   );
 }
 
+/** Roter Punkt am Menüpunkt: Neues in einem der Bereiche dahinter (außer auf der Seite, auf der man gerade ist) */
+function useNavDot() {
+  const path = usePathname();
+  const { has } = useNews();
+  return (href: string) => href !== path && (NAV_NEWS[href] ?? []).some(has);
+}
+
 function DesktopLinks() {
   const path = usePathname();
+  const dot = useNavDot();
   return useNav().map((n) => (
     <Link key={n.href} href={n.href}
-      className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${path === n.href ? "bg-accent/10 text-accent" : "text-muted hover:text-fg"}`}>
+      className={`relative rounded-lg px-3 py-1.5 text-sm font-medium transition ${path === n.href ? "bg-accent/10 text-accent" : "text-muted hover:text-fg"}`}>
       {n.label}
+      {dot(n.href) && <NewDot className="absolute right-0.5 top-1" />}
     </Link>
   ));
 }
@@ -81,6 +91,7 @@ function DesktopLinks() {
 export function BottomNav() {
   const path = usePathname();
   const nav = useNav();
+  const dot = useNavDot();
   return (
     <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
       <div className="mx-auto grid max-w-3xl" style={{ gridTemplateColumns: `repeat(${nav.length}, minmax(0, 1fr))` }}>
@@ -89,7 +100,10 @@ export function BottomNav() {
           return (
             <Link key={n.href} href={n.href}
               className={`flex flex-col items-center gap-0.5 py-2 text-[10px] font-medium ${active ? "text-accent" : "text-muted"}`}>
-              <span className={`text-xl transition ${active ? "" : "opacity-60 grayscale"}`}>{n.icon}</span>
+              <span className="relative">
+                <span className={`text-xl transition ${active ? "" : "opacity-60 grayscale"}`}>{n.icon}</span>
+                {dot(n.href) && <NewDot className="absolute -right-1.5 -top-0.5" />}
+              </span>
               {n.label}
             </Link>
           );

@@ -1,5 +1,6 @@
 "use client";
 
+import { NewDot, useMarkSeen, useNews } from "@/lib/news";
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { notify } from "@/lib/push";
@@ -117,6 +118,8 @@ type Tab = "todos" | "watchlist" | "musik";
 export default function Todos() {
   const [tab, setTab] = useState<Tab>(() =>
     (typeof window !== "undefined" && (["watchlist", "musik"] as Tab[]).find((t) => t === new URLSearchParams(window.location.search).get("tab"))) || "todos");
+  const { has } = useNews();
+  useMarkSeen(`lists.${tab}` as "lists.todos");
   return (
     <>
       <PageTitle sub={tab === "todos" ? "Alles, was einmalig erledigt werden muss: Handwerker anrufen, Nebenkosten prüfen …" : tab === "watchlist" ? "Was wollen wir zusammen schauen?" : "Unsere Spotify-Playlisten"}>
@@ -125,7 +128,9 @@ export default function Todos() {
       <div className="mb-5 grid grid-cols-3 gap-1 rounded-xl bg-line/50 p-1 text-sm font-semibold">
         {([["todos", "✅ To-dos"], ["watchlist", "📺 Watchlist"], ["musik", "🎵 Musik"]] as [Tab, string][]).map(([id, label]) => (
           <button key={id} onClick={() => { setTab(id); window.history.replaceState(null, "", id === "todos" ? location.pathname : `?tab=${id}`); }}
-            className={`rounded-lg py-2 transition ${tab === id ? "bg-card shadow-sm" : "text-muted"}`}>{label}</button>
+            className={`relative rounded-lg py-2 transition ${tab === id ? "bg-card shadow-sm" : "text-muted"}`}>
+            {label}{tab !== id && has(`lists.${id}` as "lists.todos") && <NewDot className="absolute right-1.5 top-1.5" />}
+          </button>
         ))}
       </div>
       {tab === "todos" ? <TodoList /> : tab === "watchlist" ? <Watchlist /> : <MusicList />}

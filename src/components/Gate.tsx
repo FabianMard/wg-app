@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { isConfigured, supabase } from "@/lib/supabase";
 import { useWGState } from "@/lib/wg";
 import { BottomNav, guestMayOpen, Header } from "./Nav";
+import { NewsProvider } from "@/lib/news";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useWG } from "@/lib/wg";
@@ -19,11 +20,11 @@ export function Gate({ children }: { children: React.ReactNode }) {
   if (state.status === "signed-out" || state.status === "no-household") return <Setup />;
 
   return (
-    <>
+    <NewsProvider>
       <Header />
       <main className="mx-auto max-w-3xl px-4 pb-28 pt-6 md:pb-12"><GuestGuard>{children}</GuestGuard></main>
       <BottomNav />
-    </>
+    </NewsProvider>
   );
 }
 

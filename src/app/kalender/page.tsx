@@ -1,5 +1,6 @@
 "use client";
 
+import { NewDot, useMarkSeen, useNews } from "@/lib/news";
 import { useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { notify } from "@/lib/push";
@@ -24,6 +25,8 @@ export default function Kalender() {
   const [tab, setTab] = useState<Tab>(() =>
     typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tab") === "abstimmung" ? "abstimmung" : "kalender");
   const openPolls = useOpenPollCount();
+  const { has } = useNews();
+  useMarkSeen(tab === "abstimmung" ? "kalender.abstimmung" : "kalender");
   const go = (t: Tab) => { setTab(t); window.history.replaceState(null, "", t === "kalender" ? location.pathname : "?tab=abstimmung"); };
   return (
     <>
@@ -32,10 +35,13 @@ export default function Kalender() {
       </PageTitle>
       {!isGuest && (
         <div className="mb-4 grid grid-cols-2 gap-1 rounded-xl bg-line/50 p-1 text-sm font-semibold">
-          <button onClick={() => go("kalender")} className={`rounded-lg py-2 transition ${tab === "kalender" ? "bg-card shadow-sm" : "text-muted"}`}>📅 Kalender</button>
+          <button onClick={() => go("kalender")} className={`relative rounded-lg py-2 transition ${tab === "kalender" ? "bg-card shadow-sm" : "text-muted"}`}>
+            📅 Kalender{tab !== "kalender" && has("kalender") && <NewDot className="absolute right-1.5 top-1.5" />}
+          </button>
           <button onClick={() => go("abstimmung")} className={`relative rounded-lg py-2 transition ${tab === "abstimmung" ? "bg-card shadow-sm" : "text-muted"}`}>
             🗳️ Abstimmungen
             {openPolls > 0 && <span className="ml-1.5 rounded-full bg-red-500 px-1.5 py-0.5 text-[11px] font-bold text-white">{openPolls}</span>}
+            {openPolls === 0 && tab !== "abstimmung" && has("kalender.abstimmung") && <NewDot className="absolute right-1.5 top-1.5" />}
           </button>
         </div>
       )}

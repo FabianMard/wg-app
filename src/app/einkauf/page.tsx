@@ -1,5 +1,6 @@
 "use client";
 
+import { useMarkSeen } from "@/lib/news";
 import { useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { notify } from "@/lib/push";
@@ -14,6 +15,7 @@ const fmtAdded = (iso: string) =>
   new Date(iso).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "numeric" });
 
 export default function Einkauf() {
+  useMarkSeen("einkauf");
   const { household, member, refresh, myId } = useWG();
   const { rows: items, loaded, reload } = useRows<ShoppingItem>("shopping_items", "created_at");
   const [name, setName] = useState("");
