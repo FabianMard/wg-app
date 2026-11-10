@@ -57,6 +57,12 @@ function CalendarView() {
   const { rows: tasks } = useRows<ChoreTask>("chore_tasks", "sort");
   const { rows: checks } = useRows<ChoreCheck>("chore_checks", "done_at");
   const [month, setMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
+  // Ansicht: Tag / Woche / Monat (Standard) / Jahr – die letzte Wahl merkt sich das Gerät
+  type View = "tag" | "woche" | "monat" | "jahr";
+  const [view, setViewState] = useState<View>(() => {
+    try { const v = localStorage.getItem("wg-kalender-ansicht"); return v === "tag" || v === "woche" || v === "jahr" ? v : "monat"; } catch { return "monat"; }
+  });
+  const setView = (v: View) => { setViewState(v); try { localStorage.setItem("wg-kalender-ansicht", v); } catch { /* egal */ } };
   const [selected, setSelected] = useState(todayISO());
   const [title, setTitle] = useState("");
   const [time, setTime] = useState("");
@@ -98,7 +104,12 @@ function CalendarView() {
   const [slide, setSlide] = useState<"" | "next" | "prev">("");
   const shift = (n: number) => {
     setSlide(n > 0 ? "next" : "prev");
-    setMonth(new Date(month.getFullYear(), month.getMonth() + n, 1));
+    if (view === "tag" || view === "woche") {
+      const d = addDays(selected, n * (view === "tag" ? 1 : 7));
+      setSelected(d);
+      setMonth(new Date(fromISO(d).getFullYear(), fromISO(d).getMonth(), 1));
+    } else if (view === "jahr") setMonth(new Date(month.getFullYear() + n, month.getMonth(), 1));
+    else setMonth(new Date(month.getFullYear(), month.getMonth() + n, 1));
   };
 
   // Wischen: nach links = nächster Monat, nach rechts = vorheriger Monat
@@ -209,15 +220,119 @@ function CalendarView() {
   const selChores = statusByPeriod(selPeriod);
   const selRange = periodRange(cs, selPeriod);
   const selMilestone = milestone(selected);
+  // ── Kopfzeile je Ansicht ──
+  const weekStart = addDays(selected, -((fromISO(selected).getDay() + 6) % 7));
+  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const now = new Date();
+  const headLabel = view === "tag" ? formatDate(selected, { weekday: "short", day: "numeric", month: "long", year: "numeric" })
+    : view === "woche" ? `${formatDate(weekDays[0], { day: "numeric", month: "short" })} – ${formatDate(weekDays[6], { day: "numeric", month: "short", year: "numeric" })}`
+    : view === "jahr" ? String(month.getFullYear())
+    : month.toLocaleDateString("de-DE", { month: "long", year: "numeric" });
+  const showsToday = view === "tag" ? selected === todayISO() : view === "woche" ? weekDays.includes(todayISO())
+    : view === "jahr" ? month.getFullYear() === now.getFullYear() : month.getMonth() === now.getMonth() && month.getFullYear() === now.getFullYear();
+
+  // ── Woche: Liste Mo–So mit allen Einträgen in voller Länge, oben der Putzdienst der Woche ──
+  const weekPeriod = periodOf(cs, weekStart);
+  const weekRange = weekPeriod >= 0 ? periodRange(cs, weekPeriod) : null;
+  const weekChores = weekRange && weekStart <= weekRange.due && weekDays[6] >= weekRange.from ? statusByPeriod(weekPeriod) : [];
+  const weekList = (
+    <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} className="touch-pan-y border-t border-line">
+      {weekChores.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-3 py-2 text-xs">
+          <span className="font-semibold text-muted">🧽 Putzwoche:</span>
+          {weekChores.map((c) => (
+            <span key={c.area.id} className="rounded-full px-2 py-0.5 font-semibold text-white" style={{ background: c.assignee?.color ?? "#999" }}>
+              {c.area.icon} {c.area.name}: {c.assignee?.display_name ?? "?"}{c.done && " ✓"}
+            </span>
+          ))}
+        </div>
+      )}
+      {weekDays.map((iso) => {
+        const evs = eventsOn(iso), hol = holidayOn(iso), isToday = iso === todayISO();
+        return (
+          <button key={iso} onClick={() => setSelected(iso)}
+            className={`flex w-full gap-3 border-b border-line px-3 py-2 text-left last:border-b-0 ${iso === selected ? "bg-accent/10" : "hover:bg-line/30"}`}>
+            <span className="w-12 shrink-0 text-center">
+              <span className="block text-[11px] font-medium uppercase text-muted">{formatDate(iso, { weekday: "short" }).replace(".", "")}</span>
+              <span className={`mx-auto flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold ${isToday ? "bg-accent text-white" : hol ? "text-red-600" : ""}`}>{fromISO(iso).getDate()}</span>
+            </span>
+            <span className="flex min-w-0 flex-1 flex-col justify-center gap-1">
+              {hol && <span className="w-fit rounded bg-red-500/15 px-1.5 text-xs font-semibold text-red-700 dark:text-red-300">🎉 {hol}</span>}
+              {evs.map(({ event: e, dayNo, total }) => (
+                <span key={e.id} className={`w-fit max-w-full break-words rounded px-1.5 text-sm font-medium ${KIND_STYLE[eventKind(e, myId)].chip}`}>
+                  {isPrivate(e, myId) && "🔒 "}{e.time && <b>{e.time.slice(0, 5)} </b>}{displayTitle(e, iso)}{total > 1 && <span className="whitespace-nowrap opacity-70"> ({dayNo}/{total})</span>}
+                </span>
+              ))}
+              {!hol && evs.length === 0 && <span className="text-xs text-muted">–</span>}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  // ── Jahr: 12 Mini-Monate; Tage mit Einträgen markiert. Tag → Tagesansicht, Monatsname → Monatsansicht ──
+  const yearGrid = view !== "jahr" ? null : (
+    <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} className="grid touch-pan-y grid-cols-2 gap-3 border-t border-line p-3 sm:grid-cols-3 lg:grid-cols-4">
+      {Array.from({ length: 12 }, (_, mi) => {
+        const y = month.getFullYear();
+        const first = new Date(y, mi, 1);
+        const lead = (first.getDay() + 6) % 7;
+        const n = new Date(y, mi + 1, 0).getDate();
+        return (
+          <div key={mi}>
+            <button onClick={() => { setMonth(first); setView("monat"); }} className="mb-1 text-sm font-semibold hover:text-accent">
+              {first.toLocaleDateString("de-DE", { month: "long" })}
+            </button>
+            <div className="grid grid-cols-7 gap-px text-center text-[10px] leading-5">
+              {WEEKDAYS.map((w) => <span key={w} className="text-muted">{w[0]}</span>)}
+              {Array.from({ length: lead }, (_, i) => <span key={`l${i}`} />)}
+              {Array.from({ length: n }, (_, di) => {
+                const iso = toISO(new Date(y, mi, di + 1));
+                const evs = eventsOn(iso);
+                const bday = evs.some((o) => isBirthday(o.event));
+                const hol = holidayOn(iso);
+                const isToday = iso === todayISO();
+                return (
+                  <button key={iso} onClick={() => { setSelected(iso); setMonth(first); setView("tag"); }}
+                    title={[hol, ...evs.map((o) => displayTitle(o.event, iso))].filter(Boolean).join(" · ") || undefined}
+                    className={`rounded tabular-nums ${isToday ? "bg-accent font-bold text-white" : hol ? "font-bold text-red-600" : ""}
+                      ${!isToday && evs.length ? (bday ? "bg-pink-500/20 font-semibold" : "bg-accent/15 font-semibold") : ""} ${iso === selected && !isToday ? "ring-1 ring-accent" : ""}`}>
+                    {di + 1}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 
   return (
     <>
+      {/* Ansicht wählen */}
+      <div className="mb-2 grid grid-cols-4 gap-1 rounded-xl bg-line/50 p-1 text-xs font-semibold">
+        {([["tag", "Tag"], ["woche", "Woche"], ["monat", "Monat"], ["jahr", "Jahr"]] as [View, string][]).map(([v, label]) => (
+          <button key={v} onClick={() => { setView(v); if (v !== "jahr") setMonth(new Date(fromISO(selected).getFullYear(), fromISO(selected).getMonth(), 1)); }}
+            className={`rounded-lg py-1.5 transition ${view === v ? "bg-card shadow-sm" : "text-muted"}`}>{label}</button>
+        ))}
+      </div>
       <Card className="overflow-hidden p-0">
         <div className="flex items-center justify-between px-2 py-2">
-          <button onClick={() => shift(-1)} className="rounded-lg px-3 py-1 text-lg hover:bg-line/50" aria-label="Vorheriger Monat">‹</button>
-          <span className="font-semibold">{month.toLocaleDateString("de-DE", { month: "long", year: "numeric" })}</span>
-          <button onClick={() => shift(1)} className="rounded-lg px-3 py-1 text-lg hover:bg-line/50" aria-label="Nächster Monat">›</button>
+          <button onClick={() => shift(-1)} className="rounded-lg px-3 py-1 text-lg hover:bg-line/50" aria-label="Zurück">‹</button>
+          <span className="flex items-center gap-2 text-center font-semibold">
+            {headLabel}
+            {!showsToday && (
+              <button onClick={() => { const t = todayISO(); setSelected(t); setMonth(new Date(fromISO(t).getFullYear(), fromISO(t).getMonth(), 1)); }}
+                className="rounded-full border border-line px-2 py-0.5 text-[11px] font-medium text-accent">Heute</button>
+            )}
+          </span>
+          <button onClick={() => shift(1)} className="rounded-lg px-3 py-1 text-lg hover:bg-line/50" aria-label="Weiter">›</button>
         </div>
+        {view === "woche" && weekList}
+        {view === "jahr" && yearGrid}
+        {view === "monat" && <>
         <div className="grid grid-cols-7 border-t border-line text-center text-xs text-muted">
           {WEEKDAYS.map((w) => <div key={w} className="py-1">{w}</div>)}
         </div>
@@ -330,7 +445,7 @@ function CalendarView() {
             );
           })}
         </div>
-
+        </>}
       </Card>
 
       <SectionTitle>{formatDate(selected, { weekday: "long", day: "numeric", month: "long" })}</SectionTitle>
