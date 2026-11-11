@@ -71,10 +71,11 @@ export function PraiseButton({ kind, refId, to, praises, onChange }: {
 }
 
 /** Bienchen für alles Mögliche – man muss schreiben, wofür */
-export function GiveBee({ onGiven }: { onGiven: () => void }) {
+export function GiveBee({ onGiven, fixedTo }: { onGiven: () => void; fixedTo?: string }) {
   const { household, members, myId } = useWG();
   const others = members.filter((m) => m.id !== myId);
-  const [to, setTo] = useState<string | null>(null);
+  const [picked, setTo] = useState<string | null>(null);
+  const to = fixedTo ?? picked;
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -94,10 +95,21 @@ export function GiveBee({ onGiven }: { onGiven: () => void }) {
       return;
     }
     notify("putzplan", `🐝 hat dir ein Bienchen gegeben: ${reason.trim()}`, { to: [target.id] });
-    setMsg({ ok: true, text: `🐝 Bienchen an ${target.display_name} vergeben!` });
+    setMsg({ ok: true, text: fixedTo ? "🐝 Danke für das Bienchen!" : `🐝 Bienchen an ${target.display_name} vergeben!` });
     setReason(""); setTo(null);
     onGiven();
   }
+
+  if (fixedTo) return (
+    <form onSubmit={give} className="space-y-2">
+      <div className="flex gap-2">
+        <input className={`${inputCls} py-2 text-sm`} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={120}
+          placeholder="Wofür?" aria-label="Wofür ist das Bienchen?" />
+        <button disabled={busy} className="shrink-0 whitespace-nowrap rounded-xl bg-amber-400 px-3 text-sm font-semibold text-neutral-900 active:scale-95 disabled:opacity-60">🐝 Geben</button>
+      </div>
+      {msg && <p className={`text-sm ${msg.ok ? "text-emerald-600" : "text-red-600"}`}>{msg.text}</p>}
+    </form>
+  );
 
   return (
     <Card>

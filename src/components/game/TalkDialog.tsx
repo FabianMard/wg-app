@@ -7,7 +7,7 @@ import { areaStatuses, currentPeriod, isOverdue, phaseOf } from "@/lib/cleaning"
 import { computeBalances, suggestTransfers } from "@/lib/balances";
 import { euro, formatDate } from "@/lib/dates";
 import { AvatarFigure, lookOf } from "./avatar";
-import { beesOf, PraiseButton } from "@/components/Praise";
+import { beesOf, GiveBee, PraiseButton } from "@/components/Praise";
 
 type Topic = "hallo" | "loben" | "geld" | "todos";
 
@@ -95,9 +95,7 @@ export function TalkDialog({ target, online, onEmote, onOpenChat, onClose }: {
       </>
     );
   } else if (topic === "loben") {
-    line = praiseable.length
-      ? <>Oh, danke! Wofür willst du mich loben?</>
-      : <>Hm, ich hab in letzter Zeit gar nichts abgehakt … Aber lieb von dir! 😊</>;
+    line = <>Oh, danke! Wofür willst du mich loben? 🐝</>;
   } else if (topic === "geld") {
     line = iOwe
       ? <>Laut Haushaltskasse schuldest du mir noch <b>{euro(iOwe.cents / 100)}</b>. 😉</>
@@ -117,8 +115,14 @@ export function TalkDialog({ target, online, onEmote, onOpenChat, onClose }: {
         <div className="relative flex-1 rounded-2xl rounded-tl-sm border border-line bg-card p-3 text-[15px] leading-relaxed shadow-sm">
           <p className="mb-1 text-xs font-semibold" style={{ color: target.color }}>{target.display_name}</p>
           {line}
+          {topic === "loben" && (
+            <div className="mt-3">
+              <GiveBee fixedTo={target.id} onGiven={() => { reloadPraises(); onEmote("🐝", target.id); }} />
+            </div>
+          )}
           {topic === "loben" && praiseable.length > 0 && (
             <div className="mt-3 space-y-2">
+              <p className="text-xs font-medium text-muted">Oder für etwas, das ich erledigt habe:</p>
               {praiseable.map((p) => (
                 <div key={p.key} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-line/30 px-3 py-2">
                   <span className="text-sm">{p.label}</span>
