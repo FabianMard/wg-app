@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRows, useWG } from "@/lib/wg";
-import type { CostRequest, CalEvent, ChoreArea, ChoreCheck, ChoreTask, Expense, Member, Note, Praise, ShoppingItem, Todo } from "@/lib/types";
+import type { CalEvent, ChoreArea, ChoreCheck, ChoreOverride, ChoreTask, CostRequest, Expense, Member, Note, Praise, ShoppingItem, Todo } from "@/lib/types";
 import { areaStatuses, periodRange } from "@/lib/cleaning";
 import { addDays, euro, formatDate, toISO } from "@/lib/dates";
 import { holidaysSachsen } from "@/lib/holidays";
@@ -27,6 +27,7 @@ export default function Bericht() {
   const { rows: areas } = useRows<ChoreArea>("chore_areas", "sort");
   const { rows: tasks } = useRows<ChoreTask>("chore_tasks", "sort");
   const { rows: checks } = useRows<ChoreCheck>("chore_checks", "done_at");
+  const { rows: overrides } = useRows<ChoreOverride>("chore_overrides", "created_at");
   const { rows: items } = useRows<ShoppingItem>("shopping_items", "created_at");
   const { rows: expenses } = useRows<Expense>("expenses", "created_at");
   const { rows: events } = useRows<CalEvent>("events", "day");
@@ -55,9 +56,10 @@ export default function Bericht() {
   for (let p = 0; p < 400; p++) {
     const r = periodRange(start, p);
     if (r.due >= to || r.from > today) break;
-    if (r.due >= from) rounds.push({ period: p, due: r.due, running: r.due >= today, statuses: areaStatuses(areas, tasks, checks, members, p) });
+    if (r.due >= from) rounds.push({ period: p, due: r.due, running: r.due >= today, statuses: areaStatuses(areas, tasks, checks, members, p, overrides) });
   }
-  const areaResults = rounds.filter((r) => !r.running).flatMap((r) => r.statuses.map((s) => ({ ...s, due: r.due })));
+  // Verfallene Dienste zählen nicht (weder als erledigt noch als versäumt)
+  const areaResults = rounds.filter((r) => !r.running).flatMap((r) => r.statuses.filter((s) => !s.skipped).map((s) => ({ ...s, due: r.due })));
   const doneAreas = areaResults.filter((s) => s.done).length;
   const checksMonth = checks.filter((c) => inMonth(c.done_at));
   const checkTally = tally(checksMonth.map((c) => c.done_by), members);
@@ -141,7 +143,7 @@ export default function Bericht() {
       L.push("", "🧽 Putzen");
       for (const r of rounds) {
         L.push(`Putzwoche bis ${formatDate(r.due)}${r.running ? " (läuft noch)" : ""}: ` +
-          r.statuses.map((x) => `${x.area.name} ${x.assignee?.display_name ?? "?"} ${x.done ? "✓" : r.running ? `${x.doneCount}/${x.tasks.length}` : "✗"}`).join(", "));
+          r.statuses.map((x) => `${x.area.name} ${x.assignee?.display_name ?? "?"} ${x.skipped ? "verfallen" : x.done ? "✓" : r.running ? `${x.doneCount}/${x.tasks.length}` : "✗"}`).join(", "));
       }
     }
     if (itemsMonth.length) {
@@ -252,8 +254,8 @@ export default function Bericht() {
                     <p className="mb-1 text-xs font-medium text-muted">Putzwoche bis {formatDate(r.due)}{r.running && " · läuft noch"}</p>
                     <div className="flex flex-wrap gap-1.5">
                       {r.statuses.map((s) => (
-                        <span key={s.area.id} className={`rounded-full px-2.5 py-1 text-sm font-medium ${s.done ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" : r.running ? "bg-line/60 text-muted" : "bg-red-500/15 text-red-700 dark:text-red-300"}`}>
-                          {s.done ? "✓" : r.running ? `${s.doneCount}/${s.tasks.length}` : "✗"} {s.area.name}: {s.assignee?.display_name}
+                        <span key={s.area.id} className={`rounded-full px-2.5 py-1 text-sm font-medium ${s.skipped ? "bg-line/60 text-muted" : s.done ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" : r.running ? "bg-line/60 text-muted" : "bg-red-500/15 text-red-700 dark:text-red-300"}`}>
+                          {s.skipped ? "⏭️" : s.done ? "✓" : r.running ? `${s.doneCount}/${s.tasks.length}` : "✗"} {s.area.name}: {s.assignee?.display_name}{s.original ? ` (für ${s.original.display_name})` : ""}{s.skipped ? " · verfallen" : ""}
                         </span>
                       ))}
                     </div>

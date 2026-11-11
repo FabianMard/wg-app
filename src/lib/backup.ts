@@ -7,7 +7,7 @@ import { supabase } from "./supabase";
 
 /** Tabellen in der Reihenfolge, in der sie wieder eingespielt werden müssen (Abhängigkeiten zuerst) */
 export const BACKUP_TABLES = [
-  "households", "members", "chore_areas", "chore_tasks", "chore_checks", "shopping_items", "expenses", "events",
+  "households", "members", "chore_areas", "chore_tasks", "chore_checks", "chore_overrides", "shopping_items", "expenses", "events",
   "todos", "praises", "notes", "messages", "watchlist", "playlists", "game_scores", "tennis_matches", "kite_spots",
   "polls", "poll_options", "poll_votes", "cost_requests", "room_pictures", "game_songs",
 ] as const;

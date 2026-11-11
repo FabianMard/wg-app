@@ -45,7 +45,19 @@ type Map_ = Partial<Record<NewsKey, string>>;
 const load = (): Map_ => { try { return JSON.parse(localStorage.getItem(STORE) ?? "{}"); } catch { return {}; } };
 const save = (m: Map_) => { try { localStorage.setItem(STORE, JSON.stringify(m)); } catch { /* egal */ } };
 
-const Ctx = createContext<{ has: (k: NewsKey) => boolean; markSeen: (k: NewsKey) => void; latest: Map_ } | null>(null);
+const Ctx = createContext<{ has: (k: NewsKey) => boolean; markSeen: (k: NewsKey) => void; latest: Map_; count: number } | null>(null);
+
+type BadgeNav = Navigator & { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
+/** Zahl auf dem App-Icon (Home-Bildschirm / Dock) setzen – und für den Service Worker merken, der bei Push hochzählt */
+export function setIconBadge(n: number) {
+  if (typeof navigator === "undefined") return;
+  const nav = navigator as BadgeNav;
+  try {
+    if (n > 0) nav.setAppBadge?.(n).catch(() => {});
+    else nav.clearAppBadge?.().catch(() => {});
+  } catch { /* nicht unterstützt */ }
+  try { caches.open("wg-badge").then((c) => c.put("/badge-count", new Response(String(n)))).catch(() => {}); } catch { /* egal */ }
+}
 
 export function NewsProvider({ children }: { children: React.ReactNode }) {
   const { household, myId } = useWG();
@@ -99,12 +111,31 @@ export function NewsProvider({ children }: { children: React.ReactNode }) {
   }, [latest]);
 
   const has = useCallback((k: NewsKey) => !!latest[k] && (!seen[k] || latest[k]! > seen[k]!), [latest, seen]);
-  return <Ctx.Provider value={{ has, markSeen, latest }}>{children}</Ctx.Provider>;
+
+  // Wie viele neue Einträge von anderen gibt es insgesamt? → Zahl auf dem App-Icon
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    let stop = false;
+    const t = setTimeout(async () => {
+      const counts = await Promise.all(SOURCES.map(async (s) => {
+        if (!latest[s.key] || (seen[s.key] && latest[s.key]! <= seen[s.key]!)) return 0;
+        if (!seen[s.key]) return 1;
+        const { count: n } = await supabase.from(s.table).select(s.time, { count: "exact", head: true })
+          .eq("household_id", household.id).neq(s.by, myId).gt(s.time, seen[s.key]!);
+        return n ?? 0;
+      }));
+      if (!stop) setCount(counts.reduce((a, b) => a + b, 0));
+    }, 400);
+    return () => { stop = true; clearTimeout(t); };
+  }, [latest, seen, household.id, myId]);
+  useEffect(() => { setIconBadge(count); }, [count]);
+
+  return <Ctx.Provider value={{ has, markSeen, latest, count }}>{children}</Ctx.Provider>;
 }
 
 /** Gibt es in diesem Bereich etwas Neues? */
 export function useNews() {
-  return useContext(Ctx) ?? { has: () => false, markSeen: () => {}, latest: {} };
+  return useContext(Ctx) ?? { has: () => false, markSeen: () => {}, latest: {}, count: 0 };
 }
 
 /** Auf dieser Seite / in diesem Reiter: als gesehen markieren (auch wenn währenddessen Neues dazukommt) */

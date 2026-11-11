@@ -3,10 +3,11 @@ import { supabase } from "./supabase";
 /** Öffentlicher VAPID-Schlüssel (darf öffentlich sein; der private liegt nur auf Vercel) */
 export const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "BLE36QcPepvr8b04GqQwSOSdP2-AjqQMbXreTT2UREyOA5p1bf5tTUwo1ZIMJF5EzcuRYfjVCYfptSql4-UcbrI";
 
-export type PushArea = "einkauf" | "kosten" | "freigabe" | "kalender" | "abstimmung" | "todos" | "pinnwand" | "watchlist" | "musik" | "chat";
+export type PushArea = "putzplan" | "einkauf" | "kosten" | "freigabe" | "kalender" | "abstimmung" | "todos" | "pinnwand" | "watchlist" | "musik" | "chat";
 export type PushMode = "aus" | "jeder" | "taeglich";
 
 export const PUSH_AREAS: { id: PushArea; label: string; icon: string; url: string; hint: string }[] = [
+  { id: "putzplan", label: "Putzplan & Bienchen", icon: "🧽", url: "/putzplan", hint: "Wenn jemand einen Dienst übernimmt oder er verfällt – und Bienchen für dich" },
   { id: "einkauf", label: "Einkaufsliste", icon: "🛒", url: "/einkauf", hint: "Neue Sachen auf der Liste" },
   { id: "kosten", label: "Kosten", icon: "💶", url: "/kosten", hint: "Neue Ausgaben" },
   { id: "freigabe", label: "Kosten-Freigaben", icon: "📝", url: "/kosten?tab=einreichen", hint: "Eingereichte Kosten & Entscheidungen" },
@@ -22,7 +23,7 @@ export const PUSH_AREAS: { id: PushArea; label: string; icon: string; url: strin
 /** Vorschlag beim Einschalten: Nachrichten an mich immer, alles andere 1× am Tag, Geburtstage morgens um 9 */
 export const DEFAULT_PREFS: Record<PushArea, PushMode> & { geburtstag: PushMode; geburtstag_zeit: string } = {
   geburtstag: "taeglich", geburtstag_zeit: "09",
-  einkauf: "taeglich", kosten: "taeglich", freigabe: "jeder", kalender: "taeglich", abstimmung: "jeder", todos: "taeglich",
+  putzplan: "jeder", einkauf: "taeglich", kosten: "taeglich", freigabe: "jeder", kalender: "taeglich", abstimmung: "jeder", todos: "taeglich",
   pinnwand: "taeglich", watchlist: "taeglich", musik: "taeglich", chat: "jeder",
 };
 

@@ -1,5 +1,5 @@
 import { addDays, fromISO, todayISO } from "./dates";
-import type { ChoreArea, ChoreCheck, ChoreTask, Member } from "./types";
+import type { ChoreArea, ChoreCheck, ChoreOverride, ChoreTask, Member } from "./types";
 
 /**
  * Eine Runde dauert 2 Wochen:
@@ -31,7 +31,10 @@ export type AreaStatus = {
   area: ChoreArea;
   tasks: ChoreTask[];
   checks: ChoreCheck[];      // Häkchen dieser Runde
-  assignee?: Member;
+  assignee?: Member;         // wer diese Runde zuständig ist (nach einer Übernahme: wer übernommen hat)
+  original?: Member;         // laut Plan zuständig (nur gesetzt, wenn übernommen)
+  override?: ChoreOverride;
+  skipped: boolean;          // Dienst verfällt diese Runde
   done: boolean;
   doneCount: number;
   helpers: string[];         // wer Häkchen gesetzt hat (Member-IDs)
@@ -39,15 +42,22 @@ export type AreaStatus = {
 
 export function areaStatuses(
   areas: ChoreArea[], tasks: ChoreTask[], checks: ChoreCheck[], members: Member[], period: number,
+  overrides: ChoreOverride[] = [],
 ): AreaStatus[] {
   return [...areas].sort((a, b) => a.sort - b.sort).map((area, i) => {
     const t = tasks.filter((x) => x.area_id === area.id).sort((a, b) => a.sort - b.sort);
     const c = checks.filter((x) => x.area_id === area.id && x.period === period && t.some((tt) => tt.id === x.task_id));
+    const planned = assigneeFor(i, period, members);
+    const o = overrides.find((x) => x.area_id === area.id && x.period === period);
+    const taker = o?.kind === "uebernommen" ? members.find((m) => m.id === o.member_id) : undefined;
     return {
       area,
       tasks: t,
       checks: c,
-      assignee: assigneeFor(i, period, members),
+      assignee: taker ?? planned,
+      original: taker && taker.id !== planned?.id ? planned : undefined,
+      override: o,
+      skipped: o?.kind === "verfallen",
       done: t.length > 0 && c.length >= t.length,
       doneCount: c.length,
       helpers: [...new Set(c.map((x) => x.done_by).filter((x): x is string => !!x))],
@@ -66,7 +76,7 @@ export function phaseOf(start: string, period: number, day = todayISO()): Phase 
 /** Nicht in der Putzwoche erledigt (und die Putzwoche ist vorbei). Vor dem Start des Putzplans ist nichts überfällig. */
 export function isOverdue(s: AreaStatus, start: string, period: number, day = todayISO()): boolean {
   if (period < 0 || day < start) return false;
-  return !s.done && s.tasks.length > 0 && day > periodRange(start, period).due;
+  return !s.done && !s.skipped && s.tasks.length > 0 && day > periodRange(start, period).due;
 }
 
 /** Hat der Putzplan schon begonnen? (Startdatum kann in der Zukunft liegen) */

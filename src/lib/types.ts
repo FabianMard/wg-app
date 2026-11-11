@@ -162,8 +162,21 @@ export type Praise = {
   household_id: string;
   from_member: string;
   to_member: string;
-  kind: "putzen" | "todo";
+  kind: "putzen" | "todo" | "sonstiges";
   ref: string;
+  reason?: string | null;   // Pflicht bei „sonstiges“: wofür
+  created_at: string;
+};
+
+/** Putzdienst einer Runde: von jemand anderem übernommen oder verfallen */
+export type ChoreOverride = {
+  household_id: string;
+  area_id: string;
+  period: number;
+  kind: "uebernommen" | "verfallen";
+  member_id: string | null;
+  reason: string | null;
+  set_by: string | null;
   created_at: string;
 };
 

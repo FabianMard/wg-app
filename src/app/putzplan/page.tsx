@@ -4,18 +4,20 @@ import { useMarkSeen } from "@/lib/news";
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRows, useWG } from "@/lib/wg";
-import type { ChoreArea, ChoreCheck, ChoreTask, Praise } from "@/lib/types";
+import type { ChoreArea, ChoreCheck, ChoreOverride, ChoreTask, Praise } from "@/lib/types";
 import { areaStatuses, beforeStart, currentPeriod, isOverdue, periodRange, phaseOf, type AreaStatus } from "@/lib/cleaning";
 import { formatDate } from "@/lib/dates";
 import { Avatar, Card, Check, DeleteButton, inputCls, PageTitle, SectionTitle } from "@/components/ui";
-import { Bees, beesOf, PraiseButton } from "@/components/Praise";
+import { BeeFeed, Bees, beesOf, GiveBee, PraiseButton } from "@/components/Praise";
+import { notify } from "@/lib/push";
 
 export default function Putzplan() {
   useMarkSeen("putzen");
-  const { household, members, myId } = useWG();
+  const { household, members, myId, isGuest } = useWG();
   const { rows: areas } = useRows<ChoreArea>("chore_areas", "sort");
   const { rows: tasks, reload: reloadTasks } = useRows<ChoreTask>("chore_tasks", "sort");
   const { rows: checks, reload: reloadChecks } = useRows<ChoreCheck>("chore_checks", "done_at");
+  const { rows: overrides, reload: reloadOverrides } = useRows<ChoreOverride>("chore_overrides", "created_at");
   const { rows: praises, reload: reloadPraises } = useRows<Praise>("praises", "created_at");
 
   const start = household.cleaning_start;
@@ -26,17 +28,34 @@ export default function Putzplan() {
 
   // Reihenfolge: überfällige zuerst, dann meiner, dann der Rest
   const rank = (x: AreaStatus) => (isOverdue(x, start, period) ? 2 : 0) + (x.assignee?.id === myId ? 1 : 0);
-  const current = areaStatuses(areas, tasks, checks, members, period).sort((a, b) => rank(b) - rank(a));
+  const current = areaStatuses(areas, tasks, checks, members, period, overrides).sort((a, b) => rank(b) - rank(a));
   const overdueCount = current.filter((x) => isOverdue(x, start, period)).length;
   const dayLong = (iso: string) => formatDate(iso, { weekday: "long", day: "numeric", month: "numeric" });
-  const previous = areaStatuses(areas, tasks, checks, members, period - 1);
-  const next = areaStatuses(areas, tasks, checks, members, period + 1);
+  const previous = areaStatuses(areas, tasks, checks, members, period - 1, overrides);
+  const next = areaStatuses(areas, tasks, checks, members, period + 1, overrides);
 
   async function toggle(s: AreaStatus, task: ChoreTask) {
     const existing = s.checks.find((c) => c.task_id === task.id);
     if (existing) await supabase.from("chore_checks").delete().eq("id", existing.id);
     else await supabase.from("chore_checks").insert({ household_id: household.id, area_id: s.area.id, task_id: task.id, period });
     reloadChecks();
+  }
+
+  // Dienst übernehmen (memberId) oder verfallen lassen (memberId = null)
+  async function setOverride(s: AreaStatus, memberId: string | null, reason: string) {
+    const planned = s.assignee;
+    const { error } = await supabase.from("chore_overrides").upsert({
+      household_id: household.id, area_id: s.area.id, period, kind: memberId ? "uebernommen" : "verfallen", member_id: memberId, reason: reason.trim() || null,
+    });
+    if (error) { alert(error.message.includes("chore_overrides") ? "Datenbank-Update fehlt: Bitte supabase/027_putzen_bienchen.sql im SQL Editor ausführen." : error.message); return; }
+    const taker = members.find((m) => m.id === memberId);
+    if (taker) notify("putzplan", `🔁 ${taker.id === myId ? "übernimmt" : `${taker.display_name} übernimmt`} ${s.area.icon} ${s.area.name} für ${planned?.display_name ?? "?"}`, { to: [planned?.id, taker.id].filter((x): x is string => !!x) });
+    else notify("putzplan", `⏭️ ${s.area.icon} ${s.area.name} (${planned?.display_name ?? "?"}) verfällt diese Runde${reason.trim() ? `: ${reason.trim()}` : ""}`);
+    reloadOverrides();
+  }
+  async function undoOverride(s: AreaStatus) {
+    await supabase.from("chore_overrides").delete().eq("area_id", s.area.id).eq("period", period);
+    reloadOverrides();
   }
 
   return (
@@ -58,7 +77,8 @@ export default function Putzplan() {
       <div className="space-y-4">
         {current.map((s) => (
           <AreaCard key={s.area.id} s={s} period={period} overdue={isOverdue(s, start, period)} free={phase !== "putzwoche"} mine={s.assignee?.id === myId}
-            praises={praises} onToggle={(t) => toggle(s, t)} onPraise={reloadPraises} onTasksChanged={reloadTasks} />
+            praises={praises} onToggle={(t) => toggle(s, t)} onPraise={reloadPraises} onTasksChanged={reloadTasks}
+            canChange={!isGuest} onOverride={(m, r) => setOverride(s, m, r)} onUndo={() => undoOverride(s)} />
         ))}
       </div>
 
@@ -72,8 +92,9 @@ export default function Putzplan() {
                 <span className="font-medium">{s.area.name}</span>
                 <Avatar member={s.assignee} size={22} />
                 <span className="text-sm text-muted">{s.assignee?.display_name}</span>
-                <span className={`ml-auto text-sm font-medium ${s.done ? "text-emerald-600" : "text-red-600"}`}>
-                  {s.done ? "✓ erledigt" : `✗ nicht fertig (${s.doneCount}/${s.tasks.length})`}
+                {s.original && <span className="text-xs text-muted">(für {s.original.display_name})</span>}
+                <span className={`ml-auto text-sm font-medium ${s.skipped ? "text-muted" : s.done ? "text-emerald-600" : "text-red-600"}`}>
+                  {s.skipped ? "⏭️ verfallen" : s.done ? "✓ erledigt" : `✗ nicht fertig (${s.doneCount}/${s.tasks.length})`}
                 </span>
                 {s.done && (
                   <div className="w-full">
@@ -98,7 +119,7 @@ export default function Putzplan() {
       </Card>
 
       <SectionTitle>Fleißige Bienchen</SectionTitle>
-      <Card className="flex flex-wrap gap-4">
+      <Card className="mb-3 flex flex-wrap gap-4">
         {[...members].sort((a, b) => beesOf(praises, b.id) - beesOf(praises, a.id)).map((m) => (
           <span key={m.id} className="flex items-center gap-2">
             <Avatar member={m} />
@@ -107,16 +128,28 @@ export default function Putzplan() {
           </span>
         ))}
       </Card>
+      {!isGuest && <GiveBee onGiven={reloadPraises} />}
+      {!isGuest && praises.length > 0 && (
+        <>
+          <p className="mb-2 mt-4 text-xs font-medium uppercase tracking-wide text-muted">Zuletzt vergeben</p>
+          <BeeFeed praises={praises} areas={areas} onChange={reloadPraises} />
+        </>
+      )}
     </>
   );
 }
 
-function AreaCard({ s, period, overdue, free, mine, praises, onToggle, onPraise, onTasksChanged }: {
+function AreaCard({ s, period, overdue, free, mine, praises, onToggle, onPraise, onTasksChanged, canChange, onOverride, onUndo }: {
   s: AreaStatus; period: number; overdue: boolean; free: boolean; mine: boolean; praises: Praise[];
   onToggle: (t: ChoreTask) => void; onPraise: () => void; onTasksChanged: () => void;
+  canChange: boolean; onOverride: (memberId: string | null, reason: string) => void; onUndo: () => void;
 }) {
-  const { household, member } = useWG();
+  const { household, member, members, myId } = useWG();
   const [editing, setEditing] = useState(false);
+  const [cant, setCant] = useState(false);
+  const [reason, setReason] = useState("");
+  const others = members.filter((m) => m.id !== s.assignee?.id).sort((a, b) => (a.id === myId ? -1 : b.id === myId ? 1 : 0));
+  const o = s.override;
   const [newTask, setNewTask] = useState("");
   const pct = s.tasks.length ? Math.round((s.doneCount / s.tasks.length) * 100) : 0;
 
@@ -135,11 +168,21 @@ function AreaCard({ s, period, overdue, free, mine, praises, onToggle, onPraise,
   }
 
   return (
-    <Card className={`p-0 ${overdue ? "border-2 border-red-500 bg-red-500/10 shadow-[0_0_0_4px_rgba(239,68,68,.12)]" : mine && !s.done ? "ring-2 ring-accent/40" : ""} ${s.done ? "border-emerald-500/50 bg-emerald-500/10" : ""}`}>
+    <Card className={`p-0 ${s.skipped ? "opacity-70" : ""} ${overdue ? "border-2 border-red-500 bg-red-500/10 shadow-[0_0_0_4px_rgba(239,68,68,.12)]" : mine && !s.done ? "ring-2 ring-accent/40" : ""} ${s.done ? "border-emerald-500/50 bg-emerald-500/10" : ""}`}>
       {overdue && (
         <div className="flex items-center gap-2 rounded-t-2xl bg-red-500 px-4 py-2 text-sm font-semibold text-white">
           <span className="animate-pulse">⚠️</span>
           Überfällig! {mine ? "Bitte diese Woche nachholen" : `${s.assignee?.display_name} muss nachholen`}
+        </div>
+      )}
+      {o && (
+        <div className="flex items-center gap-2 rounded-t-2xl bg-line/50 px-4 py-2 text-sm">
+          <span className="min-w-0 flex-1">
+            {o.kind === "verfallen"
+              ? <>⏭️ <b>Verfällt diese Runde</b>{o.reason ? ` – ${o.reason}` : ""}</>
+              : <>🔁 <b>{s.assignee?.id === myId ? "Du übernimmst" : `${s.assignee?.display_name} übernimmt`}</b>{s.original ? ` für ${s.original.id === myId ? "dich" : s.original.display_name}` : ""}{o.reason ? ` – ${o.reason}` : ""}</>}
+          </span>
+          {canChange && <button onClick={onUndo} className="shrink-0 text-xs text-muted underline hover:text-fg">Rückgängig</button>}
         </div>
       )}
       <div className="flex items-center gap-3 p-4 pb-3">
@@ -154,7 +197,7 @@ function AreaCard({ s, period, overdue, free, mine, praises, onToggle, onPraise,
         <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
           s.done ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
           : overdue ? "bg-red-500/15 text-red-700 dark:text-red-300" : "bg-line/60 text-muted"}`}>
-          {s.done ? (free ? "✓ Erledigt · frei 😎" : "✓ Erledigt") : overdue ? `Überfällig ${s.doneCount}/${s.tasks.length}` : `${s.doneCount}/${s.tasks.length}`}
+          {s.skipped ? "⏭️ Verfällt" : s.done ? (free ? "✓ Erledigt · frei 😎" : "✓ Erledigt") : overdue ? `Überfällig ${s.doneCount}/${s.tasks.length}` : `${s.doneCount}/${s.tasks.length}`}
         </span>
       </div>
 
@@ -192,10 +235,38 @@ function AreaCard({ s, period, overdue, free, mine, praises, onToggle, onPraise,
             {s.assignee && <Bees count={beesOf(praises, s.assignee.id)} />}
           </>
         )}
+        {canChange && !s.done && !o && (
+          <button onClick={() => setCant(!cant)} className="rounded-full border border-line px-3 py-1 text-xs font-medium hover:bg-line/40">
+            🤝 {mine ? "Kann nicht?" : "Übernehmen / verfallen"}
+          </button>
+        )}
         <button onClick={() => setEditing(!editing)} className="ml-auto text-xs text-muted hover:text-fg">
           {editing ? "Fertig" : "Liste bearbeiten"}
         </button>
       </div>
+      {cant && !o && (
+        <div className="space-y-3 border-t border-line px-4 py-3 text-sm">
+          <input className={`${inputCls} py-2 text-sm`} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={120}
+            placeholder="Grund (optional), z. B. „bin im Urlaub“" />
+          <div>
+            <p className="mb-1.5 text-xs font-medium text-muted">Wer übernimmt {s.assignee ? `für ${s.assignee.id === myId ? "dich" : s.assignee.display_name}` : ""}?</p>
+            <div className="flex flex-wrap gap-2">
+              {others.map((m) => (
+                <button key={m.id} onClick={() => { onOverride(m.id, reason); setCant(false); setReason(""); }}
+                  className="flex items-center gap-1.5 rounded-full border border-line py-1 pl-1 pr-3 font-medium transition hover:border-accent active:scale-95">
+                  <Avatar member={m} size={22} />{m.id === myId ? "🙋 Ich übernehme" : `${m.display_name} übernimmt`}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted">oder</span>
+            <button onClick={() => { if (confirm(`${s.area.name} diese Runde verfallen lassen? Dann muss es niemand nachholen.`)) { onOverride(null, reason); setCant(false); setReason(""); } }}
+              className="rounded-full border border-line px-3 py-1 font-medium transition hover:border-red-400 active:scale-95">⏭️ Dienst verfällt diese Runde</button>
+            <button onClick={() => setCant(false)} className="ml-auto text-xs text-muted underline">Abbrechen</button>
+          </div>
+        </div>
+      )}
     </Card>
   );
 }

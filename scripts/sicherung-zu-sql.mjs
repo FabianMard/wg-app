@@ -16,7 +16,7 @@ if (!file) { console.error("Aufruf: node scripts/sicherung-zu-sql.mjs <sicherung
 const backup = JSON.parse(fs.readFileSync(file, "utf8"));
 if (backup.app !== "wg-app") { console.error("Das ist keine Sicherung der WG-App."); process.exit(1); }
 
-const ORDER = ["households", "members", "chore_areas", "chore_tasks", "chore_checks", "shopping_items", "expenses", "events",
+const ORDER = ["households", "members", "chore_areas", "chore_tasks", "chore_checks", "chore_overrides", "shopping_items", "expenses", "events",
   "todos", "praises", "notes", "messages", "watchlist", "playlists", "game_scores", "tennis_matches", "kite_spots",
   "polls", "poll_options", "poll_votes", "cost_requests", "room_pictures", "game_songs"];
 // Dollar-Quoting mit eigenem Tag, damit Texte mit $ oder ' nichts kaputt machen

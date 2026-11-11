@@ -3,7 +3,7 @@
 import { useMarkSeen } from "@/lib/news";
 import Link from "next/link";
 import { useWG, useRows } from "@/lib/wg";
-import type { CalEvent, ChoreArea, ChoreCheck, ChoreTask, Expense, Praise, ShoppingItem, Todo } from "@/lib/types";
+import type { CalEvent, ChoreArea, ChoreCheck, ChoreOverride, ChoreTask, Expense, Praise, ShoppingItem, Todo } from "@/lib/types";
 import { areaStatuses, beforeStart, currentPeriod, isOverdue, periodRange, phaseOf } from "@/lib/cleaning";
 import { beesOf } from "@/components/Praise";
 import { computeBalances } from "@/lib/balances";
@@ -18,6 +18,7 @@ function ResidentHome() {
   const { rows: areas } = useRows<ChoreArea>("chore_areas", "sort");
   const { rows: tasks } = useRows<ChoreTask>("chore_tasks", "sort");
   const { rows: checks } = useRows<ChoreCheck>("chore_checks", "done_at");
+  const { rows: overrides } = useRows<ChoreOverride>("chore_overrides", "created_at");
   const { rows: praises } = useRows<Praise>("praises", "created_at");
   const { rows: items } = useRows<ShoppingItem>("shopping_items", "created_at");
   const { rows: expenses } = useRows<Expense>("expenses", "created_at");
@@ -28,7 +29,9 @@ function ResidentHome() {
   const notYet = beforeStart(household.cleaning_start);
   const range = periodRange(household.cleaning_start, period);
   const phase = phaseOf(household.cleaning_start, period);
-  const mine = areaStatuses(areas, tasks, checks, members, period).filter((s) => s.assignee?.id === myId);
+  const roundNow = areaStatuses(areas, tasks, checks, members, period, overrides);
+  const mine = roundNow.filter((s) => s.assignee?.id === myId);
+  const handedOff = roundNow.filter((s) => s.original?.id === myId);
   const openItems = items.filter((i) => !i.done && !i.archived);
   const balance = computeBalances(expenses, members.map((m) => m.id))[myId] ?? 0;
   const ranking = [...members].sort((a, b) => beesOf(praises, b.id) - beesOf(praises, a.id));
@@ -50,17 +53,19 @@ function ResidentHome() {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Tile href="/putzplan" icon="🧽" title={notYet ? `Dein Putzbereich ab ${formatDate(household.cleaning_start)}` : "Dein Putzbereich"}
           tone={mine.length && mine.some((s) => isOverdue(s, household.cleaning_start, period)) ? "red"
-            : mine.length && mine.every((s) => s.done) ? "green" : undefined}>
-          {mine.length === 0 ? <Muted>Diese Runde nichts</Muted> : mine.map((s) => (
+            : mine.length && mine.every((s) => s.done || s.skipped) ? "green" : undefined}>
+          {mine.length === 0 && !handedOff.length ? <Muted>Diese Runde nichts</Muted> : mine.map((s) => (
             <div key={s.area.id}>
-              <Row label={`${s.area.icon} ${s.area.name}`} right={s.done ? "✓ erledigt" : `${s.doneCount}/${s.tasks.length}`} warn={isOverdue(s, household.cleaning_start, period)} />
-              {notYet ? <Muted>Putzplan startet am {formatDate(household.cleaning_start)}</Muted> : s.done
+              <Row label={`${s.area.icon} ${s.area.name}`} right={s.skipped ? "⏭️ fällt aus" : s.done ? "✓ erledigt" : `${s.doneCount}/${s.tasks.length}`} warn={isOverdue(s, household.cleaning_start, period)} />
+              {s.original && <Muted>🔁 Übernommen für {s.original.display_name}</Muted>}
+              {s.skipped ? <Muted>Dieser Dienst verfällt diese Runde{s.override?.reason ? ` – ${s.override.reason}` : ""}</Muted> : notYet ? <Muted>Putzplan startet am {formatDate(household.cleaning_start)}</Muted> : s.done
                 ? phase !== "putzwoche" && <Muted>Frei bis {formatDate(range.end)} 😎</Muted>
                 : isOverdue(s, household.cleaning_start, period)
                   ? <p className="text-sm font-semibold text-red-600">⚠️ Überfällig – bitte nachholen!</p>
                   : <Muted>Putzwoche: bis {formatDate(range.due)} erledigen</Muted>}
             </div>
           ))}
+          {handedOff.map((s) => <Muted key={s.area.id}>🔁 {s.area.icon} {s.area.name} übernimmt {s.assignee?.display_name} für dich</Muted>)}
         </Tile>
         <Tile href="/einkauf" icon="🛒" title="Einkaufsliste">
           {openItems.length === 0 ? <Muted>Alles da</Muted> : (

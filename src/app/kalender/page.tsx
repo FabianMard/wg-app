@@ -5,7 +5,7 @@ import { Fragment, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { notify } from "@/lib/push";
 import { useRows, useWG } from "@/lib/wg";
-import type { CalEvent, ChoreArea, ChoreCheck, ChoreTask } from "@/lib/types";
+import type { CalEvent, ChoreArea, ChoreCheck, ChoreOverride, ChoreTask } from "@/lib/types";
 import { areaStatuses, isOverdue, periodOf, periodRange, type AreaStatus } from "@/lib/cleaning";
 import { formatDate, fromISO, toISO, todayISO } from "@/lib/dates";
 import { holidayOn } from "@/lib/holidays";
@@ -56,6 +56,7 @@ function CalendarView() {
   const { rows: areas } = useRows<ChoreArea>("chore_areas", "sort");
   const { rows: tasks } = useRows<ChoreTask>("chore_tasks", "sort");
   const { rows: checks } = useRows<ChoreCheck>("chore_checks", "done_at");
+  const { rows: overrides } = useRows<ChoreOverride>("chore_overrides", "created_at");
   const [month, setMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
   // Ansicht: Tag / Woche / Monat (Standard) / Jahr – die letzte Wahl merkt sich das Gerät
   type View = "tag" | "woche" | "monat" | "jahr";
@@ -88,10 +89,10 @@ function CalendarView() {
   const statusByPeriod = useMemo(() => {
     const map = new Map<number, AreaStatus[]>();
     return (p: number) => {
-      if (!map.has(p)) map.set(p, p < 0 ? [] : areaStatuses(areas, tasks, checks, members, p));
+      if (!map.has(p)) map.set(p, p < 0 ? [] : areaStatuses(areas, tasks, checks, members, p, overrides));
       return map.get(p)!;
     };
-  }, [areas, tasks, checks, members]);
+  }, [areas, tasks, checks, members, overrides]);
 
   const eventsOn = (iso: string): Occurrence[] => occurrencesOn(events, iso);
   // Ende der Putzwoche (Sonntag) markieren
@@ -418,6 +419,7 @@ function CalendarView() {
                     <span className="-mx-1 mt-auto flex flex-col gap-px md:-mx-1.5">
                       {chores.map((c) => {
                         const late = !duty && isOverdue(c, cs, p);
+                        if (c.skipped) return <span key={c.area.id} className="h-3.5 md:h-4" />; // Dienst verfällt
                         // Platzhalter, damit die Zeilen (Küche/Bad/Sonstiges) immer gleich liegen
                         if (!duty && !late) return <span key={c.area.id} className="h-3.5 md:h-4" />;
                         const color = c.assignee?.color ?? "#999";
@@ -616,7 +618,7 @@ function CalendarView() {
                 <Avatar member={c.assignee} size={24} />
                 <span className="w-16 text-sm">{c.assignee?.display_name}</span>
                 <span className={`w-20 text-right text-sm font-medium ${c.done ? "text-emerald-600" : isOverdue(c, cs, selPeriod) ? "text-red-600" : "text-muted"}`}>
-                  {c.done ? "✓" : isOverdue(c, cs, selPeriod) ? `⚠️ ${c.doneCount}/${c.tasks.length}` : `${c.doneCount}/${c.tasks.length}`}
+                  {c.skipped ? "⏭️ fällt aus" : c.done ? "✓" : isOverdue(c, cs, selPeriod) ? `⚠️ ${c.doneCount}/${c.tasks.length}` : `${c.doneCount}/${c.tasks.length}`}
                 </span>
               </div>
             ))}

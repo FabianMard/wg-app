@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRows, useWG } from "@/lib/wg";
-import type { ChoreArea, ChoreCheck, ChoreTask, Expense, Member, Message, Praise, Todo } from "@/lib/types";
+import type { ChoreArea, ChoreCheck, ChoreOverride, ChoreTask, Expense, Member, Message, Praise, Todo } from "@/lib/types";
 import { areaStatuses, currentPeriod, isOverdue, phaseOf } from "@/lib/cleaning";
 import { computeBalances, suggestTransfers } from "@/lib/balances";
 import { euro, formatDate } from "@/lib/dates";
@@ -29,6 +29,7 @@ export function TalkDialog({ target, online, onEmote, onOpenChat, onClose }: {
   const { rows: areas } = useRows<ChoreArea>("chore_areas", "sort");
   const { rows: tasks } = useRows<ChoreTask>("chore_tasks", "sort");
   const { rows: checks } = useRows<ChoreCheck>("chore_checks", "done_at");
+  const { rows: overrides } = useRows<ChoreOverride>("chore_overrides", "created_at");
   const { rows: praises, reload: reloadPraises } = useRows<Praise>("praises", "created_at");
   const { rows: todos } = useRows<Todo>("todos", "created_at", false);
   const { rows: expenses } = useRows<Expense>("expenses", "created_at");
@@ -42,8 +43,8 @@ export function TalkDialog({ target, online, onEmote, onOpenChat, onClose }: {
 
   const [greeting] = useState(() => GREETINGS[Math.floor(Math.random() * GREETINGS.length)]);
   const period = currentPeriod(household.cleaning_start);
-  const current = areaStatuses(areas, tasks, checks, members, period);
-  const previous = period > 0 ? areaStatuses(areas, tasks, checks, members, period - 1) : [];
+  const current = areaStatuses(areas, tasks, checks, members, period, overrides);
+  const previous = period > 0 ? areaStatuses(areas, tasks, checks, members, period - 1, overrides) : [];
   const myArea = current.find((s) => s.assignee?.id === target.id);
 
   // Was hat die Person erledigt und kann gelobt werden?
@@ -78,7 +79,9 @@ export function TalkDialog({ target, online, onEmote, onOpenChat, onClose }: {
         {!online && <>💤 <i>{target.display_name} ist gerade nicht im Spiel, hört dich aber trotzdem.</i><br /></>}
         {greeting.replace("{me}", me?.display_name ?? "")}{" "}
         {myArea
-          ? myArea.done
+          ? myArea.skipped
+            ? <>Mein Putzdienst {myArea.area.icon} <b>{myArea.area.name}</b> fällt diese Runde aus.</>
+            : myArea.done
             ? phaseOf(household.cleaning_start, period) === "putzwoche"
               ? <>Ich hab diese Woche {myArea.area.icon} <b>{myArea.area.name}</b>, und die ist schon fertig! 💪</>
               : <>{myArea.area.icon} <b>{myArea.area.name}</b> ist erledigt, ich hab diese Woche frei! 😎</>
