@@ -25,7 +25,7 @@ export const COLS = MAP[0].length;
 export const ROWS = MAP.length;
 
 export type Action = "start" | "putzplan" | "einkauf" | "kosten" | "kalender" | "todos" | "wg" | "watchlist" | "pinnwand" | "musik"
-  | "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine" | "kite" | "kitegame" | "tennis" | "paper" | "kunst" | "giessspiel" | "bestenliste" | "wandbild" | "raumbild";
+  | "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine" | "kite" | "kitegame" | "tennis" | "paper" | "kunst" | "giessspiel" | "bestenliste" | "wandbild" | "raumbild" | "wetter";
 
 /** owner = Index des Mitbewohners (members.sort), dem der Gegenstand gehört */
 export type GameObject = { x: number; y: number; icon: string; label: string; action: Action; hint: string; owner?: number; slot?: RoomSlot };
@@ -56,6 +56,7 @@ export const OBJECTS: GameObject[] = [
   { x: 14, y: 6, icon: "🏆", label: "Bestenliste", action: "bestenliste", hint: "Rekorde aller Spiele ansehen" },
   { x: 21, y: 8, icon: "🧹", label: "Besen", action: "putzplan", hint: "Putzplan ansehen" },
   { x: 0, y: 7, icon: "🚪", label: "Haustür", action: "wg", hint: "Mitbewohner einladen" },
+  { x: 2, y: 6, icon: "🌦️", label: "Wetter in Leipzig", action: "wetter", hint: "Regen? Was ziehe ich an?" },
   // Zimmer
   { x: 1, y: 10, icon: "🛏️", label: "Bett", action: "schlafen", hint: "Kurz hinlegen 💤" },
   { x: 8, y: 10, icon: "🛏️", label: "Bett", action: "schlafen", hint: "Kurz hinlegen 💤" },

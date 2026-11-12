@@ -16,6 +16,7 @@ import { AvatarFigure, lookOf, Wardrobe, type AvatarLook } from "./avatar";
 import {
   deleteSong, dropOldDeviceSong, formatTime, MAX_SONG_MB, MAX_SONGS, parseTime, uploadSong, useSongPlayer,
 } from "./music";
+import { LeipzigWeather } from "./LeipzigWeather";
 import { inputCls } from "@/components/ui";
 
 // Die echten App-Seiten – im Spiel öffnen sie sich als Fenster
@@ -43,11 +44,12 @@ const WatchlistPanel = () => <Watchlist />;
 const PinnwandPanel = () => <Pinboard />;
 const MusikPanel = () => <MusicList />;
 const KitePanel = () => <KiteWeather />;
+const WetterPanel = () => <LeipzigWeather />;
 /** Was Gäste im Spiel nie öffnen dürfen */
 const RESIDENT_ONLY: Action[] = ["start", "putzplan", "einkauf", "kosten", "todos", "wg"];
 const PANELS: Record<PageAction, React.ComponentType> = {
   start: StartPage, putzplan: PutzplanPage, einkauf: EinkaufPage, kosten: KostenPage,
-  watchlist: WatchlistPanel, pinnwand: PinnwandPanel, musik: MusikPanel, kite: KitePanel, paper: Papers, kunst: ArtGallery, bestenliste: HallOfFame,
+  watchlist: WatchlistPanel, pinnwand: PinnwandPanel, musik: MusikPanel, kite: KitePanel, paper: Papers, kunst: ArtGallery, bestenliste: HallOfFame, wetter: WetterPanel,
   kalender: KalenderPage, todos: TodosPage, wg: WGPage,
 };
 
