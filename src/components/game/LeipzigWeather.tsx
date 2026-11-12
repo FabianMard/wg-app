@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { RainRadar } from "./RainRadar";
 
 /**
  * Wetterbericht für Leipzig neben der Haustür: jetzt, die nächsten Stunden (mit Regenwahrscheinlichkeit),
@@ -166,6 +167,8 @@ export function LeipzigWeather() {
           })}
         </div>
       </div>
+
+      <RainRadar />
 
       {/* Nächste Tage */}
       <div className="divide-y divide-line rounded-2xl border border-line bg-card">
