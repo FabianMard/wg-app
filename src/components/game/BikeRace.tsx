@@ -30,7 +30,7 @@ const CENTER = scaled([[0, 0], [80, 0], [120, 4], [160, -3], [200, 0], [320, 0],
 const WIDTH = scaled([[0, 9], [190, 9], [205, 10], [320, 10], [350, 7.5], [370, 5], [550, 5], [575, 8], [860, 9]]);
 const SECTIONS: { from: number; name: string; forest?: boolean }[] = [
   { from: 0, name: "🏁 Start: Geißlerstraße" },
-  { from: 85 * K, name: "Südvorstadt" },
+  { from: 40 * K, name: "🚶 Eisenbahnstraße – viele Leute unterwegs!" },
   { from: 200 * K, name: "🚋 Straßenbahn – Vorsicht Schienen!" },
   { from: 325 * K, name: "↪ Connewitzer Kreuz" },
   { from: 370 * K, name: "🌳 Auwald", forest: true },
@@ -57,8 +57,13 @@ function seeded(seed: number) { return () => { seed |= 0; seed = (seed + 0x6d2b7
 type Pothole = { s: number; off: number; r: number };
 type Car = { s0: number; off: number; v: number; color: string; parked: boolean };
 type BikeKind = "randonneur" | "gravel" | "lastenrad" | "klapprad";
+// Eisenbahnstraße: viele Fußgänger:innen, rechts die Bar „Treuhand“ (zu nah dran = aus Versehen ein Bier)
+const EISEN_FROM = 40 * K, EISEN_TO = 198 * K;
+const TREU_FROM = 112 * K, TREU_TO = 126 * K;
+const inTreuhand = (s: number, y: number) => s >= TREU_FROM && s <= TREU_TO && y > center(s) + width(s) / 2 - 2.1;
+type Ped = { s0: number; off: number; mode: "quer" | "laengs"; v: number; phase: number; dir: 1 | -1; shirt: string; hair: string };
 type Cyclist = { s0: number; dir: 1 | -1; v: number; off: number; look: AvatarLook; bike: { type: BikeKind; color: string } };
-const { POTHOLES, CARS, CYCLISTS } = (() => {
+const { POTHOLES, CARS, CYCLISTS, PEDS } = (() => {
   const rnd = seeded(7);
   const potholes: Pothole[] = [];
   for (let s = 30; s < LEN - 20; s += 14 + rnd() * 22) {
@@ -70,6 +75,7 @@ const { POTHOLES, CARS, CYCLISTS } = (() => {
   // Geparkte Autos am Rand (Geißlerstraße, Südvorstadt, Markkleeberg)
   for (const [a, b] of [[15 * K, 190 * K], [585 * K, 770 * K]]) for (let s = a; s < b; s += 22 + rnd() * 30) {
     const side = rnd() < 0.5 ? -1 : 1;
+    if (side > 0 && s > TREU_FROM - 8 && s < TREU_TO + 8) continue; // vor der Treuhand ist Biergarten, kein Parkplatz
     cars.push({ s0: s, off: side * (width(s) / 2 - 1.1), v: 0, color: colors[Math.floor(rnd() * colors.length)], parked: true });
   }
   // Fahrende Autos in Fahrtrichtung (langsamer als ein guter Radler) – man muss überholen
@@ -89,13 +95,34 @@ const { POTHOLES, CARS, CYCLISTS } = (() => {
       bike: { type: types[Math.floor(rnd() * 4)], color: looks[Math.floor(rnd() * looks.length)] },
     });
   }
-  return { POTHOLES: potholes, CARS: cars, CYCLISTS: cyclists };
+  // Fußgänger:innen auf der Eisenbahnstraße: manche gehen quer über die Straße, manche an den Rändern entlang
+  const peds: Ped[] = [];
+  const shirts = ["#ef4444", "#f59e0b", "#22c55e", "#3b82f6", "#a855f7", "#ec4899", "#f8fafc", "#111827", "#14b8a6"];
+  for (let s = EISEN_FROM + 8; s < EISEN_TO - 6; s += 6 + rnd() * 9) {
+    const quer = rnd() < 0.55, side = rnd() < 0.5 ? -1 : 1;
+    peds.push({
+      s0: s, off: side * (width(s) / 2 - 0.6 - rnd() * 1.2), mode: quer ? "quer" : "laengs", v: 0.9 + rnd() * 0.8, phase: rnd() * 20,
+      dir: rnd() < 0.5 ? 1 : -1, shirt: shirts[Math.floor(rnd() * shirts.length)], hair: ["#3f2a1d", "#111827", "#a16207", "#d97706", "#9ca3af"][Math.floor(rnd() * 5)],
+    });
+  }
+  return { POTHOLES: potholes, CARS: cars, CYCLISTS: cyclists, PEDS: peds };
 })();
 const FOREST_FROM = 370 * K, FOREST_TO = 560 * K;
 const inForest = (s: number) => s >= FOREST_FROM - 4 && s <= FOREST_TO + 4;
 const carS = (c: Car, tSec: number) => c.s0 + c.v * Math.max(0, tSec);
 /** Autos fahren nicht in den Wald – dort biegen sie ab (verschwinden) */
 const carActive = (c: Car, tSec: number) => !inForest(carS(c, tSec)) && carS(c, tSec) < LEN + 20;
+/** Wo ist die Person gerade? (quer: hin und her über die Straße, längs: am Rand entlang) */
+function pedPos(p: Ped, tSec: number) {
+  const t = Math.max(0, tSec);
+  if (p.mode === "quer") {
+    const A = width(p.s0) / 2 - 0.5, x = (p.phase + p.v * t) % (4 * A);
+    const off = x < 2 * A ? -A + x : 3 * A - x; // Dreieck: von links nach rechts und zurück
+    return { s: p.s0, y: center(p.s0) + off, active: true, heading: x < 2 * A ? Math.PI / 2 : -Math.PI / 2 };
+  }
+  const s = p.s0 + p.dir * p.v * t;
+  return { s, y: center(s) + p.off, active: s > EISEN_FROM && s < EISEN_TO, heading: p.dir > 0 ? 0 : Math.PI };
+}
 const cycS = (c: Cyclist, tSec: number) => c.s0 + c.dir * c.v * Math.max(0, tSec);
 /** Radlerinnen bleiben im Wald */
 const cycActive = (c: Cyclist, tSec: number) => { const s = cycS(c, tSec); return s > FOREST_FROM && s < FOREST_TO; };
@@ -431,9 +458,9 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
     const ro = new ResizeObserver(resize); ro.observe(boxRef.current!);
     const st = {
       t: -3000, s: 0, y: 0, v: 0, heading: 0, stun: 0, msg: "", msgT: 0, done: false, pedal: 0,
-      trace: [] as number[], nextSample: 0, hitHoles: new Set<number>(), hitCars: new Set<number>(), hitCyc: new Set<number>(), railCool: 0, camY: 0,
+      trace: [] as number[], nextSample: 0, hitHoles: new Set<number>(), hitCars: new Set<number>(), hitCyc: new Set<number>(), hitPeds: new Set<number>(), beer: false, railCool: 0, camY: 0,
     };
-    if (process.env.NODE_ENV !== "production") (window as unknown as { __race?: unknown }).__race = { st, ctl: ctl.current, center, width, LEN, POTHOLES, CARS, carS, carActive, CYCLISTS, cycS, cycActive, railLines, RAIL_FROM, RAIL_TO };
+    if (process.env.NODE_ENV !== "production") (window as unknown as { __race?: unknown }).__race = { st, ctl: ctl.current, center, width, LEN, POTHOLES, CARS, carS, carActive, CYCLISTS, cycS, cycActive, PEDS, pedPos, inTreuhand, railLines, RAIL_FROM, RAIL_TO };
     const say = (m: string, sec = 1.1) => { st.msg = m; st.msgT = sec; };
     const ghostAt = (ms: number) => {
       if (!rival) return null;
@@ -488,8 +515,14 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
           if (st.hitHoles.has(i) || Math.abs(p.s - st.s) > p.r + 0.3) return;
           if (Math.abs(center(p.s) + p.off - st.y) < p.r + 0.25) { st.hitHoles.add(i); st.v *= 0.55; say("🕳️ Schlagloch!"); }
         });
-        // Autos
+        // Autos, Fußgänger:innen, Radlerinnen
         const tSec = st.t / 1000;
+        PEDS.forEach((pd, i) => {
+          if (st.hitPeds.has(i)) return;
+          const q = pedPos(pd, tSec);
+          if (q.active && Math.abs(q.s - st.s) < 0.8 && Math.abs(q.y - st.y) < 0.65) { st.hitPeds.add(i); st.v = Math.min(st.v, 1.5); st.stun = 0.6; say("🚶 Huch! Fußgänger – klingeln!", 1.2); }
+        });
+        if (!st.beer && inTreuhand(st.s, st.y)) { st.beer = true; st.v = 0; st.stun = 3; say("🍺 Ups – in der Treuhand aus Versehen ein Bier getrunken …", 3.2); }
         CYCLISTS.forEach((cy, i) => {
           if (!cycActive(cy, tSec)) return;
           const s = cycS(cy, tSec), y = center(s) + cy.off;
@@ -535,8 +568,8 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
 
     function draw(brake: boolean) {
       // Ansicht von oben, man fährt von unten nach oben: Welt (s = Strecke, y = seitlich) wird um −90° gedreht
-      const ppm = Math.max(10, H / 28);
-      const R = ppm * 1.35; // Radfahrende etwas größer zeichnen, damit man sie gut erkennt
+      const ppm = Math.max(12, H / 22);
+      const R = ppm * 1.25; // Radfahrende etwas größer zeichnen, damit man sie gut erkennt
       st.camY += (center(st.s + 6) - st.camY) * 0.08;
       const X = (s: number) => (s - st.s) * ppm;          // nach vorn (= nach oben am Bildschirm)
       const Y = (y: number) => (y - st.camY) * ppm;       // seitlich (= links/rechts)
@@ -556,7 +589,7 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
           const h = Math.abs(Math.sin(s * 12.9898 + side * 78.233 + k * 3.7) * 43758.5453) % 1;
           if (sec.forest) {
             ctx.fillStyle = h > 0.5 ? "#166534" : "#15803d"; ctx.beginPath(); ctx.arc(X(s + h * 3), Y(cy + side * (d + 1 + h * 2)), (1.6 + h * 1.2) * ppm, 0, Math.PI * 2); ctx.fill();
-          } else if (s < 560 * K || s > 600 * K) {
+          } else if ((s < 560 * K || s > 600 * K) && !(side > 0 && s > TREU_FROM - 7 && s < TREU_TO + 2)) {
             ctx.fillStyle = ["#e7d8c4", "#d6c3ad", "#cbd5c0", "#e2c9b6"][Math.floor(h * 4)];
             const near = cy + side * d, far = cy + side * (d + 5);
             ctx.fillRect(X(s), Y(Math.min(near, far)), 5.5 * ppm, 5 * ppm);
@@ -600,6 +633,28 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
       if (LEN > s0 && LEN < s1) { const w = width(LEN), cy = center(LEN); for (let k = 0; k < Math.ceil(w / 0.5); k++) for (let j = 0; j < 2; j++) { ctx.fillStyle = (k + j) % 2 ? "#111" : "#fff"; ctx.fillRect(X(LEN) + j * 0.5 * ppm, Y(cy - w / 2 + k * 0.5), 0.5 * ppm, 0.5 * ppm); } }
       // Autos
       const tSec = Math.max(0, st.t / 1000);
+      // Bar „Treuhand“ rechts an der Eisenbahnstraße: Haus, Markise, Biergarten bis an die Fahrbahn
+      if (s1 > TREU_FROM - 4 && s0 < TREU_TO + 4) {
+        const edge = center(TREU_FROM) + width(TREU_FROM) / 2;
+        ctx.fillStyle = "#5b3a1e"; ctx.fillRect(X(TREU_FROM - 2), Y(edge + 2.2), (TREU_TO - TREU_FROM + 4) * ppm, 7 * ppm);
+        for (let k = 0; k < 9; k++) { ctx.fillStyle = k % 2 ? "#facc15" : "#b91c1c"; ctx.fillRect(X(TREU_FROM - 2 + k * ((TREU_TO - TREU_FROM + 4) / 9)), Y(edge + 1.4), ((TREU_TO - TREU_FROM + 4) / 9) * ppm, 0.8 * ppm); }
+        ctx.fillStyle = "rgba(250,204,21,.28)"; ctx.fillRect(X(TREU_FROM), Y(edge - 2.1), (TREU_TO - TREU_FROM) * ppm, 3.5 * ppm); // Biergarten-Zone
+        for (let k = 0; k < 4; k++) {
+          const ts = TREU_FROM + 2 + k * 3.2;
+          ctx.fillStyle = "#92400e"; ctx.beginPath(); ctx.arc(X(ts), Y(edge - 0.6), 0.55 * ppm, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = "#fde68a"; ctx.beginPath(); ctx.arc(X(ts + 0.2), Y(edge - 0.7), 0.16 * ppm, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+      // Fußgänger:innen (von oben: Schultern + Kopf)
+      for (const pd of PEDS) {
+        const q = pedPos(pd, tSec); if (!q.active || q.s < s0 - 2 || q.s > s1 + 2) continue;
+        ctx.save(); ctx.translate(X(q.s), Y(q.y)); ctx.rotate(q.heading); ctx.scale(1.6, 1.6);
+        const swing = Math.sin(tSec * 7 + pd.phase) * 0.18 * ppm;
+        ctx.fillStyle = "#1f2937"; ctx.beginPath(); ctx.arc(swing, -0.14 * ppm, 0.11 * ppm, 0, Math.PI * 2); ctx.arc(-swing, 0.14 * ppm, 0.11 * ppm, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = pd.shirt; ctx.beginPath(); ctx.ellipse(0, 0, 0.2 * ppm, 0.36 * ppm, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = pd.hair; ctx.beginPath(); ctx.arc(0, 0, 0.17 * ppm, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
       for (const cy of CYCLISTS) {
         if (!cycActive(cy, tSec)) continue;
         const s = cycS(cy, tSec); if (s < s0 - 3 || s > s1 + 3) continue;
@@ -620,6 +675,15 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
       drawRider(ctx, R, X(st.s), Y(st.y), st.heading, myLook.current, myBike.current, 1, st.pedal * 0.9);
       if (brake && !st.done && st.t > 0) { ctx.fillStyle = "#ef4444"; ctx.beginPath(); ctx.arc(X(st.s) - 1.1 * ppm, Y(st.y), 0.18 * ppm, 0, Math.PI * 2); ctx.fill(); }
       ctx.restore();
+      // Schild „TREUHAND“ (nach dem Zurückdrehen, damit es lesbar ist)
+      const mid = (TREU_FROM + TREU_TO) / 2;
+      if (mid > s0 - 4 && mid < s1 + 4) {
+        const sx = W / 2 + (center(mid) + width(mid) / 2 + 5.4 - st.camY) * ppm, sy = ahead - (mid - st.s) * ppm;
+        ctx.font = `bold ${Math.round(ppm * 0.9)}px system-ui`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        const tw = ctx.measureText("🍺 TREUHAND").width;
+        ctx.fillStyle = "rgba(0,0,0,.7)"; ctx.fillRect(sx - tw / 2 - 6, sy - ppm * 0.7, tw + 12, ppm * 1.4);
+        ctx.fillStyle = "#fde047"; ctx.fillText("🍺 TREUHAND", sx, sy);
+      }
       if (st.t < 0) { ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.fillRect(0, 0, W, H); ctx.fillStyle = "#fff"; ctx.font = `bold ${Math.round(H / 4)}px system-ui`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(String(Math.ceil(-st.t / 1000)), W / 2, H / 2); }
     }
 
