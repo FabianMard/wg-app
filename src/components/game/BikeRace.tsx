@@ -81,7 +81,7 @@ const { POTHOLES, CARS, CYCLISTS, PEDS } = (() => {
   const colors = ["#ef4444", "#3b82f6", "#f8fafc", "#111827", "#f59e0b", "#10b981", "#a855f7"];
   const cars: Car[] = [];
   // Geparkte Autos am Rand: Eisenbahnstraße locker, Markkleeberg dicht an dicht (je Seite mit Abstand, nie übereinander)
-  for (const [a, b, gap] of [[15 * K, 126 * K, 22], [578 * K, 770 * K, 12]] as const) for (const side of [-1, 1] as const) {
+  for (const [a, b, gap] of [[15 * K, 126 * K, 22], [578 * K, 770 * K, 26]] as const) for (const side of [-1, 1] as const) {
     for (let s = a + rnd() * 6; s < b; s += 4.4 + gap + rnd() * gap * 1.4) {
       if (side > 0 && s > TREU_FROM - 8 && s < TREU_TO + 8) continue;   // vor der Treuhand ist Biergarten
       if (side > 0 && s > CAFE_FROM - 8 && s < CAFE_TO + 8) continue;   // vor dem Café auch
@@ -106,7 +106,7 @@ const { POTHOLES, CARS, CYCLISTS, PEDS } = (() => {
   });
   // Viele Radfahrer:innen im Auwald und in Markkleeberg – zwei Spuren je Richtung, je Spur gleich schnell
   for (const [off, v] of [[0.6, 3.8], [1.5, 3.0]] as const) for (let s = FOREST_FROM + 8; s < 900; s += 30 + rnd() * 30) cyclists.push(rider(s, 1, v, off, [FOREST_FROM, LEN]));
-  for (const [off, v] of [[-0.6, 4.2], [-1.5, 3.4]] as const) for (let s = 700; s < 1240; s += 30 + rnd() * 30) cyclists.push(rider(s, -1, v, off, [RAIL_TO, LEN]));
+  for (const [off, v] of [[-0.6, 4.2], [-1.5, 3.4]] as const) for (let s = 700; s < 1240; s += 50 + rnd() * 40) cyclists.push(rider(s, -1, v, off, [RAIL_TO, LEN]));
   // Fußgänger:innen auf der Eisenbahnstraße: manche gehen quer über die Straße, manche an den Rändern entlang
   const peds: Ped[] = [];
   const shirts = ["#ef4444", "#f59e0b", "#22c55e", "#3b82f6", "#a855f7", "#ec4899", "#f8fafc", "#111827", "#14b8a6"];
@@ -564,7 +564,7 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
         const w = width(st.s), cs = center(st.s);
         // Fährt von selbst: beschleunigt bis zur Höchstgeschwindigkeit (nach Stößen auch wieder hoch)
         if (brake) st.v -= dt * 8;
-        else if (st.stun <= 0 && st.v < VMAX) st.v = Math.min(VMAX, st.v + dt * (st.v < 4 ? 3.2 : 2.2));
+        else if (st.stun <= 0 && st.v < VMAX) st.v = Math.min(VMAX, st.v + dt * (st.v < 6 ? 6 : 4.2));
         st.pedal += st.v * dt * 0.9;
         const off = Math.abs(st.y - cs) > w / 2 - 0.3;
         if (off) { st.v = Math.min(st.v, 3.5); st.v -= dt * 3; if (st.msgT <= 0) say(sectionAt(st.s).forest ? "🌳 Im Unterholz!" : "🌿 Auf dem Gras!", 0.7); }
