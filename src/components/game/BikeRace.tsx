@@ -10,7 +10,8 @@ import { lookOf, type AvatarLook } from "./avatar";
 
 /**
  * Radrennen von der Geißlerstraße zum Cossi (Cospudener See) – von oben gesehen, Handy quer.
- * Treten: abwechselnd links/rechts tippen. Lenken: Handy neigen (oder Pfeiltasten). Beide Seiten halten = bremsen.
+ * Treten: Daumen auf den Pedalen links/rechts im Wechsel runterstreichen (gleichmäßiger Takt = schneller).
+ * Lenken: Handy neigen (oder Pfeiltasten). Beide Daumen stillhalten = bremsen.
  * Hindernisse: Kurven, Autos, Schlaglöcher, Straßenbahnschienen. Die Strecke ist immer gleich.
  * Die Bestfahrt jeder Person wird als „Geist“ gespeichert.
  */
@@ -293,9 +294,9 @@ export function BikeRace({ onResult }: { onResult?: (text: string) => void }) {
       <RaceBoard ghosts={sorted} error={dbErr} />
       <ul className="mx-auto max-w-xs space-y-1 text-left text-sm text-muted">
         <li>📱 <b>Handy quer</b>, mit beiden Daumen halten</li>
-        <li>👣 <b>Treten:</b> abwechselnd links und rechts tippen (zweimal dieselbe Seite = aus dem Takt)</li>
+        <li>👣 <b>Treten:</b> Daumen auf den Pedalen links und rechts <b>rauf und runter streichen</b> – im Wechsel und im gleichen Takt. Je gleichmäßiger, desto schneller</li>
         <li>🔄 <b>Lenken:</b> Handy neigen wie ein Lenkrad · am Computer: Pfeiltasten, treten mit A/D</li>
-        <li>🛑 <b>Bremsen:</b> beide Seiten gleichzeitig gedrückt halten</li>
+        <li>🛑 <b>Bremsen:</b> beide Daumen auf den Pedalen stillhalten</li>
         <li>🚗 Autos, 🕳️ Schlaglöcher, 🚋 Schienen und 🌿 Gras bremsen dich aus</li>
       </ul>
     </div>
@@ -338,7 +339,7 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
   const boxRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [phase, setPhase] = useState<Phase>("countdown");
-  const [hud, setHud] = useState({ t: 0, v: 0, s: 0, msg: "", gap: null as number | null, section: SECTIONS[0].name, count: 3 });
+  const [hud, setHud] = useState({ t: 0, v: 0, s: 0, msg: "", gap: null as number | null, section: SECTIONS[0].name, count: 3, rhythm: 0 });
   const [hasTilt, setHasTilt] = useState(false);
   const overRef = useRef(onOver);
   useEffect(() => { overRef.current = onOver; }, [onOver]);
@@ -347,7 +348,12 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
   const ghostLook = useRef(rivalMember ? lookOf(rivalMember) : null), ghostBike = useRef(bikeOf(rivalMember));
 
   // Eingaben
-  const ctl = useRef({ steerKeys: 0, tilt: 0, tiltSign: 0, lastSide: 0 as -1 | 0 | 1, held: new Map<number, -1 | 1>(), brakeKey: false, tapQueue: [] as (-1 | 1)[] });
+  type Finger = { side: -1 | 1; lastY: number; down: number; up: number; armed: boolean; moved: number };
+  const ctl = useRef({
+    steerKeys: 0, tilt: 0, tiltSign: 0, lastSide: 0 as -1 | 0 | 1, brakeKey: false, tapQueue: [] as (-1 | 1)[],
+    fingers: new Map<number, Finger>(), lastPushT: 0, ema: 0, rhythm: 0,
+  });
+  const pedalEls = useRef<Record<string, HTMLDivElement | null>>({});
   const rawY = useRef<number | null>(null);
   const angle = () => (screen.orientation?.angle ?? (window as unknown as { orientation?: number }).orientation ?? 0);
   const signKey = () => `wg-rad-neigung-${angle()}`;
@@ -442,14 +448,27 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
       const dt = Math.min(0.033, (now - last) / 1000); last = now;
       st.t += dt * 1000;
       const c = ctl.current;
-      const brake = new Set(c.held.values()).size === 2 || c.brakeKey;
-      // Treten
+      // Bremsen: beide Daumen liegen auf den Pedalen und bewegen sich nicht
+      const fingers = [...c.fingers.values()];
+      const brake = c.brakeKey || (new Set(fingers.map((f) => f.side)).size === 2 && fingers.every((f) => now - f.moved > 350));
+      // Treten: jeder Tritt nach unten treibt an – im Wechsel und im gleichmäßigen Takt am stärksten
       for (const side of c.tapQueue.splice(0)) {
         if (st.t < 0 || st.done || st.stun > 0) continue;
-        if (c.lastSide === side) { st.v *= 0.82; say("🦶 Aus dem Takt!", 0.6); }
-        else { st.v += 1.5 * Math.max(0, 1 - st.v / 14); st.pedal++; }
+        const interval = now - c.lastPushT; c.lastPushT = now;
+        if (c.lastSide === side) { st.v *= 0.85; c.rhythm *= 0.5; say("🦶 Aus dem Takt – links und rechts abwechseln!", 0.8); }
+        else {
+          let r = 0.4;
+          if (interval < 1200) {
+            c.ema = c.ema ? c.ema * 0.75 + interval * 0.25 : interval;
+            r = Math.max(0, Math.min(1, 1 - (Math.abs(interval - c.ema) / c.ema) * 2.6));
+          } else c.ema = 0;
+          c.rhythm = c.rhythm * 0.6 + r * 0.4;
+          st.v += 2.1 * Math.max(0, 1 - st.v / 14) * (0.3 + 0.7 * c.rhythm);
+          st.pedal++;
+        }
         c.lastSide = side;
       }
+      if (now - c.lastPushT > 1200) c.rhythm = Math.max(0, c.rhythm - dt * 0.8);
       if (st.t >= 0 && !st.done) {
         if (!phaseSet) { phaseSet = true; setPhase("fahrt"); }
         const steer = Math.max(-1, Math.min(1, c.steerKeys + c.tilt));
@@ -509,7 +528,7 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
       if (hudT <= 0) {
         hudT = 0.1;
         const g = ghostAt(Math.max(0, st.t));
-        setHud({ t: Math.max(0, st.done ? finishedAt : st.t), v: st.v, s: st.s, msg: st.msgT > 0 ? st.msg : "", gap: g ? st.s - g.s : null, section: sectionAt(st.s).name, count: Math.ceil(-st.t / 1000) });
+        setHud({ t: Math.max(0, st.done ? finishedAt : st.t), v: st.v, s: st.s, msg: st.msgT > 0 ? st.msg : "", gap: g ? st.s - g.s : null, section: sectionAt(st.s).name, count: Math.ceil(-st.t / 1000), rhythm: c.rhythm });
       }
       raf = requestAnimationFrame(frame);
     }
@@ -626,23 +645,67 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
   }, [leave]);
 
-  // Touch: linke/rechte Bildschirmhälfte = Pedal; beide gleichzeitig gehalten = Bremse
+  // Touch: linke/rechte Hälfte = Pedal. Daumen runterstreichen = Tritt, wieder hoch = Pedal kommt zurück.
+  const movePedal = (side: -1 | 1, y: number, push = false) => {
+    const el = pedalEls.current[side];
+    if (!el) return;
+    const track = el.parentElement!.getBoundingClientRect();
+    const rel = Math.max(0, Math.min(1, (y - track.top) / track.height));
+    el.style.top = `${rel * 100}%`;
+    if (push) el.animate([{ background: "rgba(250,204,21,.95)" }, { background: "rgba(255,255,255,.85)" }], { duration: 250 });
+  };
   const onDown = (e: React.PointerEvent) => {
     e.preventDefault();
     const side: -1 | 1 = e.clientX < window.innerWidth / 2 ? -1 : 1;
-    ctl.current.held.set(e.pointerId, side);
-    if (new Set(ctl.current.held.values()).size < 2) ctl.current.tapQueue.push(side);
+    ctl.current.fingers.set(e.pointerId, { side, lastY: e.clientY, down: 0, up: 0, armed: true, moved: performance.now() });
+    movePedal(side, e.clientY);
   };
-  const onUp = (e: React.PointerEvent) => { ctl.current.held.delete(e.pointerId); };
+  const onMove = (e: React.PointerEvent) => {
+    const f = ctl.current.fingers.get(e.pointerId);
+    if (!f) return;
+    const dy = e.clientY - f.lastY;
+    f.lastY = e.clientY;
+    if (Math.abs(dy) > 0.5) f.moved = performance.now();
+    const threshold = Math.max(26, window.innerHeight * 0.08);
+    let pushed = false;
+    if (dy > 0) {
+      f.down += dy; f.up = 0;
+      if (f.armed && f.down >= threshold) { ctl.current.tapQueue.push(f.side); f.armed = false; pushed = true; }
+    } else if (dy < 0) {
+      f.up -= dy;
+      if (f.up >= 12) { f.armed = true; f.down = 0; }
+    }
+    movePedal(f.side, e.clientY, pushed);
+  };
+  const onUp = (e: React.PointerEvent) => { ctl.current.fingers.delete(e.pointerId); };
 
   const progress = Math.min(1, hud.s / LEN);
   // Direkt an die Seite hängen (nicht ins Spiel-Fenster), damit es wirklich den ganzen Bildschirm füllt
   return createPortal(
     <div className="fixed inset-0 z-[200] select-none bg-black text-left text-white" style={{ touchAction: "none" }}>
-      <div ref={boxRef} className="absolute inset-0" onPointerDown={onDown} onPointerUp={onUp} onPointerCancel={onUp} onPointerLeave={onUp}
-        role="application" aria-label="Radrennen: links und rechts abwechselnd tippen zum Treten, Handy neigen zum Lenken">
+      <div ref={boxRef} className="absolute inset-0" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onPointerLeave={onUp}
+        role="application" aria-label="Radrennen: Daumen auf den Pedalen links und rechts im Wechsel runterstreichen, Handy neigen zum Lenken">
         <canvas ref={canvasRef} className="absolute inset-0" />
       </div>
+      {/* Pedale links und rechts */}
+      {([-1, 1] as const).map((side) => (
+        <div key={side} className={`pointer-events-none absolute bottom-[6%] top-[22%] w-16 rounded-full border-2 border-white/25 bg-black/20 ${side < 0 ? "left-3" : "right-3"}`}>
+          <div ref={(el) => { pedalEls.current[side] = el; }}
+            className="absolute left-1/2 top-1/2 flex h-9 w-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-lg bg-white/85 text-lg shadow-lg ring-2 ring-black/30">
+            <span className="h-1.5 w-9 rounded bg-neutral-700" />
+          </div>
+          <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-xs font-bold text-white/80">{side < 0 ? "L" : "R"}</span>
+        </div>
+      ))}
+      {/* Takt-Anzeige */}
+      {phase === "fahrt" && (
+        <div className="pointer-events-none absolute bottom-3 left-1/2 w-40 -translate-x-1/2 text-center text-[11px] font-bold">
+          <div className="h-2 overflow-hidden rounded-full bg-white/25">
+            <div className={`h-full rounded-full transition-all ${hud.rhythm > 0.7 ? "bg-emerald-400" : hud.rhythm > 0.4 ? "bg-amber-400" : "bg-red-400"}`} style={{ width: `${Math.round(hud.rhythm * 100)}%` }} />
+          </div>
+          <span className="text-white/80">{hud.rhythm > 0.7 ? "Takt 👍" : hud.rhythm > 0.4 ? "Takt halten …" : "Gleichmäßig treten!"}</span>
+        </div>
+      )}
       {/* Anzeige oben */}
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-2 p-2 text-sm font-bold">
         <span className="rounded-lg bg-black/55 px-2 py-1 tabular-nums">⏱ {fmt(hud.t)}</span>
@@ -660,9 +723,10 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
       {hud.msg && <p className="pointer-events-none absolute inset-x-0 top-1/4 mx-auto w-fit rounded-xl bg-black/70 px-3 py-1.5 text-base font-bold">{hud.msg}</p>}
       {(phase === "countdown" || (phase === "fahrt" && hud.t < 6000)) && (
         <>
-          <span className="pointer-events-none absolute bottom-3 left-3 rounded-xl bg-black/45 px-3 py-2 text-sm font-bold">🦶 L tippen</span>
-          <span className="pointer-events-none absolute bottom-3 right-3 rounded-xl bg-black/45 px-3 py-2 text-sm font-bold">R tippen 🦶</span>
-          <span className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-xl bg-black/45 px-3 py-2 text-xs">{hasTilt ? "📱 Neigen = lenken · beide halten = bremsen" : "Pfeiltasten lenken · A/D treten · Leertaste bremst"}</span>
+          <span className="pointer-events-none absolute bottom-10 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-xl bg-black/55 px-3 py-2 text-center text-xs">
+            👆👇 Daumen auf den Pedalen <b>im Wechsel</b> rauf & runter streichen<br />
+            {hasTilt ? "📱 Neigen = lenken · beide Daumen stillhalten = bremsen" : "Pfeiltasten lenken · A/D treten · Leertaste bremst"}
+          </span>
         </>
       )}
       {(phase === "drehen" || phase === "kalibrieren") && (
