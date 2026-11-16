@@ -126,6 +126,14 @@ function boarPos(b: { s: number; v: number; phase: number }, tSec: number, k = 0
   const off = x < 2 * A ? -A + x : 3 * A - x;
   return { s: b.s + k * 0.5, y: center(b.s) + off, dir: x < 2 * A ? 1 : -1 };
 }
+/** 0 = Stadt, 1 = Auwald – mit 25 m weichem Übergang an beiden Waldrändern */
+const FADE = 25;
+const forestMix = (s: number) => Math.max(0, Math.min(1, Math.min((s - (FOREST_FROM - FADE)) / FADE, (FOREST_TO + FADE - s) / FADE)));
+/** Zwei Farben (#rrggbb) mischen */
+function mix(a: string, b: string, f: number) {
+  const pa = [1, 3, 5].map((i) => parseInt(a.slice(i, i + 2), 16)), pb = [1, 3, 5].map((i) => parseInt(b.slice(i, i + 2), 16));
+  return `rgb(${pa.map((v, i) => Math.round(v + (pb[i] - v) * f)).join(",")})`;
+}
 const inForest = (s: number) => s >= FOREST_FROM - 4 && s <= FOREST_TO + 4;
 const carS = (c: Car, tSec: number) => c.s0 + c.v * Math.max(0, tSec);
 /** Seitliche Lage eines Autos: geparkt fest am Rand, sonst Fahrspur (in der Straßenbahn-Strecke neben den Schienen) */
@@ -659,10 +667,15 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
       const behind = H * 0.2, ahead = H * 0.8;
       const s0 = st.s - behind / ppm - 2, s1 = st.s + ahead / ppm + 2;
       const latMax = W / 2 / ppm + 2;
-      const forestNow = !!sectionAt(st.s + 10).forest;
       ctx.save();
-      ctx.fillStyle = forestNow ? "#4d7c3a" : "#86b86b"; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = mix("#86b86b", "#4d7c3a", forestMix(st.s)); ctx.fillRect(0, 0, W, H);
       ctx.translate(W / 2, ahead); ctx.rotate(-Math.PI / 2);
+      // Untergrund in Streifen: Wiese geht weich in Waldboden über (statt alles auf einmal umzuschalten)
+      const big = (latMax + 30) * ppm;
+      for (let s = Math.floor(s0 / 2) * 2; s < s1; s += 2) {
+        ctx.fillStyle = mix("#86b86b", "#4d7c3a", forestMix(s + 1));
+        ctx.fillRect(X(s), -big, 2 * ppm + 1, 2 * big);
+      }
       // Bäume im Auwald, Häuserblöcke in der Stadt – links und rechts bis zum Bildrand
       for (let s = Math.floor(s0 / 7) * 7; s < s1; s += 7) {
         const sec = sectionAt(s), w = width(s), cy = center(s);
@@ -687,19 +700,21 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
         ctx.fillStyle = "rgba(255,255,255,.5)"; for (let k = 0; k < 8; k++) ctx.fillRect(X(LEN + 34 + k * 5), Y(center(LEN) - 12 + k * 3), 3 * ppm, 0.3 * ppm);
       }
       // Straße
-      const roadPoly = (inset: number, color: string) => {
+      // Straße in kurzen Stücken – Asphalt wird am Waldrand allmählich zum Sandweg
+      const e = Math.min(s1, LEN + 6); // am Strand hört die Straße auf
+      const roadPiece = (a: number, b: number, inset: number, color: string) => {
         ctx.fillStyle = color; ctx.beginPath();
-        const e = Math.min(s1, LEN + 6); // am Strand hört die Straße auf
-        for (let s = s0; s <= e; s += 1) ctx.lineTo(X(s), Y(center(s) - width(s) / 2 + inset));
-        for (let s = e; s >= s0; s -= 1) ctx.lineTo(X(s), Y(center(s) + width(s) / 2 - inset));
+        ctx.moveTo(X(a), Y(center(a) - width(a) / 2 + inset)); ctx.lineTo(X(b), Y(center(b) - width(b) / 2 + inset));
+        ctx.lineTo(X(b), Y(center(b) + width(b) / 2 - inset)); ctx.lineTo(X(a), Y(center(a) + width(a) / 2 - inset));
         ctx.closePath(); ctx.fill();
       };
-      roadPoly(-0.4, forestNow ? "#a3896a" : "#d1d5db");
-      roadPoly(0, forestNow ? "#c7a978" : "#6b7280");
+      for (const [inset, from, to] of [[-0.4, "#d1d5db", "#a3896a"], [0, "#6b7280", "#c7a978"]] as const) {
+        for (let a = s0; a < e; a += 2) { const b = Math.min(e, a + 2.15); roadPiece(a, b, inset, mix(from, to, forestMix(a + 1))); }
+      }
       // Mittellinie (nicht im Wald)
       ctx.strokeStyle = "#f8fafc"; ctx.lineWidth = Math.max(1.5, 0.12 * ppm); ctx.setLineDash([2 * ppm, 2 * ppm]); ctx.lineDashOffset = st.s * ppm;
       ctx.beginPath(); let pen = false;
-      for (let s = s0; s <= s1; s += 1) { if (sectionAt(s).forest || s > LEN) { pen = false; continue; } const x = X(s), y = Y(center(s)); if (pen) ctx.lineTo(x, y); else { ctx.moveTo(x, y); pen = true; } }
+      for (let s = s0; s <= s1; s += 1) { if (forestMix(s) > 0.5 || s > LEN) { pen = false; continue; } const x = X(s), y = Y(center(s)); if (pen) ctx.lineTo(x, y); else { ctx.moveTo(x, y); pen = true; } }
       ctx.stroke(); ctx.setLineDash([]);
       // Schienen
       if (s0 < RAIL_DRAW_TO && s1 > RAIL_FROM) {
