@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { notify } from "@/lib/push";
 import { downloadPhoto } from "@/lib/photos";
 import { useRows, useWG } from "@/lib/wg";
-import type { Note, NoteColor } from "@/lib/types";
+import type { Note, NoteColor, NoteReaction } from "@/lib/types";
 
 const COLORS: Record<NoteColor, { bg: string; label: string }> = {
   gelb: { bg: "#fde68a", label: "Gelb" },
@@ -56,9 +56,60 @@ function Pin({ color = "#ef4444" }: { color?: string }) {
   );
 }
 
+const REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🎉", "🔥", "👏"];
+
+/** Emoji-Reaktionen unter einem Zettel/Foto: antippen = eigene Reaktion an/aus */
+function Reactions({ note, reactions, onChange }: { note: Note; reactions: NoteReaction[]; onChange: () => void }) {
+  const { household, member, myId } = useWG();
+  const [picking, setPicking] = useState(false);
+  const mine = reactions.filter((r) => r.member_id === myId);
+  const groups = [...new Set(reactions.map((r) => r.emoji))]
+    .map((e) => ({ emoji: e, who: reactions.filter((r) => r.emoji === e).map((r) => r.member_id), first: reactions.find((r) => r.emoji === e)!.created_at }))
+    .sort((a, b) => a.first.localeCompare(b.first));
+
+  async function toggle(emoji: string) {
+    setPicking(false);
+    if (mine.some((r) => r.emoji === emoji)) {
+      await supabase.from("note_reactions").delete().eq("note_id", note.id).eq("member_id", myId).eq("emoji", emoji);
+    } else {
+      const { error } = await supabase.from("note_reactions").insert({ household_id: household.id, note_id: note.id, emoji });
+      if (error) { alert(error.message.includes("note_reactions") ? "Datenbank-Update fehlt: Bitte supabase/028_gaeste_reaktionen.sql im SQL Editor ausführen." : error.message); return; }
+      if (note.author && note.author !== myId) notify("pinnwand", `${emoji} auf deinen ${note.image_path ? "Foto" : "Zettel"}${note.text ? `: „${note.text.slice(0, 40)}“` : ""}`, { to: [note.author] });
+    }
+    onChange();
+  }
+  const names = (ids: string[]) => ids.map((id) => (id === myId ? "du" : member(id)?.display_name ?? "?")).join(", ");
+
+  return (
+    <div className="relative mt-1.5 flex flex-wrap items-center gap-1">
+      {groups.map((g) => {
+        const on = g.who.includes(myId);
+        return (
+          <button key={g.emoji} onClick={() => toggle(g.emoji)} title={names(g.who)} aria-label={`${g.emoji} ${g.who.length} – ${names(g.who)}`}
+            className={`flex items-center gap-0.5 rounded-full px-1.5 py-px text-xs shadow-sm transition active:scale-90 ${on ? "bg-white ring-1 ring-sky-500" : "bg-white/70"}`}>
+            <span>{g.emoji}</span><span className="font-semibold text-neutral-700">{g.who.length}</span>
+          </button>
+        );
+      })}
+      <button onClick={() => setPicking(!picking)} aria-label="Reagieren" title="Reagieren"
+        className="rounded-full bg-white/60 px-1.5 py-px text-xs text-neutral-600 shadow-sm hover:bg-white">{picking ? "✕" : "☺+"}</button>
+      {picking && (
+        <div className="absolute bottom-full left-0 z-20 mb-1 flex gap-0.5 rounded-full bg-white p-1 shadow-lg">
+          {REACTIONS.map((e) => (
+            <button key={e} onClick={() => toggle(e)} aria-label={`Mit ${e} reagieren`}
+              className={`rounded-full px-1 text-lg leading-none transition hover:scale-125 active:scale-90 ${mine.some((r) => r.emoji === e) ? "bg-sky-100" : ""}`}>{e}</button>
+          ))}
+        </div>
+      )}
+      {groups.length > 0 && <span className="sr-only">{groups.map((g) => `${g.emoji} von ${names(g.who)}`).join("; ")}</span>}
+    </div>
+  );
+}
+
 export function Pinboard() {
   const { household, member, myId, isGuest } = useWG();
   const { rows: notes, loaded, reload } = useRows<Note>("notes", "created_at", false);
+  const { rows: reactions, reload: reloadReactions } = useRows<NoteReaction>("note_reactions", "created_at");
   const [writing, setWriting] = useState(false);
   const [text, setText] = useState("");
   const [color, setColor] = useState<NoteColor>("gelb");
@@ -236,6 +287,7 @@ export function Pinboard() {
                     : <span className="flex h-full items-center justify-center text-2xl text-neutral-400">📷</span>}
                 </button>
                 {n.text && <p className="mt-1.5 whitespace-pre-wrap break-words font-hand text-xl leading-tight text-neutral-800">{n.text}</p>}
+                <Reactions note={n} reactions={reactions.filter((r) => r.note_id === n.id)} onChange={reloadReactions} />
                 {meta}
               </article>
             );
@@ -246,6 +298,7 @@ export function Pinboard() {
               style={{ background: COLORS[n.color]?.bg ?? COLORS.gelb.bg, transform: `rotate(${TILTS[i % TILTS.length]}deg)` }}>
               <Pin color={by?.color} />
               <p className="flex-1 whitespace-pre-wrap break-words font-hand text-[1.35rem] leading-tight text-neutral-800">{n.text}</p>
+              <Reactions note={n} reactions={reactions.filter((r) => r.note_id === n.id)} onChange={reloadReactions} />
               {meta}
             </article>
           );

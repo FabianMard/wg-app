@@ -269,3 +269,11 @@ export type GameSong = {
   added_by: string | null;
   created_at: string;
 };
+
+export type NoteReaction = {
+  household_id: string;
+  note_id: string;
+  member_id: string;
+  emoji: string;
+  created_at: string;
+};

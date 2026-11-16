@@ -15,7 +15,7 @@ import { MusicList } from "@/components/MusicList";
 type Filter = "offen" | "meine" | "erledigt";
 
 function TodoList() {
-  const { household, members, member, myId } = useWG();
+  const { household, members, member, myId, isGuest } = useWG();
   const { rows: todos, loaded, reload } = useRows<Todo>("todos", "created_at", false);
   const { rows: praises, reload: reloadPraises } = useRows<Praise>("praises", "created_at");
   const [title, setTitle] = useState("");
@@ -43,6 +43,17 @@ function TodoList() {
     await supabase.from("todos").update(t.done
       ? { done: false, done_by: null, done_at: null }
       : { done: true, done_by: myId, done_at: new Date().toISOString() }).eq("id", t.id);
+    reload();
+  }
+  // Übernehmen: To-do gehört dann mir (die bisher eingetragene Person bekommt Bescheid)
+  async function takeOver(t: Todo) {
+    const before = t.assignee;
+    await supabase.from("todos").update({ assignee: myId }).eq("id", t.id);
+    notify("todos", `🙋 übernimmt: ${t.title}`, before ? { to: [before] } : {});
+    reload();
+  }
+  async function giveBack(t: Todo) {
+    await supabase.from("todos").update({ assignee: null }).eq("id", t.id);
     reload();
   }
   async function remove(t: Todo) {
@@ -93,7 +104,20 @@ function TodoList() {
               <div className="pt-0.5"><Check checked={t.done} onChange={() => toggle(t)} /></div>
               <div className="min-w-0 flex-1">
                 <p className={`${t.done ? "text-muted line-through" : ""}`}>{t.title}</p>
-                {!t.done && t.due_date && <p className={`text-xs ${late ? "font-medium text-red-600" : "text-muted"}`}>bis {formatDate(t.due_date)}</p>}
+                {!t.done && (t.due_date || t.assignee) && (
+                  <p className="text-xs text-muted">
+                    {t.assignee && <span>{t.assignee === myId ? "👤 du" : `👤 ${member(t.assignee)?.display_name ?? "?"}`}</span>}
+                    {t.assignee && t.due_date && " · "}
+                    {t.due_date && <span className={late ? "font-medium text-red-600" : ""}>bis {formatDate(t.due_date)}</span>}
+                  </p>
+                )}
+                {!t.done && !isGuest && (
+                  t.assignee === myId
+                    ? <button onClick={() => giveBack(t)} className="mt-1 text-xs text-muted underline hover:text-fg">Doch nicht – wieder für alle</button>
+                    : <button onClick={() => takeOver(t)} className="mt-1.5 rounded-full border border-line px-2.5 py-0.5 text-xs font-medium transition hover:border-accent active:scale-95">
+                        🙋 {t.assignee ? `Ich übernehme (statt ${member(t.assignee)?.display_name ?? "?"})` : "Mach ich"}
+                      </button>
+                )}
                 {t.done && doneBy && (
                   <div className="mt-1.5 flex flex-wrap items-center gap-2">
                     <span className="text-xs text-muted">

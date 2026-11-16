@@ -56,7 +56,13 @@ export function WGProvider({ children }: { children: React.ReactNode }) {
       if (g) household = { ...(g as Household), invite_code: "", shopping_favorites: null };
     }
     if (!household) return setState({ status: "no-household", session });
-    setState({ status: "ready", session, household, members: members ?? [] });
+    let list = (members ?? []) as Member[];
+    // Gäste sehen per Zugriffsregel nur Mitbewohner und sich selbst → die anderen Gäste (ohne Zugangscodes) per Funktion
+    if (list.find((m) => m.user_id === session.user.id)?.role === "gast") {
+      const { data: all } = await supabase.rpc("fellow_members");
+      if (Array.isArray(all) && all.length >= list.length) list = all as Member[];
+    }
+    setState({ status: "ready", session, household, members: list });
   }, []);
 
   useEffect(() => {
