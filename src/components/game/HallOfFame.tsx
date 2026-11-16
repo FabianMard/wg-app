@@ -5,22 +5,35 @@ import type { GameScore } from "@/lib/types";
 import { AvatarFigure, lookOf } from "./avatar";
 import { TennisStats } from "./TennisGame";
 import { medal, rankOf } from "./Leaderboard";
+import type { Ghost } from "./BikeRace";
 
 /** Alle Minispiele mit Bestenliste – und wo man sie in der Wohnung findet */
-const GAMES: { id: GameScore["game"]; icon: string; name: string; where: string }[] = [
+const GAMES: { id: GameScore["game"] | "radrennen"; icon: string; name: string; where: string }[] = [
   { id: "spuelmaschine", icon: "🫧", name: "Spülmaschine", where: "Küche" },
   { id: "kite", icon: "🏄", name: "Kitesurfen", where: "Stefans Zimmer" },
   { id: "tennis", icon: "🎾", name: "Tennis gegen Computer", where: "Fabians Zimmer" },
   { id: "giessen", icon: "💧", name: "Verenas Dschungel", where: "Verenas Zimmer" },
+  { id: "kurier", icon: "🚲", name: "Kurier durch Leipzig", where: "Wohnzimmer" },
+  { id: "lastenrad", icon: "🛺", name: "Lastenrad", where: "Wohnzimmer" },
+  { id: "radrennen", icon: "🚴", name: "Geister-Rennen (Zeit)", where: "Wohnzimmer" },
 ];
+const fmtTime = (ms: number) => `${(ms / 1000).toFixed(2).replace(".", ",")} s`;
 
 /** Die Bestenliste im Flur: Übersicht über alle Spiele */
 export function HallOfFame() {
   const { everyone, myId } = useWG();
   const { rows: scores, loaded } = useRows<GameScore>("game_scores", "best", false);
+  const { rows: ghosts } = useRows<Ghost>("bike_ghosts", "time_ms");
   const person = (id: string) => everyone.find((m) => m.id === id);
 
-  const boards = GAMES.map((g) => ({ ...g, list: scores.filter((s) => s.game === g.id && s.best > 0).sort((a, b) => b.best - a.best) }));
+  // Beim Rennen zählt die kürzeste Zeit → als negative Zahl einsortieren, damit „mehr ist besser“ überall gilt
+  const boards = GAMES.map((g) => ({
+    ...g,
+    list: g.id === "radrennen"
+      ? ghosts.map((x) => ({ member_id: x.member_id, best: -x.time_ms })).sort((a, b) => b.best - a.best)
+      : scores.filter((s) => s.game === g.id && s.best > 0).sort((a, b) => b.best - a.best),
+  }));
+  const show = (id: string, best: number) => (id === "radrennen" ? fmtTime(-best) : best);
   // Wer hält die meisten ersten Plätze?
   const titles = new Map<string, number>();
   // Rekord geteilt (gleiche Punkte) → alle Beteiligten halten ihn
@@ -64,7 +77,7 @@ export function HallOfFame() {
                       <span className="w-6 text-center">{medal(rankOf(b.list, i))}</span>
                       {m && <AvatarFigure look={lookOf(m)} size={20} />}
                       <span className="min-w-0 flex-1 truncate">{m?.display_name ?? "?"}{s.member_id === myId && " (du)"}</span>
-                      <span className="tabular-nums">{s.best}</span>
+                      <span className="tabular-nums">{show(b.id, s.best)}</span>
                     </li>
                   );
                 })}
@@ -72,7 +85,7 @@ export function HallOfFame() {
                   <li className="flex items-center gap-2 rounded-xl bg-accent/10 px-2 py-1 text-sm font-semibold">
                     <span className="w-6 text-center text-xs">{rankOf(b.list, mineIdx)}.</span>
                     <span className="min-w-0 flex-1 truncate">Du</span>
-                    <span className="tabular-nums">{b.list[mineIdx].best}</span>
+                    <span className="tabular-nums">{show(b.id, b.list[mineIdx].best)}</span>
                   </li>
                 )}
               </ol>

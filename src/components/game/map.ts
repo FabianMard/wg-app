@@ -25,7 +25,7 @@ export const COLS = MAP[0].length;
 export const ROWS = MAP.length;
 
 export type Action = "start" | "putzplan" | "einkauf" | "kosten" | "kalender" | "todos" | "wg" | "watchlist" | "pinnwand" | "musik"
-  | "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine" | "kite" | "kitegame" | "tennis" | "paper" | "kunst" | "giessspiel" | "bestenliste" | "wandbild" | "raumbild" | "wetter";
+  | "schlafen" | "kleiderschrank" | "giessen" | "buecher" | "spuelmaschine" | "kite" | "kitegame" | "tennis" | "paper" | "kunst" | "giessspiel" | "bestenliste" | "wandbild" | "raumbild" | "wetter" | "radkurier" | "lastenrad" | "radrennen";
 
 /** owner = Index des Mitbewohners (members.sort), dem der Gegenstand gehört */
 export type GameObject = { x: number; y: number; icon: string; label: string; action: Action; hint: string; owner?: number; slot?: RoomSlot };
@@ -51,6 +51,10 @@ export const OBJECTS: GameObject[] = [
   { x: 21, y: 3, icon: "📌", label: "Pinnwand", action: "pinnwand", hint: "Zettel & Fotos ansehen" },
   { x: 18, y: 3, icon: "💰", label: "Haushaltskasse", action: "kosten", hint: "Kosten & Ausgleich" },
   { x: 15, y: 5, icon: "🪴", label: "Pflanze", action: "giessen", hint: "Gießen 💧" },
+  // Drei Fahrräder im Wohnzimmer (Weg von der Tür bei 17,6 bleibt frei)
+  { x: 16, y: 5, icon: "🚲", label: "Kurierrad", action: "radkurier", hint: "Minispiel: Lieferungen durch Leipzig" },
+  { x: 19, y: 5, icon: "🛺", label: "Lastenrad", action: "lastenrad", hint: "Minispiel: Ladung heil nach Hause balancieren" },
+  { x: 20, y: 5, icon: "🚴", label: "Rennrad", action: "radrennen", hint: "Minispiel: Geister-Rennen zur Uni" },
   // Flur (Kalender hängt an der Wand)
   { x: 8, y: 6, icon: "📅", label: "Kalender", action: "kalender", hint: "Termine ansehen & eintragen" },
   { x: 14, y: 6, icon: "🏆", label: "Bestenliste", action: "bestenliste", hint: "Rekorde aller Spiele ansehen" },

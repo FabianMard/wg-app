@@ -184,7 +184,7 @@ export type ChoreOverride = {
 export type GameScore = {
   household_id: string;
   member_id: string;
-  game: "spuelmaschine" | "kite" | "tennis" | "giessen";
+  game: "spuelmaschine" | "kite" | "tennis" | "giessen" | "kurier" | "lastenrad";
   best: number;
   updated_at: string;
 };
