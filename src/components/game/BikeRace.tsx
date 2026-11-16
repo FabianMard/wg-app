@@ -31,7 +31,7 @@ export type Ghost = { member_id: string; household_id: string; time_ms: number; 
 // ───────────── Strecke ─────────────
 const scaled = (pts: [number, number][]) => pts.map(([a, v]) => [a * K, v] as [number, number]);
 const CENTER = scaled([[0, 0], [130, 0], [158, 5], [186, -1.5], [200, 0], [320, 0], [340, 8], [362, 8], [392, 1.5], [420, -4], [452, 3], [482, -3], [520, 2], [560, 0], [595, -6], [625, 3], [660, -1], [700, 0], [860, 0]]);
-const WIDTH = scaled([[0, 9], [190, 9], [205, 10], [320, 10], [350, 7.5], [370, 5], [550, 5], [575, 9.5], [860, 9.5]]);
+const WIDTH = scaled([[0, 9], [190, 9], [205, 10], [320, 10], [350, 8], [370, 7.5], [550, 7.5], [575, 9.5], [860, 9.5]]);
 const SECTIONS: { from: number; name: string; forest?: boolean }[] = [
   { from: 0, name: "🏁 Start: Geißlerstraße" },
   { from: 40 * K, name: "🚶 Eisenbahnstraße – viele Leute unterwegs!" },
@@ -74,14 +74,14 @@ const FOREST_FROM = 370 * K, FOREST_TO = 560 * K;
 const { POTHOLES, CARS, CYCLISTS, PEDS } = (() => {
   const rnd = seeded(7);
   const potholes: Pothole[] = [];
-  for (let s = 30; s < LEN - 20; s += 14 + rnd() * 22) {
+  for (let s = 30; s < LEN - 20; s += 22 + rnd() * 28) {
     const w = width(s) / 2 - 0.8;
     potholes.push({ s, off: (rnd() * 2 - 1) * w, r: 0.35 + rnd() * 0.25 });
   }
   const colors = ["#ef4444", "#3b82f6", "#f8fafc", "#111827", "#f59e0b", "#10b981", "#a855f7"];
   const cars: Car[] = [];
   // Geparkte Autos am Rand: Eisenbahnstraße locker, Markkleeberg dicht an dicht (je Seite mit Abstand, nie übereinander)
-  for (const [a, b, gap] of [[15 * K, 126 * K, 22], [578 * K, 770 * K, 7]] as const) for (const side of [-1, 1] as const) {
+  for (const [a, b, gap] of [[15 * K, 126 * K, 22], [578 * K, 770 * K, 12]] as const) for (const side of [-1, 1] as const) {
     for (let s = a + rnd() * 6; s < b; s += 4.4 + gap + rnd() * gap * 1.4) {
       if (side > 0 && s > TREU_FROM - 8 && s < TREU_TO + 8) continue;   // vor der Treuhand ist Biergarten
       if (side > 0 && s > CAFE_FROM - 8 && s < CAFE_TO + 8) continue;   // vor dem Café auch
@@ -105,12 +105,12 @@ const { POTHOLES, CARS, CYCLISTS, PEDS } = (() => {
     bike: { type: types[Math.floor(rnd() * 4)], color: looks[Math.floor(rnd() * looks.length)] },
   });
   // Viele Radfahrer:innen im Auwald und in Markkleeberg – zwei Spuren je Richtung, je Spur gleich schnell
-  for (const [off, v] of [[0.6, 3.8], [1.5, 3.0]] as const) for (let s = FOREST_FROM + 8; s < 900; s += 18 + rnd() * 20) cyclists.push(rider(s, 1, v, off, [FOREST_FROM, LEN]));
-  for (const [off, v] of [[-0.6, 4.2], [-1.5, 3.4]] as const) for (let s = 700; s < 1240; s += 18 + rnd() * 20) cyclists.push(rider(s, -1, v, off, [RAIL_TO, LEN]));
+  for (const [off, v] of [[0.6, 3.8], [1.5, 3.0]] as const) for (let s = FOREST_FROM + 8; s < 900; s += 30 + rnd() * 30) cyclists.push(rider(s, 1, v, off, [FOREST_FROM, LEN]));
+  for (const [off, v] of [[-0.6, 4.2], [-1.5, 3.4]] as const) for (let s = 700; s < 1240; s += 30 + rnd() * 30) cyclists.push(rider(s, -1, v, off, [RAIL_TO, LEN]));
   // Fußgänger:innen auf der Eisenbahnstraße: manche gehen quer über die Straße, manche an den Rändern entlang
   const peds: Ped[] = [];
   const shirts = ["#ef4444", "#f59e0b", "#22c55e", "#3b82f6", "#a855f7", "#ec4899", "#f8fafc", "#111827", "#14b8a6"];
-  for (let s = EISEN_FROM + 8; s < EISEN_TO - 6; s += 6 + rnd() * 9) {
+  for (let s = EISEN_FROM + 8; s < EISEN_TO - 6; s += 10 + rnd() * 12) {
     const quer = rnd() < 0.55, side = rnd() < 0.5 ? -1 : 1;
     peds.push({
       s0: s, off: side * (width(s) / 2 - 0.6 - rnd() * 1.2), mode: quer ? "quer" : "laengs", v: 0.9 + rnd() * 0.8, phase: rnd() * 20,
@@ -120,7 +120,7 @@ const { POTHOLES, CARS, CYCLISTS, PEDS } = (() => {
   return { POTHOLES: potholes, CARS: cars, CYCLISTS: cyclists, PEDS: peds };
 })();
 // Wildschweine kreuzen im Auwald den Weg (Bache + Frischlinge), laufen dabei ins Unterholz und wieder zurück
-const BOARS = [470, 515, 560, 610, 650].map((s, i) => ({ s, v: 2.2 + (i % 2) * 0.6, phase: i * 7.3 }));
+const BOARS = [480, 560, 640].map((s, i) => ({ s, v: 2.2 + (i % 2) * 0.6, phase: i * 7.3 }));
 function boarPos(b: { s: number; v: number; phase: number }, tSec: number, k = 0) {
   const A = width(b.s) / 2 + 3.5, x = (b.phase + b.v * Math.max(0, tSec) - k * 0.9 + 400 * A) % (4 * A);
   const off = x < 2 * A ? -A + x : 3 * A - x;
@@ -132,9 +132,11 @@ const carS = (c: Car, tSec: number) => c.s0 + c.v * Math.max(0, tSec);
 const carY = (c: Car, s: number) => c.parked ? center(s) + c.off : center(s) + c.off * (s > RAIL_FROM - 10 && s < RAIL_TO + 10 ? 2.6 : Math.max(1.1, width(s) / 2 - 3.05));
 // Straßenbahnen: kommen ab und zu auf den Schienen entgegen (Abfahrtszeiten in Sekunden nach dem Start)
 const TRAM_LEN = 24, TRAM_V = 8, TRAM_TIMES = [14, 30, 47];
+const RAIL_DRAW_TO = RAIL_TO + 40;           // Schienen sieht man noch ein Stück weiter (dort kommt die Bahn her)
+const TRAM_START = RAIL_DRAW_TO + TRAM_LEN; // Startpunkt der Bahn (noch außer Sicht)
 function tramPos(t0: number, tSec: number) {
-  const s = RAIL_TO + 20 - TRAM_V * (tSec - t0);
-  return { s, y: center(s), active: tSec >= t0 && s > RAIL_FROM - TRAM_LEN && s < RAIL_TO + 20 };
+  const s = TRAM_START - TRAM_V * (tSec - t0);
+  return { s, y: center(s), active: tSec >= t0 && s > RAIL_FROM - TRAM_LEN && s <= TRAM_START };
 }
 /** Autos fahren nicht in den Wald – dort biegen sie ab (verschwinden) */
 const carActive = (c: Car, tSec: number) => { const s = carS(c, tSec); return s >= c.zone[0] && s <= c.zone[1] && !inForest(s); };
@@ -511,7 +513,7 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
     const ro = new ResizeObserver(resize); ro.observe(boxRef.current!);
     const st = {
       t: -3000, s: 0, y: 0, v: 0, heading: 0, stun: 0, msg: "", msgT: 0, done: false, pedal: 0,
-      trace: [] as number[], nextSample: 0, hitHoles: new Set<number>(), hitCars: new Set<number>(), hitCyc: new Set<number>(), hitPeds: new Set<number>(), hitTram: new Set<number>(), beer: false, cake: false, hitBoar: new Set<number>(), dodged: new Map<string, { t: number; sign: number }>(), hammock: 0, left: false, chilled: false, railCool: 0, camY: 0,
+      trace: [] as number[], nextSample: 0, hitHoles: new Set<number>(), hitCars: new Set<number>(), hitCyc: new Set<number>(), hitPeds: new Set<number>(), hitTram: new Set<number>(), tramOn: TRAM_TIMES.map(() => null as boolean | null), beer: false, cake: false, hitBoar: new Set<number>(), dodged: new Map<string, { t: number; sign: number }>(), hammock: 0, left: false, chilled: false, railCool: 0, camY: 0,
     };
     if (process.env.NODE_ENV !== "production") (window as unknown as { __race?: unknown }).__race = { st, ctl: ctl.current, center, width, LEN, POTHOLES, CARS, carS, carActive, CYCLISTS, cycS, cycActive, PEDS, TRAM_TIMES, tramPos, TRAM_LEN, carY, inCafe, BOARS, boarPos, ring: () => { ctl.current.ringQueue++; }, pedPos, inTreuhand, railLines, RAIL_FROM, RAIL_TO };
     const say = (m: string, sec = 1.1) => { st.msg = m; st.msgT = sec; };
@@ -599,7 +601,10 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
           }
         });
         // Straßenbahn
+        // Eine Bahn fährt nur los, wenn du noch weit genug weg bist – sonst käme sie „aus dem Nichts“
+        TRAM_TIMES.forEach((t0, i) => { if (st.tramOn[i] === null && tSec >= t0) st.tramOn[i] = st.s < TRAM_START - 45; });
         TRAM_TIMES.forEach((t0, i) => {
+          if (!st.tramOn[i]) return;
           const q = tramPos(t0, tSec);
           if (q.active && st.s > q.s - TRAM_LEN / 2 - 0.6 && st.s < q.s + TRAM_LEN / 2 + 0.6 && Math.abs(q.y - st.y) < 1.6) {
             if (!st.hitTram.has(i)) { st.hitTram.add(i); st.v = 0; st.stun = 1.6; say("🚋 Bimmel bimmel! Fast unter die Straßenbahn!", 1.8); }
@@ -697,11 +702,11 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
       for (let s = s0; s <= s1; s += 1) { if (sectionAt(s).forest || s > LEN) { pen = false; continue; } const x = X(s), y = Y(center(s)); if (pen) ctx.lineTo(x, y); else { ctx.moveTo(x, y); pen = true; } }
       ctx.stroke(); ctx.setLineDash([]);
       // Schienen
-      if (s0 < RAIL_TO && s1 > RAIL_FROM) {
+      if (s0 < RAIL_DRAW_TO && s1 > RAIL_FROM) {
         ctx.strokeStyle = "#374151"; ctx.lineWidth = Math.max(2, 0.18 * ppm);
         for (const k of [0, 1]) {
           ctx.beginPath();
-          const a = Math.max(s0, RAIL_FROM), b = Math.min(s1, RAIL_TO);
+          const a = Math.max(s0, RAIL_FROM), b = Math.min(s1, RAIL_DRAW_TO);
           for (let s = a; s <= b; s += 1) { const r = railLines(s)[k]; if (s === a) ctx.moveTo(X(s), Y(r)); else ctx.lineTo(X(s), Y(r)); }
           ctx.stroke();
         }
@@ -788,7 +793,8 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
         if (!car.parked) { const fx = car.v >= 0 ? x + L / 2 - 2 : x - L / 2 - 1; ctx.fillStyle = "#fde047"; ctx.fillRect(fx, y - B * 0.4, 3, 4); ctx.fillRect(fx, y + B * 0.4 - 4, 3, 4); }
       }
       // Straßenbahn (weiß-blau), fährt auf den Schienen entgegen
-      for (const t0 of TRAM_TIMES) {
+      for (const [i, t0] of TRAM_TIMES.entries()) {
+        if (!st.tramOn[i]) continue;
         const q = tramPos(t0, tSec); if (!q.active || q.s < s0 - TRAM_LEN || q.s > s1 + TRAM_LEN) continue;
         const L = TRAM_LEN * ppm, B = 2.5 * ppm, x = X(q.s), y = Y(q.y);
         ctx.fillStyle = "rgba(0,0,0,.25)"; ctx.fillRect(x - L / 2 + 4, y - B / 2 + 4, L, B);
