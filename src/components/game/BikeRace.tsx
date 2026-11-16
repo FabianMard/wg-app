@@ -22,6 +22,8 @@ const LEN = 800 * K;        // Meter
 const SAMPLE_MS = 100;
 const MAX_LAT = 5;          // m/s seitlich bei vollem Lenkeinschlag
 const VMAX = 13.6;          // Höchstgeschwindigkeit (≈ 49 km/h) – in engen Kurven muss man bremsen
+const BELL_RINGS = 3;       // so oft darf man klingeln
+const BELL_RANGE = 35;      // so weit vorne hört man die Klingel (Meter)
 const HAMMOCK_S = 20;       // Hängematte: so viele Meter hinter der Ziellinie am Strand
 
 export type Ghost = { member_id: string; household_id: string; time_ms: number; trace: number[]; track: string; updated_at: string };
@@ -65,9 +67,9 @@ const TREU_FROM = 112 * K, TREU_TO = 126 * K;
 const inTreuhand = (s: number, y: number) => s >= TREU_FROM && s <= TREU_TO && y > center(s) + width(s) / 2 - 2.1;
 type Ped = { s0: number; off: number; mode: "quer" | "laengs"; v: number; phase: number; dir: 1 | -1; shirt: string; hair: string };
 type Cyclist = { s0: number; dir: 1 | -1; v: number; off: number; look: AvatarLook; bike: { type: BikeKind; color: string }; zone: [number, number] };
-// Kurz vor dem Ziel links: Café „Brot und Kees“ (zu nah dran = Apfelkuchen mit Sahne)
+// Kurz vor dem Ziel rechts: Café „Brot und Kees“ (zu nah dran = Apfelkuchen mit Sahne)
 const CAFE_FROM = 735 * K, CAFE_TO = 749 * K;
-const inCafe = (s: number, y: number) => s >= CAFE_FROM && s <= CAFE_TO && y < center(s) - width(s) / 2 + 2.1;
+const inCafe = (s: number, y: number) => s >= CAFE_FROM && s <= CAFE_TO && y > center(s) + width(s) / 2 - 2.1;
 const FOREST_FROM = 370 * K, FOREST_TO = 560 * K;
 const { POTHOLES, CARS, CYCLISTS, PEDS } = (() => {
   const rnd = seeded(7);
@@ -82,7 +84,7 @@ const { POTHOLES, CARS, CYCLISTS, PEDS } = (() => {
   for (const [a, b, gap] of [[15 * K, 126 * K, 22], [578 * K, 770 * K, 7]] as const) for (const side of [-1, 1] as const) {
     for (let s = a + rnd() * 6; s < b; s += 4.4 + gap + rnd() * gap * 1.4) {
       if (side > 0 && s > TREU_FROM - 8 && s < TREU_TO + 8) continue;   // vor der Treuhand ist Biergarten
-      if (side < 0 && s > CAFE_FROM - 8 && s < CAFE_TO + 8) continue;   // vor dem Café auch
+      if (side > 0 && s > CAFE_FROM - 8 && s < CAFE_TO + 8) continue;   // vor dem Café auch
       if (a < 100 && rnd() < 0.5) continue;                               // Eisenbahnstraße: nur jede zweite Lücke
       cars.push({ s0: s, off: side * (width(s) / 2 - 1.0), v: 0, color: colors[Math.floor(rnd() * colors.length)], parked: true, zone: [0, LEN + 20] });
     }
@@ -206,6 +208,22 @@ function drawRider(ctx: CanvasRenderingContext2D, u: number, x: number, y: numbe
   ctx.fillStyle = look.skin; ctx.beginPath(); ctx.arc(hb, -0.32 * u, 0.06 * u, 0, Math.PI * 2); ctx.arc(hb, 0.32 * u, 0.06 * u, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = look.hairColor; ctx.beginPath(); ctx.arc((seat + 0.32) * u, 0, 0.19 * u, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
+}
+
+/** Fahrradklingel: zwei helle „Pling“ (Web Audio, kein Sound-File nötig) */
+let bellCtx: AudioContext | null = null;
+function bellSound() {
+  try {
+    const C = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    bellCtx = bellCtx ?? new C();
+    const ctx = bellCtx; if (ctx.state === "suspended") ctx.resume();
+    for (const start of [0, 0.16]) for (const [f, g] of [[2350, 0.22], [3480, 0.09], [5120, 0.05]] as const) {
+      const o = ctx.createOscillator(), gain = ctx.createGain(), t = ctx.currentTime + start;
+      o.type = "sine"; o.frequency.value = f;
+      gain.gain.setValueAtTime(0.0001, t); gain.gain.exponentialRampToValueAtTime(g, t + 0.005); gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
+      o.connect(gain).connect(ctx.destination); o.start(t); o.stop(t + 0.6);
+    }
+  } catch { /* ohne Ton */ }
 }
 
 /** Unsichtbare Person – fürs abgestellte Rad */
@@ -411,9 +429,11 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
 
   // Eingaben
   const ctl = useRef({
-    steerKeys: 0, tilt: 0, tiltSign: 0, brakeKey: false, brakeTouch: new Set<number>(),
+    steerKeys: 0, tilt: 0, tiltSign: 0, brakeKey: false, brakeTouch: new Set<number>(), ringQueue: 0,
   });
   const [braking, setBraking] = useState(false);
+  const [ringsLeft, setRingsLeft] = useState(BELL_RINGS);
+  const ringsRef = useRef(BELL_RINGS);
   const rawY = useRef<number | null>(null);
   const angle = () => (screen.orientation?.angle ?? (window as unknown as { orientation?: number }).orientation ?? 0);
   const signKey = () => `wg-rad-neigung-${angle()}`;
@@ -491,10 +511,28 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
     const ro = new ResizeObserver(resize); ro.observe(boxRef.current!);
     const st = {
       t: -3000, s: 0, y: 0, v: 0, heading: 0, stun: 0, msg: "", msgT: 0, done: false, pedal: 0,
-      trace: [] as number[], nextSample: 0, hitHoles: new Set<number>(), hitCars: new Set<number>(), hitCyc: new Set<number>(), hitPeds: new Set<number>(), hitTram: new Set<number>(), beer: false, cake: false, hitBoar: new Set<number>(), hammock: 0, left: false, chilled: false, railCool: 0, camY: 0,
+      trace: [] as number[], nextSample: 0, hitHoles: new Set<number>(), hitCars: new Set<number>(), hitCyc: new Set<number>(), hitPeds: new Set<number>(), hitTram: new Set<number>(), beer: false, cake: false, hitBoar: new Set<number>(), dodged: new Map<string, { t: number; sign: number }>(), hammock: 0, left: false, chilled: false, railCool: 0, camY: 0,
     };
-    if (process.env.NODE_ENV !== "production") (window as unknown as { __race?: unknown }).__race = { st, ctl: ctl.current, center, width, LEN, POTHOLES, CARS, carS, carActive, CYCLISTS, cycS, cycActive, PEDS, TRAM_TIMES, tramPos, TRAM_LEN, carY, inCafe, BOARS, boarPos, pedPos, inTreuhand, railLines, RAIL_FROM, RAIL_TO };
+    if (process.env.NODE_ENV !== "production") (window as unknown as { __race?: unknown }).__race = { st, ctl: ctl.current, center, width, LEN, POTHOLES, CARS, carS, carActive, CYCLISTS, cycS, cycActive, PEDS, TRAM_TIMES, tramPos, TRAM_LEN, carY, inCafe, BOARS, boarPos, ring: () => { ctl.current.ringQueue++; }, pedPos, inTreuhand, railLines, RAIL_FROM, RAIL_TO };
     const say = (m: string, sec = 1.1) => { st.msg = m; st.msgT = sec; };
+    // Klingel: Fußgänger:innen, Radler:innen und Wildschweine in Hörweite gehen zur Seite (Autos nicht)
+    const dodgeY = (key: string, s: number, y: number, kind: "ped" | "cyc" | "boar") => {
+      const d = st.dodged.get(key);
+      if (!d) return { y, away: false };
+      const w = width(s), lim = kind === "boar" ? w / 2 + 2.6 : kind === "cyc" ? Math.min(w / 2 - 0.45, 2.3) : w / 2 - 0.5;
+      const f = Math.min(1, (st.t / 1000 - d.t) / 0.6);
+      return { y: y + (center(s) + d.sign * lim - y) * f, away: f > 0.3 };
+    };
+    const ring = () => {
+      if (ringsRef.current <= 0) { say("🔕 Klingel leer – nur 3× pro Fahrt", 1.2); return; }
+      ringsRef.current--; setRingsLeft(ringsRef.current);
+      const tSec = st.t / 1000, near = (s: number) => s > st.s - 3 && s < st.s + BELL_RANGE;
+      const mark = (key: string, y: number) => { if (!st.dodged.has(key)) st.dodged.set(key, { t: tSec, sign: y >= st.y ? 1 : -1 }); };
+      PEDS.forEach((pd, i) => { const q = pedPos(pd, tSec); if (q.active && near(q.s)) mark(`p${i}`, q.y); });
+      CYCLISTS.forEach((c, i) => { if (cycActive(c, tSec)) { const s = cycS(c, tSec); if (near(s)) mark(`c${i}`, center(s) + c.off); } });
+      BOARS.forEach((b, i) => { if (near(b.s)) mark(`b${i}`, boarPos(b, tSec).y); });
+      say(`🔔 Kling kling! (noch ${ringsRef.current}×)`, 1);
+    };
     const ghostAt = (ms: number) => {
       if (!rival) return null;
       const n = rival.trace.length / 2, i = ms / SAMPLE_MS, a = Math.floor(i);
@@ -509,6 +547,7 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
       st.t += dt * 1000;
       const c = ctl.current;
       const brake = c.brakeKey || c.brakeTouch.size > 0;
+      if (c.ringQueue > 0) { c.ringQueue = 0; if (st.t >= 0 && !st.done) ring(); }
       if (st.t >= 0 && !st.done) {
         if (!phaseSet) { phaseSet = true; setPhase("fahrt"); }
         const steer = Math.max(-1, Math.min(1, c.steerKeys + c.tilt));
@@ -534,19 +573,19 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
         const tSec = st.t / 1000;
         PEDS.forEach((pd, i) => {
           if (st.hitPeds.has(i)) return;
-          const q = pedPos(pd, tSec);
-          if (q.active && Math.abs(q.s - st.s) < 0.8 && Math.abs(q.y - st.y) < 0.65) { st.hitPeds.add(i); st.v = Math.min(st.v, 1.5); st.stun = 0.6; say("🚶 Huch! Fußgänger – klingeln!", 1.2); }
+          const q = pedPos(pd, tSec), dq = dodgeY(`p${i}`, q.s, q.y, "ped");
+          if (q.active && !dq.away && Math.abs(q.s - st.s) < 0.8 && Math.abs(dq.y - st.y) < 0.65) { st.hitPeds.add(i); st.v = Math.min(st.v, 1.5); st.stun = 0.6; say("🚶 Huch! Fußgänger – klingeln!", 1.2); }
         });
         BOARS.forEach((b, i) => {
           if (st.hitBoar.has(i) || Math.abs(b.s - st.s) > 2) return;
-          for (let k = 0; k < 3; k++) { const q = boarPos(b, tSec, k); if (Math.abs(q.s - st.s) < 1 && Math.abs(q.y - st.y) < (k ? 0.5 : 0.8)) { st.hitBoar.add(i); st.v = 0; st.stun = 1.3; say("🐗 Wildschwein! Vollbremsung im Auwald!", 1.6); break; } }
+          for (let k = 0; k < 3; k++) { const q = boarPos(b, tSec, k), dq = dodgeY(`b${i}`, q.s, q.y, "boar"); if (!dq.away && Math.abs(q.s - st.s) < 1 && Math.abs(dq.y - st.y) < (k ? 0.5 : 0.8)) { st.hitBoar.add(i); st.v = 0; st.stun = 1.3; say("🐗 Wildschwein! Vollbremsung im Auwald!", 1.6); break; } }
         });
         if (!st.cake && inCafe(st.s, st.y)) { st.cake = true; st.v = 0; st.stun = 3.2; say("🍰 Brot und Kees: Apfelkuchen mit Sahne muss jetzt sein …", 3.4); }
         if (!st.beer && inTreuhand(st.s, st.y)) { st.beer = true; st.v = 0; st.stun = 3; say("🍺 Ups – in der Treuhand aus Versehen ein Bier getrunken …", 3.2); }
         CYCLISTS.forEach((cy, i) => {
           if (!cycActive(cy, tSec)) return;
-          const s = cycS(cy, tSec), y = center(s) + cy.off;
-          if (Math.abs(s - st.s) < 1.8 && Math.abs(y - st.y) < 0.75) {
+          const s = cycS(cy, tSec), dq = dodgeY(`c${i}`, s, center(s) + cy.off, "cyc"), y = dq.y;
+          if (!dq.away && Math.abs(s - st.s) < 1.8 && Math.abs(y - st.y) < 0.75) {
             if (!st.hitCyc.has(i)) { st.hitCyc.add(i); st.v = Math.min(st.v, 1.5); st.stun = 0.6; say(cy.dir < 0 ? "🚲 Frontal mit einer Radlerin – Klingel benutzen!" : "🚲 Radlerin angerempelt – Entschuldigung!", 1.3); }
             st.y += Math.sign(st.y - y || 1) * dt * 3;
           }
@@ -628,7 +667,7 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
           const h = Math.abs(Math.sin(s * 12.9898 + side * 78.233 + k * 3.7) * 43758.5453) % 1;
           if (sec.forest) {
             ctx.fillStyle = h > 0.5 ? "#166534" : "#15803d"; ctx.beginPath(); ctx.arc(X(s + h * 3), Y(cy + side * (d + 1 + h * 2)), (1.6 + h * 1.2) * ppm, 0, Math.PI * 2); ctx.fill();
-          } else if ((s < 560 * K || s > 600 * K) && !(side > 0 && s > TREU_FROM - 7 && s < TREU_TO + 2) && !(side < 0 && s > CAFE_FROM - 7 && s < CAFE_TO + 2)) {
+          } else if ((s < 560 * K || s > 600 * K) && !(side > 0 && s > TREU_FROM - 7 && s < TREU_TO + 2) && !(side > 0 && s > CAFE_FROM - 7 && s < CAFE_TO + 2)) {
             ctx.fillStyle = ["#e7d8c4", "#d6c3ad", "#cbd5c0", "#e2c9b6"][Math.floor(h * 4)];
             const near = cy + side * d, far = cy + side * (d + 5);
             ctx.fillRect(X(s), Y(Math.min(near, far)), 5.5 * ppm, 5 * ppm);
@@ -697,47 +736,48 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
         ctx.fillStyle = "#4b2e1a"; ctx.beginPath(); ctx.arc(0, 0, 0.17 * ppm, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
       }
-      // Café „Brot und Kees“ links kurz vor dem Ziel: Haus, Markise, Tische mit Kuchen bis an die Fahrbahn
+      // Café „Brot und Kees“ rechts kurz vor dem Ziel: Haus, Markise, Tische mit Kuchen bis an die Fahrbahn
       if (s1 > CAFE_FROM - 4 && s0 < CAFE_TO + 4) {
-        const edge = center(CAFE_FROM) - width(CAFE_FROM) / 2, len = CAFE_TO - CAFE_FROM + 4;
-        ctx.fillStyle = "#fef3c7"; ctx.fillRect(X(CAFE_FROM - 2), Y(edge - 9.2), len * ppm, 7 * ppm);
-        for (let k = 0; k < 9; k++) { ctx.fillStyle = k % 2 ? "#ffffff" : "#15803d"; ctx.fillRect(X(CAFE_FROM - 2 + k * (len / 9)), Y(edge - 2.2), (len / 9) * ppm, 0.8 * ppm); }
-        ctx.fillStyle = "rgba(244,114,182,.25)"; ctx.fillRect(X(CAFE_FROM), Y(edge - 1.4), (CAFE_TO - CAFE_FROM) * ppm, 3.5 * ppm); // Kuchen-Zone
+        const edge = center(CAFE_FROM) + width(CAFE_FROM) / 2, len = CAFE_TO - CAFE_FROM + 4;
+        ctx.fillStyle = "#fef3c7"; ctx.fillRect(X(CAFE_FROM - 2), Y(edge + 2.2), len * ppm, 7 * ppm);
+        for (let k = 0; k < 9; k++) { ctx.fillStyle = k % 2 ? "#ffffff" : "#15803d"; ctx.fillRect(X(CAFE_FROM - 2 + k * (len / 9)), Y(edge + 1.4), (len / 9) * ppm, 0.8 * ppm); }
+        ctx.fillStyle = "rgba(244,114,182,.25)"; ctx.fillRect(X(CAFE_FROM), Y(edge - 2.1), (CAFE_TO - CAFE_FROM) * ppm, 3.5 * ppm); // Kuchen-Zone
         for (let k = 0; k < 4; k++) {
           const ts = CAFE_FROM + 2 + k * 3.2;
-          ctx.fillStyle = "#f8fafc"; ctx.beginPath(); ctx.arc(X(ts), Y(edge + 0.6), 0.55 * ppm, 0, Math.PI * 2); ctx.fill();
-          ctx.fillStyle = "#d97706"; ctx.beginPath(); ctx.moveTo(X(ts), Y(edge + 0.6)); ctx.arc(X(ts), Y(edge + 0.6), 0.32 * ppm, 0, Math.PI / 3); ctx.fill(); // Kuchenstück
-          ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(X(ts + 0.15), Y(edge + 0.75), 0.1 * ppm, 0, Math.PI * 2); ctx.fill();          // Sahne
+          ctx.fillStyle = "#f8fafc"; ctx.beginPath(); ctx.arc(X(ts), Y(edge - 0.6), 0.55 * ppm, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = "#d97706"; ctx.beginPath(); ctx.moveTo(X(ts), Y(edge - 0.6)); ctx.arc(X(ts), Y(edge - 0.6), 0.32 * ppm, 0, Math.PI / 3); ctx.fill(); // Kuchenstück
+          ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(X(ts + 0.15), Y(edge - 0.45), 0.1 * ppm, 0, Math.PI * 2); ctx.fill();          // Sahne
         }
       }
       // Wildschweine (von oben): Bache vorne, zwei gestreifte Frischlinge hinterher
-      for (const b of BOARS) {
-        if (b.s < s0 - 3 || b.s > s1 + 3) continue;
+      BOARS.forEach((b, bi) => {
+        if (b.s < s0 - 3 || b.s > s1 + 3) return;
         for (let k = 2; k >= 0; k--) {
-          const q = boarPos(b, tSec, k), sc = k ? 0.6 : 1;
-          ctx.save(); ctx.translate(X(q.s), Y(q.y)); ctx.rotate(q.dir > 0 ? Math.PI / 2 : -Math.PI / 2); ctx.scale(sc, sc);
+          const q = boarPos(b, tSec, k), sc = k ? 0.6 : 1, dq = dodgeY(`b${bi}`, q.s, q.y, "boar");
+          ctx.save(); ctx.translate(X(q.s + (dq.away ? k * 0.4 : 0)), Y(dq.y)); ctx.rotate(q.dir > 0 ? Math.PI / 2 : -Math.PI / 2); ctx.scale(sc, sc);
           ctx.fillStyle = k ? "#a16207" : "#44291a"; ctx.beginPath(); ctx.ellipse(0, 0, 0.75 * ppm, 0.42 * ppm, 0, 0, Math.PI * 2); ctx.fill();
           if (k) { ctx.strokeStyle = "#fde68a"; ctx.lineWidth = 0.06 * ppm; for (const o of [-0.15, 0.15]) { ctx.beginPath(); ctx.moveTo(-0.5 * ppm, o * ppm); ctx.lineTo(0.5 * ppm, o * ppm); ctx.stroke(); } }
           ctx.fillStyle = k ? "#854d0e" : "#2b1a10"; ctx.beginPath(); ctx.ellipse(0.75 * ppm, 0, 0.32 * ppm, 0.25 * ppm, 0, 0, Math.PI * 2); ctx.fill(); // Kopf
           ctx.fillStyle = "#d6a587"; ctx.beginPath(); ctx.arc(1.02 * ppm, 0, 0.1 * ppm, 0, Math.PI * 2); ctx.fill(); // Rüssel
           ctx.restore();
         }
-      }
+      });
       // Fußgänger:innen (von oben: Schultern + Kopf)
-      for (const pd of PEDS) {
-        const q = pedPos(pd, tSec); if (!q.active || q.s < s0 - 2 || q.s > s1 + 2) continue;
-        ctx.save(); ctx.translate(X(q.s), Y(q.y)); ctx.rotate(q.heading); ctx.scale(1.6, 1.6);
+      PEDS.forEach((pd, pi) => {
+        const q = pedPos(pd, tSec); if (!q.active || q.s < s0 - 2 || q.s > s1 + 2) return;
+        const dq = dodgeY(`p${pi}`, q.s, q.y, "ped");
+        ctx.save(); ctx.translate(X(q.s), Y(dq.y)); ctx.rotate(q.heading); ctx.scale(1.6, 1.6);
         const swing = Math.sin(tSec * 7 + pd.phase) * 0.18 * ppm;
         ctx.fillStyle = "#1f2937"; ctx.beginPath(); ctx.arc(swing, -0.14 * ppm, 0.11 * ppm, 0, Math.PI * 2); ctx.arc(-swing, 0.14 * ppm, 0.11 * ppm, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = pd.shirt; ctx.beginPath(); ctx.ellipse(0, 0, 0.2 * ppm, 0.36 * ppm, 0, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = pd.hair; ctx.beginPath(); ctx.arc(0, 0, 0.17 * ppm, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
-      }
-      for (const cy of CYCLISTS) {
-        if (!cycActive(cy, tSec)) continue;
-        const s = cycS(cy, tSec); if (s < s0 - 3 || s > s1 + 3) continue;
-        drawRider(ctx, R, X(s), Y(center(s) + cy.off), cy.dir > 0 ? 0 : Math.PI, cy.look, cy.bike, 1, tSec * 7 + s);
-      }
+      });
+      CYCLISTS.forEach((cy, ci) => {
+        if (!cycActive(cy, tSec)) return;
+        const s = cycS(cy, tSec); if (s < s0 - 3 || s > s1 + 3) return;
+        drawRider(ctx, R, X(s), Y(dodgeY(`c${ci}`, s, center(s) + cy.off, "cyc").y), cy.dir > 0 ? 0 : Math.PI, cy.look, cy.bike, 1, tSec * 7 + s);
+      });
       for (const car of CARS) {
         if (!carActive(car, tSec)) continue;
         const s = carS(car, tSec); if (s < s0 - 5 || s > s1 + 5) continue;
@@ -830,7 +870,7 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
       // Schild „Brot und Kees“
       const cmid = (CAFE_FROM + CAFE_TO) / 2;
       if (cmid > s0 - 4 && cmid < s1 + 4) {
-        const sx = W / 2 + (center(cmid) - width(cmid) / 2 - 5.7 - st.camY) * ppm, sy = ahead - (cmid - st.s) * ppm;
+        const sx = W / 2 + (center(cmid) + width(cmid) / 2 + 5.7 - st.camY) * ppm, sy = ahead - (cmid - st.s) * ppm;
         ctx.font = `bold ${Math.round(ppm * 0.8)}px system-ui`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
         const label = "☕ BROT UND KEES", tw = ctx.measureText(label).width;
         ctx.fillStyle = "rgba(21,128,61,.9)"; ctx.fillRect(sx - tw / 2 - 6, sy - ppm * 0.7, tw + 12, ppm * 1.4);
@@ -861,6 +901,7 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
       if (e.repeat) return;
       keys.add(e.key); steer();
       if (e.key === " ") ctl.current.brakeKey = true;
+      if (e.key === "k" || e.key === "b") { if (ringsRef.current > 0) bellSound(); ctl.current.ringQueue++; }
     };
     const up = (e: KeyboardEvent) => { keys.delete(e.key); steer(); if (e.key === " ") ctl.current.brakeKey = false; };
     window.addEventListener("keydown", down); window.addEventListener("keyup", up);
@@ -878,6 +919,22 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
       <div ref={boxRef} className="absolute inset-0" onPointerDown={(e) => e.preventDefault()}
         role="application" aria-label="Radrennen: Handy neigen zum Lenken, Bremshebel rechts zum Bremsen">
         <canvas ref={canvasRef} className="absolute inset-0" />
+      </div>
+      {/* Klingel: linkes Lenkerende mit Glocke – antippen = klingeln (3× pro Fahrt) */}
+      <div onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); if (ringsRef.current > 0) { bellSound(); } ctl.current.ringQueue++; }}
+        className="absolute bottom-0 left-0 flex h-[42%] w-[38%] items-end justify-start" role="button" aria-label={`Klingel (noch ${ringsLeft}×)`}>
+        <svg viewBox="0 0 260 130" className={`w-full max-w-[19rem] drop-shadow-xl transition ${ringsLeft ? "" : "opacity-50 grayscale"}`} aria-hidden>
+          <rect x="120" y="78" width="160" height="18" rx="7" fill="#4b5563" />
+          <rect x="10" y="70" width="118" height="34" rx="16" fill="#111827" />
+          {[0, 1, 2, 3, 4, 5, 6].map((k) => <rect key={k} x={22 + k * 14} y="72" width="5" height="30" rx="2" fill="#1f2937" />)}
+          {/* Glocke */}
+          <rect x="150" y="66" width="12" height="16" rx="3" fill="#374151" />
+          <circle cx="170" cy="50" r="30" fill="url(#bellGrad)" stroke="#6b7280" strokeWidth="2" />
+          <circle cx="170" cy="50" r="8" fill="#9ca3af" />
+          <path d="M150 66 L 132 58" stroke="#6b7280" strokeWidth="6" strokeLinecap="round" />
+          <defs><radialGradient id="bellGrad" cx="40%" cy="35%" r="70%"><stop offset="0%" stopColor="#ffffff" /><stop offset="60%" stopColor="#d1d5db" /><stop offset="100%" stopColor="#9ca3af" /></radialGradient></defs>
+        </svg>
+        <span className={`pointer-events-none absolute bottom-2 left-3 rounded-lg px-2 py-0.5 text-[11px] font-bold ${ringsLeft ? "bg-amber-500" : "bg-black/45"}`}>🔔 {ringsLeft}×</span>
       </div>
       {/* Bremse: rechtes Lenkerende von oben gesehen – Griff mit Bremshebel davor. Drücken = Hebel an den Griff ziehen */}
       <div onPointerDown={brakeDown} onPointerUp={brakeUp} onPointerCancel={brakeUp} onPointerLeave={brakeUp}
