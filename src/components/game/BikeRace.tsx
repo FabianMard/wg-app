@@ -55,7 +55,9 @@ const railLines = (s: number) => { const c = center(s) + 2.3; return [c - 0.72, 
 function seeded(seed: number) { return () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 type Pothole = { s: number; off: number; r: number };
 type Car = { s0: number; off: number; v: number; color: string; parked: boolean };
-const { POTHOLES, CARS } = (() => {
+type BikeKind = "randonneur" | "gravel" | "lastenrad" | "klapprad";
+type Cyclist = { s0: number; dir: 1 | -1; v: number; off: number; look: AvatarLook; bike: { type: BikeKind; color: string } };
+const { POTHOLES, CARS, CYCLISTS } = (() => {
   const rnd = seeded(7);
   const potholes: Pothole[] = [];
   for (let s = 30; s < LEN - 20; s += 14 + rnd() * 22) {
@@ -73,9 +75,29 @@ const { POTHOLES, CARS } = (() => {
   for (const [s0, off, v] of [[40, 1.6, 5.2], [130, -1.4, 6], [230, -1.8, 5.5], [610, 1.5, 5], [690, -1.5, 6.2]] as const) {
     cars.push({ s0: s0 * K, off, v, color: colors[Math.floor(rnd() * colors.length)], parked: false });
   }
-  return { POTHOLES: potholes, CARS: cars };
+  // Im Auwald: andere Radfahrerinnen (mit und gegen die Fahrtrichtung) statt Autos
+  const cyclists: Cyclist[] = [];
+  const looks = ["#ef4444", "#8b5cf6", "#0ea5e9", "#f59e0b", "#ec4899", "#14b8a6", "#84cc16"];
+  const hair = ["#3f2a1d", "#a16207", "#111827", "#d97706", "#7c2d12"];
+  const types: BikeKind[] = ["randonneur", "gravel", "lastenrad", "klapprad"];
+  for (let s = 380 * K; s < 545 * K; s += 26 + rnd() * 24) {
+    const dir: 1 | -1 = rnd() < 0.5 ? 1 : -1;
+    cyclists.push({
+      s0: s + (dir < 0 ? 40 : 0), dir, v: 3.2 + rnd() * 1.6, off: dir > 0 ? 0.9 + rnd() * 0.6 : -(0.9 + rnd() * 0.6),
+      look: { skin: ["#f2c9a8", "#e0ac69", "#8d5524", "#c68642"][Math.floor(rnd() * 4)], hairColor: hair[Math.floor(rnd() * hair.length)], topColor: looks[Math.floor(rnd() * looks.length)], pants: "#1f2937", shoes: "#f8fafc" } as AvatarLook,
+      bike: { type: types[Math.floor(rnd() * 4)], color: looks[Math.floor(rnd() * looks.length)] },
+    });
+  }
+  return { POTHOLES: potholes, CARS: cars, CYCLISTS: cyclists };
 })();
+const FOREST_FROM = 370 * K, FOREST_TO = 560 * K;
+const inForest = (s: number) => s >= FOREST_FROM - 4 && s <= FOREST_TO + 4;
 const carS = (c: Car, tSec: number) => c.s0 + c.v * Math.max(0, tSec);
+/** Autos fahren nicht in den Wald – dort biegen sie ab (verschwinden) */
+const carActive = (c: Car, tSec: number) => !inForest(carS(c, tSec)) && carS(c, tSec) < LEN + 20;
+const cycS = (c: Cyclist, tSec: number) => c.s0 + c.dir * c.v * Math.max(0, tSec);
+/** Radlerinnen bleiben im Wald */
+const cycActive = (c: Cyclist, tSec: number) => { const s = cycS(c, tSec); return s > FOREST_FROM && s < FOREST_TO; };
 
 // ───────────── Fahrräder (alle gleich schnell – reine Geschmackssache) ─────────────
 type BikeType = NonNullable<Member["bike"]>["type"];
@@ -403,9 +425,9 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
     const ro = new ResizeObserver(resize); ro.observe(boxRef.current!);
     const st = {
       t: -3000, s: 0, y: 0, v: 0, heading: 0, stun: 0, msg: "", msgT: 0, done: false, pedal: 0,
-      trace: [] as number[], nextSample: 0, hitHoles: new Set<number>(), hitCars: new Set<number>(), railCool: 0, camY: 0,
+      trace: [] as number[], nextSample: 0, hitHoles: new Set<number>(), hitCars: new Set<number>(), hitCyc: new Set<number>(), railCool: 0, camY: 0,
     };
-    if (process.env.NODE_ENV !== "production") (window as unknown as { __race?: unknown }).__race = { st, ctl: ctl.current, center, width, LEN, POTHOLES, CARS, carS, railLines, RAIL_FROM, RAIL_TO };
+    if (process.env.NODE_ENV !== "production") (window as unknown as { __race?: unknown }).__race = { st, ctl: ctl.current, center, width, LEN, POTHOLES, CARS, carS, carActive, CYCLISTS, cycS, cycActive, railLines, RAIL_FROM, RAIL_TO };
     const say = (m: string, sec = 1.1) => { st.msg = m; st.msgT = sec; };
     const ghostAt = (ms: number) => {
       if (!rival) return null;
@@ -449,7 +471,16 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
         });
         // Autos
         const tSec = st.t / 1000;
+        CYCLISTS.forEach((cy, i) => {
+          if (!cycActive(cy, tSec)) return;
+          const s = cycS(cy, tSec), y = center(s) + cy.off;
+          if (Math.abs(s - st.s) < 1.8 && Math.abs(y - st.y) < 0.75) {
+            if (!st.hitCyc.has(i)) { st.hitCyc.add(i); st.v = Math.min(st.v, 1.5); st.stun = 0.6; say(cy.dir < 0 ? "🚲 Frontal mit einer Radlerin – Klingel benutzen!" : "🚲 Radlerin angerempelt – Entschuldigung!", 1.3); }
+            st.y += Math.sign(st.y - y || 1) * dt * 3;
+          }
+        });
         CARS.forEach((car, i) => {
+          if (!carActive(car, tSec)) return;
           const s = carS(car, tSec), y = center(s) + car.off;
           if (Math.abs(s - st.s) < 2.4 && Math.abs(y - st.y) < 1.2) {
             if (!st.hitCars.has(i)) { st.hitCars.add(i); st.v = Math.min(st.v, 1.2); st.stun = 0.8; say(car.parked ? "🚗 Gegen ein parkendes Auto!" : "🚗 Hupp! Auto gerammt!", 1.3); }
@@ -484,34 +515,41 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
     }
 
     function draw(brake: boolean) {
-      const ppm = Math.max(14, H / 15);
+      // Ansicht von oben, man fährt von unten nach oben: Welt (s = Strecke, y = seitlich) wird um −90° gedreht
+      const ppm = Math.max(10, H / 28);
+      const R = ppm * 1.35; // Radfahrende etwas größer zeichnen, damit man sie gut erkennt
       st.camY += (center(st.s + 6) - st.camY) * 0.08;
-      const X = (s: number) => W * 0.24 + (s - st.s) * ppm;
-      const Y = (y: number) => H / 2 + (y - st.camY) * ppm;
-      const s0 = st.s - (W * 0.24) / ppm - 2, s1 = st.s + (W * 0.76) / ppm + 2;
+      const X = (s: number) => (s - st.s) * ppm;          // nach vorn (= nach oben am Bildschirm)
+      const Y = (y: number) => (y - st.camY) * ppm;       // seitlich (= links/rechts)
+      const behind = H * 0.2, ahead = H * 0.8;
+      const s0 = st.s - behind / ppm - 2, s1 = st.s + ahead / ppm + 2;
+      const latMax = W / 2 / ppm + 2;
       const forestNow = !!sectionAt(st.s + 10).forest;
-      // Untergrund
+      ctx.save();
       ctx.fillStyle = forestNow ? "#4d7c3a" : "#86b86b"; ctx.fillRect(0, 0, W, H);
-      // Bäume im Auwald, Häuser in der Stadt
-      for (let s = Math.floor(s0 / 6) * 6; s < s1; s += 6) {
+      ctx.translate(W / 2, ahead); ctx.rotate(-Math.PI / 2);
+      // Bäume im Auwald, Häuserblöcke in der Stadt – links und rechts bis zum Bildrand
+      for (let s = Math.floor(s0 / 7) * 7; s < s1; s += 7) {
         const sec = sectionAt(s), w = width(s), cy = center(s);
-        for (const side of [-1, 1]) {
-          const h = Math.abs(Math.sin(s * 12.9898 + side * 78.233) * 43758.5453) % 1;
+        for (const side of [-1, 1]) for (let k = 0; ; k++) {
+          const d = w / 2 + 1.5 + k * 6.5;
+          if (d > latMax + Math.abs(cy - st.camY) + 6) break;
+          const h = Math.abs(Math.sin(s * 12.9898 + side * 78.233 + k * 3.7) * 43758.5453) % 1;
           if (sec.forest) {
-            const y = cy + side * (w / 2 + 2 + h * 3);
-            ctx.fillStyle = h > 0.5 ? "#166534" : "#15803d"; ctx.beginPath(); ctx.arc(X(s), Y(y), (1.4 + h) * ppm, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = h > 0.5 ? "#166534" : "#15803d"; ctx.beginPath(); ctx.arc(X(s + h * 3), Y(cy + side * (d + 1 + h * 2)), (1.6 + h * 1.2) * ppm, 0, Math.PI * 2); ctx.fill();
           } else if (s < 560 * K || s > 600 * K) {
             ctx.fillStyle = ["#e7d8c4", "#d6c3ad", "#cbd5c0", "#e2c9b6"][Math.floor(h * 4)];
-            const yy = side < 0 ? Y(cy - w / 2 - 1.2) - 4 * ppm : Y(cy + w / 2 + 1.2);
-            ctx.fillRect(X(s), yy, 5 * ppm, 4 * ppm);
+            const near = cy + side * d, far = cy + side * (d + 5);
+            ctx.fillRect(X(s), Y(Math.min(near, far)), 5.5 * ppm, 5 * ppm);
           }
         }
       }
       // Ziel: Strand und See
       if (s1 > LEN) {
-        ctx.fillStyle = "#f5deb3"; ctx.fillRect(X(LEN + 8), 0, W, H);
-        ctx.fillStyle = "#38bdf8"; ctx.fillRect(X(LEN + 30), 0, W, H);
-        ctx.fillStyle = "rgba(255,255,255,.5)"; for (let k = 0; k < 6; k++) ctx.fillRect(X(LEN + 34 + k * 7), Y(center(LEN) - 6 + k * 2), 3 * ppm, 0.3 * ppm);
+        const big = (latMax + 40) * ppm;
+        ctx.fillStyle = "#f5deb3"; ctx.fillRect(X(LEN + 8), -big, 400 * ppm, 2 * big);
+        ctx.fillStyle = "#38bdf8"; ctx.fillRect(X(LEN + 30), -big, 400 * ppm, 2 * big);
+        ctx.fillStyle = "rgba(255,255,255,.5)"; for (let k = 0; k < 8; k++) ctx.fillRect(X(LEN + 34 + k * 5), Y(center(LEN) - 12 + k * 3), 3 * ppm, 0.3 * ppm);
       }
       // Straße
       const roadPoly = (inset: number, color: string) => {
@@ -543,7 +581,13 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
       if (LEN > s0 && LEN < s1) { const w = width(LEN), cy = center(LEN); for (let k = 0; k < Math.ceil(w / 0.5); k++) for (let j = 0; j < 2; j++) { ctx.fillStyle = (k + j) % 2 ? "#111" : "#fff"; ctx.fillRect(X(LEN) + j * 0.5 * ppm, Y(cy - w / 2 + k * 0.5), 0.5 * ppm, 0.5 * ppm); } }
       // Autos
       const tSec = Math.max(0, st.t / 1000);
+      for (const cy of CYCLISTS) {
+        if (!cycActive(cy, tSec)) continue;
+        const s = cycS(cy, tSec); if (s < s0 - 3 || s > s1 + 3) continue;
+        drawRider(ctx, R, X(s), Y(center(s) + cy.off), cy.dir > 0 ? 0 : Math.PI, cy.look, cy.bike, 1, tSec * 7 + s);
+      }
       for (const car of CARS) {
+        if (!carActive(car, tSec)) continue;
         const s = carS(car, tSec); if (s < s0 - 5 || s > s1 + 5) continue;
         const x = X(s), y = Y(center(s) + car.off), L = 4.4 * ppm, B = 1.9 * ppm;
         ctx.fillStyle = "rgba(0,0,0,.2)"; ctx.fillRect(x - L / 2 + 3, y - B / 2 + 3, L, B);
@@ -553,9 +597,10 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
       }
       // Geist & Fahrer
       const g = ghostAt(Math.max(0, st.t));
-      if (g) drawRider(ctx, ppm, X(g.s), Y(g.y), 0, ghostLook.current ?? myLook.current, ghostBike.current, 0.45, st.t / 160);
-      drawRider(ctx, ppm, X(st.s), Y(st.y), st.heading, myLook.current, myBike.current, 1, st.pedal * 0.9);
+      if (g) drawRider(ctx, R, X(g.s), Y(g.y), 0, ghostLook.current ?? myLook.current, ghostBike.current, 0.45, st.t / 160);
+      drawRider(ctx, R, X(st.s), Y(st.y), st.heading, myLook.current, myBike.current, 1, st.pedal * 0.9);
       if (brake && !st.done && st.t > 0) { ctx.fillStyle = "#ef4444"; ctx.beginPath(); ctx.arc(X(st.s) - 1.1 * ppm, Y(st.y), 0.18 * ppm, 0, Math.PI * 2); ctx.fill(); }
+      ctx.restore();
       if (st.t < 0) { ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.fillRect(0, 0, W, H); ctx.fillStyle = "#fff"; ctx.font = `bold ${Math.round(H / 4)}px system-ui`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(String(Math.ceil(-st.t / 1000)), W / 2, H / 2); }
     }
 
