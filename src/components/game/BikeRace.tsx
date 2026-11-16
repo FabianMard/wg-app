@@ -22,7 +22,7 @@ const LEN = 800 * K;        // Meter
 const SAMPLE_MS = 100;
 const MAX_LAT = 5;          // m/s seitlich bei vollem Lenkeinschlag
 const VMAX = 13.6;          // Höchstgeschwindigkeit (≈ 49 km/h) – in engen Kurven muss man bremsen
-const BELL_RINGS = 3;       // so oft darf man klingeln
+const BELL_COOLDOWN = 3000; // ms bis man wieder klingeln kann
 const BELL_RANGE = 35;      // so weit vorne hört man die Klingel (Meter)
 const HAMMOCK_S = 20;       // Hängematte: so viele Meter hinter der Ziellinie am Strand
 
@@ -442,8 +442,9 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
     steerKeys: 0, tilt: 0, tiltSign: 0, brakeKey: false, brakeTouch: new Set<number>(), ringQueue: 0,
   });
   const [braking, setBraking] = useState(false);
-  const [ringsLeft, setRingsLeft] = useState(BELL_RINGS);
-  const ringsRef = useRef(BELL_RINGS);
+  const [bellReady, setBellReady] = useState(true);
+  const lastRing = useRef(-1e9);
+  const bellOk = () => performance.now() - lastRing.current >= BELL_COOLDOWN;
   const rawY = useRef<number | null>(null);
   const angle = () => (screen.orientation?.angle ?? (window as unknown as { orientation?: number }).orientation ?? 0);
   const signKey = () => `wg-rad-neigung-${angle()}`;
@@ -534,14 +535,15 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
       return { y: y + (center(s) + d.sign * lim - y) * f, away: f > 0.3 };
     };
     const ring = () => {
-      if (ringsRef.current <= 0) { say("🔕 Klingel leer – nur 3× pro Fahrt", 1.2); return; }
-      ringsRef.current--; setRingsLeft(ringsRef.current);
+      if (!bellOk()) return; // noch nicht wieder bereit
+      lastRing.current = performance.now(); setBellReady(false);
+      setTimeout(() => setBellReady(true), BELL_COOLDOWN);
       const tSec = st.t / 1000, near = (s: number) => s > st.s - 3 && s < st.s + BELL_RANGE;
       const mark = (key: string, y: number) => { if (!st.dodged.has(key)) st.dodged.set(key, { t: tSec, sign: y >= st.y ? 1 : -1 }); };
       PEDS.forEach((pd, i) => { const q = pedPos(pd, tSec); if (q.active && near(q.s)) mark(`p${i}`, q.y); });
       CYCLISTS.forEach((c, i) => { if (cycActive(c, tSec)) { const s = cycS(c, tSec); if (near(s)) mark(`c${i}`, center(s) + c.off); } });
       BOARS.forEach((b, i) => { if (near(b.s)) mark(`b${i}`, boarPos(b, tSec).y); });
-      say(`🔔 Kling kling! (noch ${ringsRef.current}×)`, 1);
+      say("🔔 Kling kling!", 0.9);
     };
     const ghostAt = (ms: number) => {
       if (!rival) return null;
@@ -614,9 +616,9 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
         TRAM_TIMES.forEach((t0, i) => {
           if (!st.tramOn[i]) return;
           const q = tramPos(t0, tSec);
-          if (q.active && st.s > q.s - TRAM_LEN / 2 - 0.6 && st.s < q.s + TRAM_LEN / 2 + 0.6 && Math.abs(q.y - st.y) < 1.6) {
+          if (q.active && st.s > q.s - TRAM_LEN / 2 - 0.6 && st.s < q.s + TRAM_LEN / 2 + 0.6 && Math.abs(center(st.s) - st.y) < 1.6) {
             if (!st.hitTram.has(i)) { st.hitTram.add(i); st.v = 0; st.stun = 1.6; say("🚋 Bimmel bimmel! Fast unter die Straßenbahn!", 1.8); }
-            st.y += Math.sign(st.y - q.y || -1) * dt * 4;
+            st.y += Math.sign(st.y - center(st.s) || -1) * dt * 4;
           }
         });
         // Straßenbahnschienen
@@ -811,12 +813,19 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
       for (const [i, t0] of TRAM_TIMES.entries()) {
         if (!st.tramOn[i]) continue;
         const q = tramPos(t0, tSec); if (!q.active || q.s < s0 - TRAM_LEN || q.s > s1 + TRAM_LEN) continue;
-        const L = TRAM_LEN * ppm, B = 2.5 * ppm, x = X(q.s), y = Y(q.y);
-        ctx.fillStyle = "rgba(0,0,0,.25)"; ctx.fillRect(x - L / 2 + 4, y - B / 2 + 4, L, B);
-        ctx.fillStyle = "#f8fafc"; ctx.beginPath(); ctx.roundRect(x - L / 2, y - B / 2, L, B, 0.8 * ppm); ctx.fill();
-        ctx.fillStyle = "#1d4ed8"; ctx.fillRect(x - L / 2, y - B * 0.12, L, B * 0.24);
-        for (let k = 0; k < 3; k++) { ctx.fillStyle = "#94a3b8"; ctx.fillRect(x - L / 2 + (k + 1) * (L / 4) - 2, y - B / 2, 4, B); }
-        ctx.fillStyle = "#fde047"; ctx.fillRect(x - L / 2 - 1, y - B * 0.38, 3, 5); ctx.fillRect(x - L / 2 - 1, y + B * 0.38 - 5, 3, 5);
+        // 4 Wagenteile mit Gelenken – jedes folgt den Schienen, so biegt die Bahn sauber durch die Kurve
+        const segL = TRAM_LEN / 4, B = 2.5 * ppm;
+        for (let k = 0; k < 4; k++) {
+          const ss = q.s - TRAM_LEN / 2 + (k + 0.5) * segL, ang = Math.atan2(center(ss + 0.5) - center(ss - 0.5), 1);
+          ctx.save(); ctx.translate(X(ss), Y(center(ss))); ctx.rotate(ang);
+          const Lp = (segL + 0.15) * ppm;
+          ctx.fillStyle = "rgba(0,0,0,.22)"; ctx.fillRect(-Lp / 2 + 4, -B / 2 + 4, Lp, B);
+          ctx.fillStyle = "#f8fafc"; ctx.beginPath(); ctx.roundRect(-Lp / 2, -B / 2, Lp, B, k === 0 || k === 3 ? 0.8 * ppm : 0.15 * ppm); ctx.fill();
+          ctx.fillStyle = "#1d4ed8"; ctx.fillRect(-Lp / 2, -B * 0.12, Lp, B * 0.24);
+          if (k > 0) { ctx.fillStyle = "#94a3b8"; ctx.fillRect(-Lp / 2 - 2, -B / 2, 4, B); } // Gelenk
+          if (k === 0) { ctx.fillStyle = "#fde047"; ctx.fillRect(-Lp / 2 - 1, -B * 0.38, 3, 5); ctx.fillRect(-Lp / 2 - 1, B * 0.38 - 5, 3, 5); } // Scheinwerfer vorne
+          ctx.restore();
+        }
       }
       // Hängematte zwischen zwei Bäumen, optional mit Person drin
       const hammock = (hs: number, cy: number, color: string, look: AvatarLook | null, rope = 1, swing = 0) => {
@@ -922,7 +931,7 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
       if (e.repeat) return;
       keys.add(e.key); steer();
       if (e.key === " ") ctl.current.brakeKey = true;
-      if (e.key === "k" || e.key === "b") { if (ringsRef.current > 0) bellSound(); ctl.current.ringQueue++; }
+      if (e.key === "k" || e.key === "b") { if (bellOk()) bellSound(); ctl.current.ringQueue++; }
     };
     const up = (e: KeyboardEvent) => { keys.delete(e.key); steer(); if (e.key === " ") ctl.current.brakeKey = false; };
     window.addEventListener("keydown", down); window.addEventListener("keyup", up);
@@ -942,9 +951,9 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
         <canvas ref={canvasRef} className="absolute inset-0" />
       </div>
       {/* Klingel: linkes Lenkerende mit Glocke – antippen = klingeln (3× pro Fahrt) */}
-      <div onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); if (ringsRef.current > 0) { bellSound(); } ctl.current.ringQueue++; }}
-        className="absolute bottom-0 left-0 flex h-[42%] w-[38%] items-end justify-start" role="button" aria-label={`Klingel (noch ${ringsLeft}×)`}>
-        <svg viewBox="0 0 260 130" className={`w-full max-w-[19rem] drop-shadow-xl transition ${ringsLeft ? "" : "opacity-50 grayscale"}`} aria-hidden>
+      <div onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); if (bellOk()) bellSound(); ctl.current.ringQueue++; }}
+        className="absolute bottom-0 left-0 flex h-[42%] w-[38%] items-end justify-start" role="button" aria-label={bellReady ? "Klingel" : "Klingel (gleich wieder bereit)"}>
+        <svg viewBox="0 0 260 130" className={`w-full max-w-[19rem] drop-shadow-xl transition ${bellReady ? "" : "opacity-60 grayscale"}`} aria-hidden>
           <rect x="120" y="78" width="160" height="18" rx="7" fill="#4b5563" />
           <rect x="10" y="70" width="118" height="34" rx="16" fill="#111827" />
           {[0, 1, 2, 3, 4, 5, 6].map((k) => <rect key={k} x={22 + k * 14} y="72" width="5" height="30" rx="2" fill="#1f2937" />)}
@@ -955,7 +964,11 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
           <path d="M150 66 L 132 58" stroke="#6b7280" strokeWidth="6" strokeLinecap="round" />
           <defs><radialGradient id="bellGrad" cx="40%" cy="35%" r="70%"><stop offset="0%" stopColor="#ffffff" /><stop offset="60%" stopColor="#d1d5db" /><stop offset="100%" stopColor="#9ca3af" /></radialGradient></defs>
         </svg>
-        <span className={`pointer-events-none absolute bottom-2 left-3 rounded-lg px-2 py-0.5 text-[11px] font-bold ${ringsLeft ? "bg-amber-500" : "bg-black/45"}`}>🔔 {ringsLeft}×</span>
+        <span className={`pointer-events-none absolute bottom-2 left-3 overflow-hidden rounded-lg px-2 py-0.5 text-[11px] font-bold ${bellReady ? "bg-amber-500" : "bg-black/45"}`}>
+          {!bellReady && <span key={lastRing.current} className="absolute inset-y-0 left-0 bg-amber-500/70" style={{ animation: `fillbar ${BELL_COOLDOWN}ms linear forwards` }} />}
+          <span className="relative">🔔 {bellReady ? "Klingeln" : "…"}</span>
+        </span>
+        <style>{"@keyframes fillbar { from { width: 0% } to { width: 100% } }"}</style>
       </div>
       {/* Bremse: rechtes Lenkerende von oben gesehen – Griff mit Bremshebel davor. Drücken = Hebel an den Griff ziehen */}
       <div onPointerDown={brakeDown} onPointerUp={brakeUp} onPointerCancel={brakeUp} onPointerLeave={brakeUp}
