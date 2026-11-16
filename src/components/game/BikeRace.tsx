@@ -372,6 +372,7 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
   useEffect(() => { overRef.current = onOver; }, [onOver]);
   // Jede Person fährt als sie selbst: Outfit aus dem Kleiderschrank + eigenes Rad
   const myLook = useRef(lookOf(me ?? ({} as Member))), myBike = useRef(bikeOf(me));
+  const myName = useRef(me?.display_name ?? "");
   const ghostLook = useRef(rivalMember ? lookOf(rivalMember) : null), ghostBike = useRef(bikeOf(rivalMember));
 
   // Eingaben
@@ -645,6 +646,18 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
           ctx.fillStyle = "#fde68a"; ctx.beginPath(); ctx.arc(X(ts + 0.2), Y(edge - 0.7), 0.16 * ppm, 0, Math.PI * 2); ctx.fill();
         }
       }
+      // Micha steht am Start am rechten Straßenrand und winkt
+      const MICHA_S = 4, michaY = center(MICHA_S) + width(MICHA_S) / 2 + 0.9;
+      if (MICHA_S > s0 - 3 && MICHA_S < s1 + 3) {
+        ctx.save(); ctx.translate(X(MICHA_S), Y(michaY)); ctx.rotate(-Math.PI / 2); ctx.scale(2, 2);
+        const wave = Math.sin(performance.now() / 150) * 0.12 * ppm;
+        ctx.fillStyle = "#1f2937"; ctx.beginPath(); ctx.arc(-0.12 * ppm, 0.05 * ppm, 0.11 * ppm, 0, Math.PI * 2); ctx.arc(0.12 * ppm, 0.05 * ppm, 0.11 * ppm, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = "#f97316"; ctx.lineWidth = 0.1 * ppm; ctx.lineCap = "round";
+        ctx.beginPath(); ctx.moveTo(-0.25 * ppm, 0); ctx.lineTo(-0.45 * ppm + wave, -0.35 * ppm); ctx.stroke(); // winkender Arm
+        ctx.fillStyle = "#f97316"; ctx.beginPath(); ctx.ellipse(0, 0, 0.36 * ppm, 0.2 * ppm, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#4b2e1a"; ctx.beginPath(); ctx.arc(0, 0, 0.17 * ppm, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
       // Fußgänger:innen (von oben: Schultern + Kopf)
       for (const pd of PEDS) {
         const q = pedPos(pd, tSec); if (!q.active || q.s < s0 - 2 || q.s > s1 + 2) continue;
@@ -675,6 +688,20 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
       drawRider(ctx, R, X(st.s), Y(st.y), st.heading, myLook.current, myBike.current, 1, st.pedal * 0.9);
       if (brake && !st.done && st.t > 0) { ctx.fillStyle = "#ef4444"; ctx.beginPath(); ctx.arc(X(st.s) - 1.1 * ppm, Y(st.y), 0.18 * ppm, 0, Math.PI * 2); ctx.fill(); }
       ctx.restore();
+      if (st.t < 0) { ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.fillRect(0, 0, W, H); ctx.fillStyle = "#fff"; ctx.font = `bold ${Math.round(H / 4)}px system-ui`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(String(Math.ceil(-st.t / 1000)), W / 2, H / 2); }
+      // Michas Sprechblase (nur am Anfang)
+      if (st.t < 5000 && 4 > s0 - 3) {
+        const mx = W / 2 + (center(4) + width(4) / 2 + 0.9 - st.camY) * ppm, my = ahead - (4 - st.s) * ppm;
+        const name = myName.current ? `, ${myName.current}` : "";
+        const text = `Gute Fahrt${name}! 👋`;
+        ctx.font = `bold ${Math.round(ppm * 0.85)}px system-ui`; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+        const tw = ctx.measureText(text).width, bx = Math.min(W - tw - 24, mx + ppm * 0.8), by = my - ppm * 2.2;
+        ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.roundRect(bx, by - ppm * 0.75, tw + 20, ppm * 1.5, ppm * 0.5); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(bx + 10, by + ppm * 0.7); ctx.lineTo(mx, my - ppm * 0.5); ctx.lineTo(bx + 30, by + ppm * 0.7); ctx.fill();
+        ctx.fillStyle = "#111827"; ctx.fillText(text, bx + 10, by);
+        ctx.font = `bold ${Math.round(ppm * 0.55)}px system-ui`; ctx.fillStyle = "#fff"; ctx.textAlign = "center";
+        ctx.fillText("Micha", mx, my + ppm * 1.1);
+      }
       // Schild „TREUHAND“ (nach dem Zurückdrehen, damit es lesbar ist)
       const mid = (TREU_FROM + TREU_TO) / 2;
       if (mid > s0 - 4 && mid < s1 + 4) {
@@ -684,7 +711,6 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
         ctx.fillStyle = "rgba(0,0,0,.7)"; ctx.fillRect(sx - tw / 2 - 6, sy - ppm * 0.7, tw + 12, ppm * 1.4);
         ctx.fillStyle = "#fde047"; ctx.fillText("🍺 TREUHAND", sx, sy);
       }
-      if (st.t < 0) { ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.fillRect(0, 0, W, H); ctx.fillStyle = "#fff"; ctx.font = `bold ${Math.round(H / 4)}px system-ui`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(String(Math.ceil(-st.t / 1000)), W / 2, H / 2); }
     }
 
     raf = requestAnimationFrame(frame);
