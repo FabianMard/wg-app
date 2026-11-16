@@ -5,7 +5,7 @@ import type { GameScore } from "@/lib/types";
 import { AvatarFigure, lookOf } from "./avatar";
 import { TennisStats } from "./TennisGame";
 import { medal, rankOf } from "./Leaderboard";
-import type { Ghost } from "./BikeRace";
+import { TRACK_ID, type Ghost } from "./BikeRace";
 
 /** Alle Minispiele mit Bestenliste – und wo man sie in der Wohnung findet */
 const GAMES: { id: GameScore["game"] | "radrennen"; icon: string; name: string; where: string }[] = [
@@ -13,9 +13,7 @@ const GAMES: { id: GameScore["game"] | "radrennen"; icon: string; name: string; 
   { id: "kite", icon: "🏄", name: "Kitesurfen", where: "Stefans Zimmer" },
   { id: "tennis", icon: "🎾", name: "Tennis gegen Computer", where: "Fabians Zimmer" },
   { id: "giessen", icon: "💧", name: "Verenas Dschungel", where: "Verenas Zimmer" },
-  { id: "kurier", icon: "🚲", name: "Kurier durch Leipzig", where: "Wohnzimmer" },
-  { id: "lastenrad", icon: "🛺", name: "Lastenrad", where: "Wohnzimmer" },
-  { id: "radrennen", icon: "🚴", name: "Geister-Rennen (Zeit)", where: "Wohnzimmer" },
+  { id: "radrennen", icon: "🚴", name: "Radrennen zum Cossi (Zeit)", where: "Wohnzimmer" },
 ];
 const fmtTime = (ms: number) => `${(ms / 1000).toFixed(2).replace(".", ",")} s`;
 
@@ -30,7 +28,7 @@ export function HallOfFame() {
   const boards = GAMES.map((g) => ({
     ...g,
     list: g.id === "radrennen"
-      ? ghosts.map((x) => ({ member_id: x.member_id, best: -x.time_ms })).sort((a, b) => b.best - a.best)
+      ? ghosts.filter((x) => x.track === TRACK_ID).map((x) => ({ member_id: x.member_id, best: -x.time_ms })).sort((a, b) => b.best - a.best)
       : scores.filter((s) => s.game === g.id && s.best > 0).sort((a, b) => b.best - a.best),
   }));
   const show = (id: string, best: number) => (id === "radrennen" ? fmtTime(-best) : best);

@@ -19,6 +19,7 @@ export type Member = {
   sort: number;
   user_id: string | null;
   avatar: import("@/components/game/avatar").AvatarLook | null;
+  bike?: { type: "randonneur" | "gravel" | "lastenrad" | "klapprad"; color: string } | null;
   /** Profilfoto im Storage-Bucket "pinnwand" (ab 008_profilfoto.sql) */
   photo_path?: string | null;
   /** "Ich lese gerade" (ab 011_buecher.sql) */
@@ -184,7 +185,7 @@ export type ChoreOverride = {
 export type GameScore = {
   household_id: string;
   member_id: string;
-  game: "spuelmaschine" | "kite" | "tennis" | "giessen" | "kurier" | "lastenrad";
+  game: "spuelmaschine" | "kite" | "tennis" | "giessen";
   best: number;
   updated_at: string;
 };
