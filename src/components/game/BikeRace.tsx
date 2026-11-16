@@ -10,8 +10,8 @@ import { lookOf, type AvatarLook } from "./avatar";
 
 /**
  * Radrennen von der Geißlerstraße zum Cossi (Cospudener See) – von oben gesehen, Handy quer.
- * Treten: Daumen auf den Pedalen links/rechts im Wechsel runterstreichen (gleichmäßiger Takt = schneller).
- * Lenken: Handy neigen (oder Pfeiltasten). Beide Daumen stillhalten = bremsen.
+ * Das Rad fährt von selbst schnell. Lenken: Handy neigen (oder Pfeiltasten). Bremsen: Bremshebel rechts am Rand.
+ * Am Ziel hängt man am Cossi seine Hängematte auf.
  * Hindernisse: Kurven, Autos, Schlaglöcher, Straßenbahnschienen. Die Strecke ist immer gleich.
  * Die Bestfahrt jeder Person wird als „Geist“ gespeichert.
  */
@@ -21,6 +21,8 @@ const K = 1.2;              // Streckenfaktor (alle Positionen unten sind in „
 const LEN = 800 * K;        // Meter
 const SAMPLE_MS = 100;
 const MAX_LAT = 5;          // m/s seitlich bei vollem Lenkeinschlag
+const VMAX = 11.4;          // Höchstgeschwindigkeit (≈ 41 km/h)
+const HAMMOCK_S = 20;       // Hängematte: so viele Meter hinter der Ziellinie am Strand
 
 export type Ghost = { member_id: string; household_id: string; time_ms: number; trace: number[]; track: string; updated_at: string };
 
@@ -31,7 +33,7 @@ const WIDTH = scaled([[0, 9], [190, 9], [205, 10], [320, 10], [350, 7.5], [370, 
 const SECTIONS: { from: number; name: string; forest?: boolean }[] = [
   { from: 0, name: "🏁 Start: Geißlerstraße" },
   { from: 40 * K, name: "🚶 Eisenbahnstraße – viele Leute unterwegs!" },
-  { from: 200 * K, name: "🚋 Straßenbahn – Vorsicht Schienen!" },
+  { from: 200 * K, name: "🚋 Südvorstadt – Straßenbahn & viel Verkehr!" },
   { from: 325 * K, name: "↪ Connewitzer Kreuz" },
   { from: 370 * K, name: "🌳 Auwald", forest: true },
   { from: 560 * K, name: "Markkleeberg" },
@@ -79,6 +81,10 @@ const { POTHOLES, CARS, CYCLISTS, PEDS } = (() => {
     cars.push({ s0: s, off: side * (width(s) / 2 - 1.1), v: 0, color: colors[Math.floor(rnd() * colors.length)], parked: true });
   }
   // Fahrende Autos in Fahrtrichtung (langsamer als ein guter Radler) – man muss überholen
+  // Südvorstadt/Straßenbahn: Autos auf beiden Spuren – rechts in Fahrtrichtung, links Gegenverkehr (negatives Tempo)
+  for (const [s0, off, v] of [[190, 1.9, 6], [235, 2.0, 5.4], [275, 1.7, 6.4], [315, 2.1, 5.8], [520, -2.2, -7], [570, -2.0, -7.5], [615, -2.3, -6.8], [660, -2.1, -7.2], [700, -2.2, -7]] as const) {
+    cars.push({ s0: s0 * K, off, v, color: colors[Math.floor(rnd() * colors.length)], parked: false });
+  }
   for (const [s0, off, v] of [[40, 1.6, 5.2], [130, -1.4, 6], [230, -1.8, 5.5], [610, 1.5, 5], [690, -1.5, 6.2]] as const) {
     cars.push({ s0: s0 * K, off, v, color: colors[Math.floor(rnd() * colors.length)], parked: false });
   }
@@ -110,8 +116,16 @@ const { POTHOLES, CARS, CYCLISTS, PEDS } = (() => {
 const FOREST_FROM = 370 * K, FOREST_TO = 560 * K;
 const inForest = (s: number) => s >= FOREST_FROM - 4 && s <= FOREST_TO + 4;
 const carS = (c: Car, tSec: number) => c.s0 + c.v * Math.max(0, tSec);
+/** Gegenverkehr nur im Stadtgebiet (vor dem Wald) */
+const oncomingOk = (c: Car, s: number) => c.v >= 0 || s < FOREST_FROM - 4;
+// Straßenbahnen: kommen ab und zu auf den Schienen entgegen (Abfahrtszeiten in Sekunden nach dem Start)
+const TRAM_LEN = 24, TRAM_V = 8, TRAM_TIMES = [14, 30, 47];
+function tramPos(t0: number, tSec: number) {
+  const s = RAIL_TO + 20 - TRAM_V * (tSec - t0);
+  return { s, y: center(s) + 2.3, active: tSec >= t0 && s > RAIL_FROM - TRAM_LEN && s < RAIL_TO + 20 };
+}
 /** Autos fahren nicht in den Wald – dort biegen sie ab (verschwinden) */
-const carActive = (c: Car, tSec: number) => !inForest(carS(c, tSec)) && carS(c, tSec) < LEN + 20;
+const carActive = (c: Car, tSec: number) => !inForest(carS(c, tSec)) && carS(c, tSec) < LEN + 20 && oncomingOk(c, carS(c, tSec));
 /** Wo ist die Person gerade? (quer: hin und her über die Straße, längs: am Rand entlang) */
 function pedPos(p: Ped, tSec: number) {
   const t = Math.max(0, tSec);
@@ -183,6 +197,9 @@ function drawRider(ctx: CanvasRenderingContext2D, u: number, x: number, y: numbe
   ctx.fillStyle = look.hairColor; ctx.beginPath(); ctx.arc((seat + 0.32) * u, 0, 0.19 * u, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 }
+
+/** Unsichtbare Person – fürs abgestellte Rad */
+const EMPTY_LOOK = { skin: "transparent", hairColor: "transparent", topColor: "transparent", pants: "transparent", shoes: "transparent" } as AvatarLook;
 
 /** Kleine Vorschau des eigenen Rads */
 function BikePreview({ look, bike, size = 120 }: { look: AvatarLook; bike: { type: BikeType; color: string }; size?: number }) {
@@ -321,9 +338,9 @@ export function BikeRace({ onResult }: { onResult?: (text: string) => void }) {
       <RaceBoard ghosts={sorted} error={dbErr} />
       <ul className="mx-auto max-w-xs space-y-1 text-left text-sm text-muted">
         <li>📱 <b>Handy quer</b>, mit beiden Daumen halten</li>
-        <li>👣 <b>Treten:</b> Daumen auf den Pedalen links und rechts <b>rauf und runter streichen</b> – im Wechsel und im gleichen Takt. Je gleichmäßiger, desto schneller</li>
-        <li>🔄 <b>Lenken:</b> Handy neigen wie ein Lenkrad · am Computer: Pfeiltasten, treten mit A/D</li>
-        <li>🛑 <b>Bremsen:</b> beide Daumen auf den Pedalen stillhalten</li>
+        <li>🚴 Du fährst <b>von selbst</b> los – volle Fahrt voraus</li>
+        <li>🔄 <b>Lenken:</b> Handy neigen wie ein Lenkrad · am Computer: Pfeiltasten</li>
+        <li>🛑 <b>Bremsen:</b> Bremshebel rechts am Rand gedrückt halten · am Computer: Leertaste</li>
         <li>🚗 Autos, 🕳️ Schlaglöcher, 🚋 Schienen und 🌿 Gras bremsen dich aus</li>
       </ul>
     </div>
@@ -366,7 +383,7 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
   const boxRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [phase, setPhase] = useState<Phase>("countdown");
-  const [hud, setHud] = useState({ t: 0, v: 0, s: 0, msg: "", gap: null as number | null, section: SECTIONS[0].name, count: 3, rhythm: 0 });
+  const [hud, setHud] = useState({ t: 0, v: 0, s: 0, msg: "", gap: null as number | null, section: SECTIONS[0].name, count: 3 });
   const [hasTilt, setHasTilt] = useState(false);
   const overRef = useRef(onOver);
   useEffect(() => { overRef.current = onOver; }, [onOver]);
@@ -376,12 +393,10 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
   const ghostLook = useRef(rivalMember ? lookOf(rivalMember) : null), ghostBike = useRef(bikeOf(rivalMember));
 
   // Eingaben
-  type Finger = { side: -1 | 1; lastY: number; down: number; up: number; armed: boolean; moved: number };
   const ctl = useRef({
-    steerKeys: 0, tilt: 0, tiltSign: 0, lastSide: 0 as -1 | 0 | 1, brakeKey: false, tapQueue: [] as (-1 | 1)[],
-    fingers: new Map<number, Finger>(), lastPushT: 0, ema: 0, rhythm: 0,
+    steerKeys: 0, tilt: 0, tiltSign: 0, brakeKey: false, brakeTouch: new Set<number>(),
   });
-  const pedalEls = useRef<Record<string, HTMLDivElement | null>>({});
+  const [braking, setBraking] = useState(false);
   const rawY = useRef<number | null>(null);
   const angle = () => (screen.orientation?.angle ?? (window as unknown as { orientation?: number }).orientation ?? 0);
   const signKey = () => `wg-rad-neigung-${angle()}`;
@@ -459,9 +474,9 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
     const ro = new ResizeObserver(resize); ro.observe(boxRef.current!);
     const st = {
       t: -3000, s: 0, y: 0, v: 0, heading: 0, stun: 0, msg: "", msgT: 0, done: false, pedal: 0,
-      trace: [] as number[], nextSample: 0, hitHoles: new Set<number>(), hitCars: new Set<number>(), hitCyc: new Set<number>(), hitPeds: new Set<number>(), beer: false, railCool: 0, camY: 0,
+      trace: [] as number[], nextSample: 0, hitHoles: new Set<number>(), hitCars: new Set<number>(), hitCyc: new Set<number>(), hitPeds: new Set<number>(), hitTram: new Set<number>(), beer: false, hammock: 0, left: false, chilled: false, railCool: 0, camY: 0,
     };
-    if (process.env.NODE_ENV !== "production") (window as unknown as { __race?: unknown }).__race = { st, ctl: ctl.current, center, width, LEN, POTHOLES, CARS, carS, carActive, CYCLISTS, cycS, cycActive, PEDS, pedPos, inTreuhand, railLines, RAIL_FROM, RAIL_TO };
+    if (process.env.NODE_ENV !== "production") (window as unknown as { __race?: unknown }).__race = { st, ctl: ctl.current, center, width, LEN, POTHOLES, CARS, carS, carActive, CYCLISTS, cycS, cycActive, PEDS, TRAM_TIMES, tramPos, TRAM_LEN, pedPos, inTreuhand, railLines, RAIL_FROM, RAIL_TO };
     const say = (m: string, sec = 1.1) => { st.msg = m; st.msgT = sec; };
     const ghostAt = (ms: number) => {
       if (!rival) return null;
@@ -476,33 +491,15 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
       const dt = Math.min(0.033, (now - last) / 1000); last = now;
       st.t += dt * 1000;
       const c = ctl.current;
-      // Bremsen: beide Daumen liegen auf den Pedalen und bewegen sich nicht
-      const fingers = [...c.fingers.values()];
-      const brake = c.brakeKey || (new Set(fingers.map((f) => f.side)).size === 2 && fingers.every((f) => now - f.moved > 350));
-      // Treten: jeder Tritt nach unten treibt an – im Wechsel und im gleichmäßigen Takt am stärksten
-      for (const side of c.tapQueue.splice(0)) {
-        if (st.t < 0 || st.done || st.stun > 0) continue;
-        const interval = now - c.lastPushT; c.lastPushT = now;
-        if (c.lastSide === side) { st.v *= 0.85; c.rhythm *= 0.5; say("🦶 Aus dem Takt – links und rechts abwechseln!", 0.8); }
-        else {
-          let r = 0.4;
-          if (interval < 1200) {
-            c.ema = c.ema ? c.ema * 0.75 + interval * 0.25 : interval;
-            r = Math.max(0, Math.min(1, 1 - (Math.abs(interval - c.ema) / c.ema) * 2.6));
-          } else c.ema = 0;
-          c.rhythm = c.rhythm * 0.6 + r * 0.4;
-          st.v += 2.1 * Math.max(0, 1 - st.v / 14) * (0.3 + 0.7 * c.rhythm);
-          st.pedal++;
-        }
-        c.lastSide = side;
-      }
-      if (now - c.lastPushT > 1200) c.rhythm = Math.max(0, c.rhythm - dt * 0.8);
+      const brake = c.brakeKey || c.brakeTouch.size > 0;
       if (st.t >= 0 && !st.done) {
         if (!phaseSet) { phaseSet = true; setPhase("fahrt"); }
         const steer = Math.max(-1, Math.min(1, c.steerKeys + c.tilt));
         const w = width(st.s), cs = center(st.s);
-        st.v -= dt * (0.25 + 0.018 * st.v * st.v);
-        if (brake) st.v -= dt * 7;
+        // Fährt von selbst: beschleunigt bis zur Höchstgeschwindigkeit (nach Stößen auch wieder hoch)
+        if (brake) st.v -= dt * 8;
+        else if (st.stun <= 0 && st.v < VMAX) st.v = Math.min(VMAX, st.v + dt * (st.v < 4 ? 3.2 : 2.2));
+        st.pedal += st.v * dt * 0.9;
         const off = Math.abs(st.y - cs) > w / 2 - 0.3;
         if (off) { st.v = Math.min(st.v, 3.5); st.v -= dt * 3; if (st.msgT <= 0) say(sectionAt(st.s).forest ? "🌳 Im Unterholz!" : "🌿 Auf dem Gras!", 0.7); }
         st.v = Math.max(0, st.v);
@@ -536,8 +533,16 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
           if (!carActive(car, tSec)) return;
           const s = carS(car, tSec), y = center(s) + car.off;
           if (Math.abs(s - st.s) < 2.4 && Math.abs(y - st.y) < 1.2) {
-            if (!st.hitCars.has(i)) { st.hitCars.add(i); st.v = Math.min(st.v, 1.2); st.stun = 0.8; say(car.parked ? "🚗 Gegen ein parkendes Auto!" : "🚗 Hupp! Auto gerammt!", 1.3); }
+            if (!st.hitCars.has(i)) { st.hitCars.add(i); st.v = Math.min(st.v, 1.2); st.stun = 0.8; say(car.parked ? "🚗 Gegen ein parkendes Auto!" : (car.v < 0 ? "🚗 Hupp! Gegenverkehr!" : "🚗 Hupp! Auto gerammt!"), 1.3); }
             st.y += Math.sign(st.y - y || 1) * dt * 3; // wegschubsen
+          }
+        });
+        // Straßenbahn
+        TRAM_TIMES.forEach((t0, i) => {
+          const q = tramPos(t0, tSec);
+          if (q.active && st.s > q.s - TRAM_LEN / 2 - 0.6 && st.s < q.s + TRAM_LEN / 2 + 0.6 && Math.abs(q.y - st.y) < 1.6) {
+            if (!st.hitTram.has(i)) { st.hitTram.add(i); st.v = 0; st.stun = 1.6; say("🚋 Bimmel bimmel! Fast unter die Straßenbahn!", 1.8); }
+            st.y += Math.sign(st.y - q.y || -1) * dt * 4;
           }
         });
         // Straßenbahnschienen
@@ -550,11 +555,22 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
           const time = st.t - ((st.s - LEN) / Math.max(0.1, st.v)) * 1000;
           st.done = true; finishedAt = time;
           st.trace.push(LEN * 10, Math.round(st.y * 100));
-          say("🏖️ Am Cossi!", 3); setPhase("ziel");
-          setTimeout(() => leave(finishedAt, st.trace), 1500);
+          say("🏖️ Am Cossi!", 2); setPhase("ziel");
         }
       } else if (st.done) {
-        st.v = Math.max(0, st.v - dt * 4); st.s += st.v * dt;
+        // Ins Ziel ausrollen, Rad abstellen, Hängematte aufhängen
+        const spot = LEN + HAMMOCK_S - 5;
+        if (!st.hammock) {
+          st.v = Math.max(2.5, Math.min(st.v, (spot - st.s) * 1.6));
+          st.s += st.v * dt;
+          st.y += (center(spot) + 3.4 - st.y) * Math.min(1, dt * 1.8);
+          st.pedal += st.v * dt * 0.9;
+          if (st.s >= spot - 0.15) { st.hammock = 0.0001; st.v = 0; say("🪢 Hängematte aufhängen …", 1.2); }
+        } else {
+          st.hammock += dt;
+          if (st.hammock > 1.1 && !st.chilled) { st.chilled = true; say("😎 Hängematte hängt – Feierabend am Cossi!", 3); }
+          if (st.hammock > 3.4 && !st.left) { st.left = true; leave(finishedAt, st.trace); }
+        }
       }
       st.msgT = Math.max(0, st.msgT - dt);
       draw(brake);
@@ -562,7 +578,7 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
       if (hudT <= 0) {
         hudT = 0.1;
         const g = ghostAt(Math.max(0, st.t));
-        setHud({ t: Math.max(0, st.done ? finishedAt : st.t), v: st.v, s: st.s, msg: st.msgT > 0 ? st.msg : "", gap: g ? st.s - g.s : null, section: sectionAt(st.s).name, count: Math.ceil(-st.t / 1000), rhythm: c.rhythm });
+        setHud({ t: Math.max(0, st.done ? finishedAt : st.t), v: st.v, s: st.s, msg: st.msgT > 0 ? st.msg : "", gap: g ? st.s - g.s : null, section: sectionAt(st.s).name, count: Math.ceil(-st.t / 1000) });
       }
       raf = requestAnimationFrame(frame);
     }
@@ -607,8 +623,9 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
       // Straße
       const roadPoly = (inset: number, color: string) => {
         ctx.fillStyle = color; ctx.beginPath();
-        for (let s = s0; s <= s1; s += 1) ctx.lineTo(X(s), Y(center(s) - width(s) / 2 + inset));
-        for (let s = s1; s >= s0; s -= 1) ctx.lineTo(X(s), Y(center(s) + width(s) / 2 - inset));
+        const e = Math.min(s1, LEN + 6); // am Strand hört die Straße auf
+        for (let s = s0; s <= e; s += 1) ctx.lineTo(X(s), Y(center(s) - width(s) / 2 + inset));
+        for (let s = e; s >= s0; s -= 1) ctx.lineTo(X(s), Y(center(s) + width(s) / 2 - inset));
         ctx.closePath(); ctx.fill();
       };
       roadPoly(-0.4, forestNow ? "#a3896a" : "#d1d5db");
@@ -680,12 +697,49 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
         ctx.fillStyle = "rgba(0,0,0,.2)"; ctx.fillRect(x - L / 2 + 3, y - B / 2 + 3, L, B);
         ctx.fillStyle = car.color; ctx.beginPath(); ctx.roundRect(x - L / 2, y - B / 2, L, B, 0.5 * ppm); ctx.fill();
         ctx.fillStyle = "rgba(30,41,59,.75)"; ctx.fillRect(x + L * 0.12, y - B * 0.38, L * 0.18, B * 0.76); ctx.fillRect(x - L * 0.32, y - B * 0.36, L * 0.14, B * 0.72);
-        if (!car.parked) { ctx.fillStyle = "#fde047"; ctx.fillRect(x + L / 2 - 2, y - B * 0.4, 3, 4); ctx.fillRect(x + L / 2 - 2, y + B * 0.4 - 4, 3, 4); }
+        if (!car.parked) { const fx = car.v >= 0 ? x + L / 2 - 2 : x - L / 2 - 1; ctx.fillStyle = "#fde047"; ctx.fillRect(fx, y - B * 0.4, 3, 4); ctx.fillRect(fx, y + B * 0.4 - 4, 3, 4); }
+      }
+      // Straßenbahn (weiß-blau), fährt auf den Schienen entgegen
+      for (const t0 of TRAM_TIMES) {
+        const q = tramPos(t0, tSec); if (!q.active || q.s < s0 - TRAM_LEN || q.s > s1 + TRAM_LEN) continue;
+        const L = TRAM_LEN * ppm, B = 2.5 * ppm, x = X(q.s), y = Y(q.y);
+        ctx.fillStyle = "rgba(0,0,0,.25)"; ctx.fillRect(x - L / 2 + 4, y - B / 2 + 4, L, B);
+        ctx.fillStyle = "#f8fafc"; ctx.beginPath(); ctx.roundRect(x - L / 2, y - B / 2, L, B, 0.8 * ppm); ctx.fill();
+        ctx.fillStyle = "#1d4ed8"; ctx.fillRect(x - L / 2, y - B * 0.12, L, B * 0.24);
+        for (let k = 0; k < 3; k++) { ctx.fillStyle = "#94a3b8"; ctx.fillRect(x - L / 2 + (k + 1) * (L / 4) - 2, y - B / 2, 4, B); }
+        ctx.fillStyle = "#fde047"; ctx.fillRect(x - L / 2 - 1, y - B * 0.38, 3, 5); ctx.fillRect(x - L / 2 - 1, y + B * 0.38 - 5, 3, 5);
+      }
+      // Am Cossi: zwei Bäume am Strand, dazwischen die eigene Hängematte
+      if (s1 > LEN + HAMMOCK_S - 8) {
+        const hs = LEN + HAMMOCK_S, cy = center(LEN), a = cy - 2.9, b = cy + 2.9;
+        for (const ty of [a, b]) {
+          ctx.fillStyle = "#713f12"; ctx.beginPath(); ctx.arc(X(hs), Y(ty), 0.35 * ppm, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = "rgba(22,101,52,.85)"; ctx.beginPath(); ctx.arc(X(hs + 0.3), Y(ty + (ty < cy ? -0.8 : 0.8)), 1.7 * ppm, 0, Math.PI * 2); ctx.fill();
+        }
+        if (st.hammock > 0) {
+          const pr = Math.min(1, st.hammock / 0.9), end = a + (b - a) * pr;
+          ctx.strokeStyle = "#fef3c7"; ctx.lineWidth = 0.08 * ppm;
+          ctx.beginPath(); ctx.moveTo(X(hs), Y(a)); ctx.lineTo(X(hs), Y(end)); ctx.stroke(); // Seil
+          if (pr >= 1) {
+            ctx.fillStyle = myBike.current.color; ctx.beginPath(); ctx.ellipse(X(hs), Y(cy), 0.75 * ppm, 2.2 * ppm, 0, 0, Math.PI * 2); ctx.fill(); // Stoff
+            ctx.strokeStyle = "rgba(255,255,255,.6)"; ctx.lineWidth = 0.06 * ppm;
+            for (const k of [-0.4, 0, 0.4]) { ctx.beginPath(); ctx.moveTo(X(hs + k), Y(cy - 2)); ctx.lineTo(X(hs + k), Y(cy + 2)); ctx.stroke(); }
+            if (st.hammock > 1.1) {
+              const L = myLook.current;
+              ctx.fillStyle = L.pants; ctx.fillRect(X(hs) - 0.18 * ppm, Y(cy + 0.2), 0.36 * ppm, 1.3 * ppm);          // Beine
+              ctx.fillStyle = L.topColor; ctx.beginPath(); ctx.ellipse(X(hs), Y(cy - 0.35), 0.32 * ppm, 0.6 * ppm, 0, 0, Math.PI * 2); ctx.fill(); // Oberkörper
+              ctx.fillStyle = L.skin; ctx.beginPath(); ctx.arc(X(hs), Y(cy - 1.15), 0.24 * ppm, 0, Math.PI * 2); ctx.fill();               // Gesicht
+              ctx.fillStyle = L.hairColor; ctx.beginPath(); ctx.arc(X(hs), Y(cy - 1.25), 0.24 * ppm, Math.PI * 0.5, Math.PI * 1.5); ctx.fill();
+            }
+          }
+          // abgestelltes Rad
+          drawRider(ctx, R, X(LEN + HAMMOCK_S - 5), Y(cy + 3.4), Math.PI / 2, EMPTY_LOOK, myBike.current, 1, 0);
+        }
       }
       // Geist & Fahrer
       const g = ghostAt(Math.max(0, st.t));
       if (g) drawRider(ctx, R, X(g.s), Y(g.y), 0, ghostLook.current ?? myLook.current, ghostBike.current, 0.45, st.t / 160);
-      drawRider(ctx, R, X(st.s), Y(st.y), st.heading, myLook.current, myBike.current, 1, st.pedal * 0.9);
+      if (!st.hammock) drawRider(ctx, R, X(st.s), Y(st.y), st.heading, myLook.current, myBike.current, 1, st.pedal);
       if (brake && !st.done && st.t > 0) { ctx.fillStyle = "#ef4444"; ctx.beginPath(); ctx.arc(X(st.s) - 1.1 * ppm, Y(st.y), 0.18 * ppm, 0, Math.PI * 2); ctx.fill(); }
       ctx.restore();
       if (st.t < 0) { ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.fillRect(0, 0, W, H); ctx.fillStyle = "#fff"; ctx.font = `bold ${Math.round(H / 4)}px system-ui`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(String(Math.ceil(-st.t / 1000)), W / 2, H / 2); }
@@ -726,8 +780,6 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
       if (e.key === "Escape") { leave(null, []); return; }
       if (e.repeat) return;
       keys.add(e.key); steer();
-      if (e.key === "a" || e.key === "f") ctl.current.tapQueue.push(-1);
-      if (e.key === "d" || e.key === "j") ctl.current.tapQueue.push(1);
       if (e.key === " ") ctl.current.brakeKey = true;
     };
     const up = (e: KeyboardEvent) => { keys.delete(e.key); steer(); if (e.key === " ") ctl.current.brakeKey = false; };
@@ -735,67 +787,41 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
   }, [leave]);
 
-  // Touch: linke/rechte Hälfte = Pedal. Daumen runterstreichen = Tritt, wieder hoch = Pedal kommt zurück.
-  const movePedal = (side: -1 | 1, y: number, push = false) => {
-    const el = pedalEls.current[side];
-    if (!el) return;
-    const track = el.parentElement!.getBoundingClientRect();
-    const rel = Math.max(0, Math.min(1, (y - track.top) / track.height));
-    el.style.top = `${rel * 100}%`;
-    if (push) el.animate([{ background: "rgba(250,204,21,.95)" }, { background: "rgba(255,255,255,.85)" }], { duration: 250 });
-  };
-  const onDown = (e: React.PointerEvent) => {
-    e.preventDefault();
-    const side: -1 | 1 = e.clientX < window.innerWidth / 2 ? -1 : 1;
-    ctl.current.fingers.set(e.pointerId, { side, lastY: e.clientY, down: 0, up: 0, armed: true, moved: performance.now() });
-    movePedal(side, e.clientY);
-  };
-  const onMove = (e: React.PointerEvent) => {
-    const f = ctl.current.fingers.get(e.pointerId);
-    if (!f) return;
-    const dy = e.clientY - f.lastY;
-    f.lastY = e.clientY;
-    if (Math.abs(dy) > 0.5) f.moved = performance.now();
-    const threshold = Math.max(26, window.innerHeight * 0.08);
-    let pushed = false;
-    if (dy > 0) {
-      f.down += dy; f.up = 0;
-      if (f.armed && f.down >= threshold) { ctl.current.tapQueue.push(f.side); f.armed = false; pushed = true; }
-    } else if (dy < 0) {
-      f.up -= dy;
-      if (f.up >= 12) { f.armed = true; f.down = 0; }
-    }
-    movePedal(f.side, e.clientY, pushed);
-  };
-  const onUp = (e: React.PointerEvent) => { ctl.current.fingers.delete(e.pointerId); };
+  // Bremshebel rechts: gedrückt halten = bremsen
+  const brakeDown = (e: React.PointerEvent) => { e.preventDefault(); e.stopPropagation(); (e.target as Element).setPointerCapture?.(e.pointerId); ctl.current.brakeTouch.add(e.pointerId); setBraking(true); };
+  const brakeUp = (e: React.PointerEvent) => { ctl.current.brakeTouch.delete(e.pointerId); setBraking(ctl.current.brakeTouch.size > 0); };
 
   const progress = Math.min(1, hud.s / LEN);
   // Direkt an die Seite hängen (nicht ins Spiel-Fenster), damit es wirklich den ganzen Bildschirm füllt
   return createPortal(
     <div className="fixed inset-0 z-[200] select-none bg-black text-left text-white" style={{ touchAction: "none" }}>
-      <div ref={boxRef} className="absolute inset-0" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onPointerLeave={onUp}
-        role="application" aria-label="Radrennen: Daumen auf den Pedalen links und rechts im Wechsel runterstreichen, Handy neigen zum Lenken">
+      <div ref={boxRef} className="absolute inset-0" onPointerDown={(e) => e.preventDefault()}
+        role="application" aria-label="Radrennen: Handy neigen zum Lenken, Bremshebel rechts zum Bremsen">
         <canvas ref={canvasRef} className="absolute inset-0" />
       </div>
-      {/* Pedale links und rechts */}
-      {([-1, 1] as const).map((side) => (
-        <div key={side} className={`pointer-events-none absolute bottom-[6%] top-[22%] w-16 rounded-full border-2 border-white/25 bg-black/20 ${side < 0 ? "left-3" : "right-3"}`}>
-          <div ref={(el) => { pedalEls.current[side] = el; }}
-            className="absolute left-1/2 top-1/2 flex h-9 w-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-lg bg-white/85 text-lg shadow-lg ring-2 ring-black/30">
-            <span className="h-1.5 w-9 rounded bg-neutral-700" />
-          </div>
-          <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-xs font-bold text-white/80">{side < 0 ? "L" : "R"}</span>
-        </div>
-      ))}
-      {/* Takt-Anzeige */}
-      {phase === "fahrt" && (
-        <div className="pointer-events-none absolute bottom-3 left-1/2 w-40 -translate-x-1/2 text-center text-[11px] font-bold">
-          <div className="h-2 overflow-hidden rounded-full bg-white/25">
-            <div className={`h-full rounded-full transition-all ${hud.rhythm > 0.7 ? "bg-emerald-400" : hud.rhythm > 0.4 ? "bg-amber-400" : "bg-red-400"}`} style={{ width: `${Math.round(hud.rhythm * 100)}%` }} />
-          </div>
-          <span className="text-white/80">{hud.rhythm > 0.7 ? "Takt 👍" : hud.rhythm > 0.4 ? "Takt halten …" : "Gleichmäßig treten!"}</span>
-        </div>
-      )}
+      {/* Bremse: rechtes Lenkerende von oben gesehen – Griff mit Bremshebel davor. Drücken = Hebel an den Griff ziehen */}
+      <div onPointerDown={brakeDown} onPointerUp={brakeUp} onPointerCancel={brakeUp} onPointerLeave={brakeUp}
+        className="absolute bottom-0 right-0 flex h-[46%] w-[44%] items-end justify-end" role="button" aria-label="Bremse (gedrückt halten)" aria-pressed={braking}>
+        <svg viewBox="0 0 300 130" className="w-full max-w-[22rem] drop-shadow-xl" aria-hidden>
+          {/* Lenkerrohr kommt von links (Lenkermitte) */}
+          <rect x="-10" y="78" width="170" height="18" rx="7" fill="#4b5563" />
+          <rect x="-10" y="80" width="170" height="4" fill="#9ca3af" opacity=".5" />
+          {/* Schalthebel-/Bremsschelle */}
+          <rect x="130" y="66" width="30" height="42" rx="6" fill="#1f2937" />
+          {/* Bremszug */}
+          <path d="M138 66 C 120 30, 70 30, 40 10" fill="none" stroke="#111827" strokeWidth="5" strokeLinecap="round" />
+          {/* Griff (Gummi mit Rillen) */}
+          <rect x="158" y="70" width="128" height="34" rx="16" fill="#111827" />
+          {[0, 1, 2, 3, 4, 5, 6, 7].map((k) => <rect key={k} x={172 + k * 14} y="72" width="5" height="30" rx="2" fill="#1f2937" />)}
+          {/* Bremshebel: dreht sich beim Drücken zum Griff */}
+          <g style={{ transform: `rotate(${braking ? 7 : 0}deg)`, transformOrigin: "146px 62px", transition: "transform 70ms" }}>
+            <circle cx="146" cy="62" r="9" fill="#6b7280" />
+            <path d="M146 54 C 190 40, 240 38, 282 46 L 284 60 C 240 52, 192 54, 150 70 Z" fill={braking ? "#ef4444" : "#d1d5db"} stroke="#4b5563" strokeWidth="2.5" />
+            <circle cx="283" cy="53" r="7" fill={braking ? "#b91c1c" : "#9ca3af"} />
+          </g>
+        </svg>
+        <span className={`pointer-events-none absolute bottom-2 right-3 rounded-lg px-2 py-0.5 text-[11px] font-bold ${braking ? "bg-red-600" : "bg-black/45"}`}>BREMSE</span>
+      </div>
       {/* Anzeige oben */}
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-2 p-2 text-sm font-bold">
         <span className="rounded-lg bg-black/55 px-2 py-1 tabular-nums">⏱ {fmt(hud.t)}</span>
@@ -814,8 +840,8 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
       {(phase === "countdown" || (phase === "fahrt" && hud.t < 6000)) && (
         <>
           <span className="pointer-events-none absolute bottom-10 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-xl bg-black/55 px-3 py-2 text-center text-xs">
-            👆👇 Daumen auf den Pedalen <b>im Wechsel</b> rauf & runter streichen<br />
-            {hasTilt ? "📱 Neigen = lenken · beide Daumen stillhalten = bremsen" : "Pfeiltasten lenken · A/D treten · Leertaste bremst"}
+            🚴 Du fährst von selbst · Bremshebel rechts halten = bremsen<br />
+            {hasTilt ? "📱 Handy neigen = lenken" : "Pfeiltasten lenken · Leertaste bremst"}
           </span>
         </>
       )}
