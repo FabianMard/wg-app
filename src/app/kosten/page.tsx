@@ -150,21 +150,45 @@ function CostsView() {
       <SectionTitle>Verlauf</SectionTitle>
       {loaded && expenses.length === 0 && <Empty>Noch keine Ausgaben.</Empty>}
       <div className="space-y-2">
-        {expenses.map((x) => (
-          <Card key={x.id} className="flex items-center gap-3">
-            <Avatar member={member(x.paid_by)} />
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-medium">{x.is_settlement ? "💸 " : ""}{x.title}</p>
-              <p className="truncate text-sm text-muted">
-                {formatDate(x.spent_on)} · {member(x.paid_by)?.display_name} {x.is_settlement ? "an" : "für"}{" "}
-                {x.participants.length === members.length && !x.is_settlement ? "alle" : x.participants.map((p) => member(p)?.display_name ?? "?").join(", ")}
-              </p>
-            </div>
-            <span className="font-semibold tabular-nums">{euro(Number(x.amount))}</span>
-            <DeleteButton onClick={() => remove(x)} />
-          </Card>
-        ))}
+        {expenses.map((x) => <ExpenseRow key={x.id} x={x} onRemove={() => remove(x)} />)}
       </div>
     </>
+  );
+}
+
+/** Eintrag im Verlauf: antippen klappt ihn auf (ganzer Text, alle Beteiligten, Anteil pro Person) */
+function ExpenseRow({ x, onRemove }: { x: Expense; onRemove: () => void }) {
+  const { member, members } = useWG();
+  const [open, setOpen] = useState(false);
+  const who = x.participants.length === members.length && !x.is_settlement ? "alle" : x.participants.map((p) => member(p)?.display_name ?? "?").join(", ");
+  const share = x.participants.length ? Number(x.amount) / x.participants.length : 0;
+  return (
+    <Card className={`cursor-pointer transition ${open ? "ring-2 ring-accent/30" : "hover:bg-line/20"}`}>
+      <div role="button" tabIndex={0} aria-expanded={open} onClick={() => setOpen(!open)}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen(!open); } }}
+        className="flex items-center gap-3 outline-none">
+        <Avatar member={member(x.paid_by)} />
+        <div className="min-w-0 flex-1">
+          <p className={`font-medium ${open ? "whitespace-pre-wrap break-words" : "truncate"}`}>{x.is_settlement ? "💸 " : ""}{x.title}</p>
+          <p className={`text-sm text-muted ${open ? "break-words" : "truncate"}`}>
+            {formatDate(x.spent_on)} · {member(x.paid_by)?.display_name} {x.is_settlement ? "an" : "für"} {who}
+          </p>
+        </div>
+        <span className="self-start pt-0.5 font-semibold tabular-nums">{euro(Number(x.amount))}</span>
+        <span className="self-start pt-0.5 text-xs text-muted" aria-hidden>{open ? "▲" : "▼"}</span>
+      </div>
+      {open && (
+        <div className="mt-3 space-y-1 border-t border-line pt-3 text-sm">
+          {!x.is_settlement && x.participants.length > 0 && (
+            <p>Pro Person: <b className="tabular-nums">{euro(share)}</b> <span className="text-muted">({x.participants.length} {x.participants.length === 1 ? "Person" : "Personen"})</span></p>
+          )}
+          <p className="text-muted">Bezahlt von <b className="text-fg">{member(x.paid_by)?.display_name ?? "?"}</b>{x.is_settlement ? " an " : " für "}{x.participants.map((p) => member(p)?.display_name ?? "?").join(", ")}</p>
+          {x.created_at && <p className="text-xs text-muted">Eingetragen am {formatDate(x.created_at.slice(0, 10))}{x.created_by && member(x.created_by) ? ` von ${member(x.created_by)!.display_name}` : ""}</p>}
+          <div className="flex justify-end pt-1">
+            <span onClick={(e) => e.stopPropagation()}><DeleteButton onClick={onRemove} /></span>
+          </div>
+        </div>
+      )}
+    </Card>
   );
 }

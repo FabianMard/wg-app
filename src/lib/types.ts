@@ -104,6 +104,7 @@ export type Expense = {
   participants: string[];
   is_settlement: boolean;
   spent_on: string;
+  created_by?: string | null;
   created_at: string;
 };
 
