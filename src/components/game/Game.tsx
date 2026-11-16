@@ -775,13 +775,19 @@ function useVisibleViewport(active: boolean) {
     const v = window.visualViewport;
     const upd = () => setVv(v ? { top: v.offsetTop, height: v.height } : { top: 0, height: window.innerHeight });
     upd();
+    // Nach dem Drehen (z. B. nach dem Radrennen im Querformat) meldet das iPhone die neue Größe manchmal erst verspätet
+    const later = () => { for (const ms of [60, 250, 600, 1200]) setTimeout(upd, ms); };
     v?.addEventListener("resize", upd); v?.addEventListener("scroll", upd); window.addEventListener("resize", upd);
+    window.addEventListener("orientationchange", later); screen.orientation?.addEventListener?.("change", later);
+    document.addEventListener("fullscreenchange", later);
     // Seite dahinter festhalten, damit sie nicht mitscrollt
     const html = document.documentElement, body = document.body;
     const prev = [html.style.overflow, body.style.overflow, body.style.overscrollBehavior];
     html.style.overflow = "hidden"; body.style.overflow = "hidden"; body.style.overscrollBehavior = "none";
     return () => {
       v?.removeEventListener("resize", upd); v?.removeEventListener("scroll", upd); window.removeEventListener("resize", upd);
+      window.removeEventListener("orientationchange", later); screen.orientation?.removeEventListener?.("change", later);
+      document.removeEventListener("fullscreenchange", later);
       [html.style.overflow, body.style.overflow, body.style.overscrollBehavior] = prev;
     };
   }, [active]);

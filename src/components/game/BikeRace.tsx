@@ -21,15 +21,15 @@ const K = 1.2;              // Streckenfaktor (alle Positionen unten sind in „
 const LEN = 800 * K;        // Meter
 const SAMPLE_MS = 100;
 const MAX_LAT = 5;          // m/s seitlich bei vollem Lenkeinschlag
-const VMAX = 11.4;          // Höchstgeschwindigkeit (≈ 41 km/h)
+const VMAX = 13.6;          // Höchstgeschwindigkeit (≈ 49 km/h) – in engen Kurven muss man bremsen
 const HAMMOCK_S = 20;       // Hängematte: so viele Meter hinter der Ziellinie am Strand
 
 export type Ghost = { member_id: string; household_id: string; time_ms: number; trace: number[]; track: string; updated_at: string };
 
 // ───────────── Strecke ─────────────
 const scaled = (pts: [number, number][]) => pts.map(([a, v]) => [a * K, v] as [number, number]);
-const CENTER = scaled([[0, 0], [80, 0], [120, 4], [160, -3], [200, 0], [320, 0], [345, 6], [365, 6], [400, 1.5], [440, -2.5], [480, 2], [520, -1], [560, 0], [600, -4], [640, 2], [680, 0], [860, 0]]);
-const WIDTH = scaled([[0, 9], [190, 9], [205, 10], [320, 10], [350, 7.5], [370, 5], [550, 5], [575, 8], [860, 9]]);
+const CENTER = scaled([[0, 0], [130, 0], [158, 5], [186, -1.5], [200, 0], [320, 0], [340, 8], [362, 8], [392, 1.5], [420, -4], [452, 3], [482, -3], [520, 2], [560, 0], [595, -6], [625, 3], [660, -1], [700, 0], [860, 0]]);
+const WIDTH = scaled([[0, 9], [190, 9], [205, 10], [320, 10], [350, 7.5], [370, 5], [550, 5], [575, 9.5], [860, 9.5]]);
 const SECTIONS: { from: number; name: string; forest?: boolean }[] = [
   { from: 0, name: "🏁 Start: Geißlerstraße" },
   { from: 40 * K, name: "🚶 Eisenbahnstraße – viele Leute unterwegs!" },
@@ -52,19 +52,23 @@ function interp(pts: [number, number][], s: number) {
 const center = (s: number) => interp(CENTER, s);
 const width = (s: number) => interp(WIDTH, s);
 const sectionAt = (s: number) => [...SECTIONS].reverse().find((x) => s >= x.from) ?? SECTIONS[0];
-const railLines = (s: number) => { const c = center(s) + 2.3; return [c - 0.72, c + 0.72]; };
+const railLines = (s: number) => { const c = center(s); return [c - 0.72, c + 0.72]; };
 
 /** Immer gleiche Zufallszahlen → Strecke ist bei jeder Fahrt identisch */
 function seeded(seed: number) { return () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 type Pothole = { s: number; off: number; r: number };
-type Car = { s0: number; off: number; v: number; color: string; parked: boolean };
+type Car = { s0: number; off: number; v: number; color: string; parked: boolean; zone: [number, number] };
 type BikeKind = "randonneur" | "gravel" | "lastenrad" | "klapprad";
 // Eisenbahnstraße: viele Fußgänger:innen, rechts die Bar „Treuhand“ (zu nah dran = aus Versehen ein Bier)
 const EISEN_FROM = 40 * K, EISEN_TO = 198 * K;
 const TREU_FROM = 112 * K, TREU_TO = 126 * K;
 const inTreuhand = (s: number, y: number) => s >= TREU_FROM && s <= TREU_TO && y > center(s) + width(s) / 2 - 2.1;
 type Ped = { s0: number; off: number; mode: "quer" | "laengs"; v: number; phase: number; dir: 1 | -1; shirt: string; hair: string };
-type Cyclist = { s0: number; dir: 1 | -1; v: number; off: number; look: AvatarLook; bike: { type: BikeKind; color: string } };
+type Cyclist = { s0: number; dir: 1 | -1; v: number; off: number; look: AvatarLook; bike: { type: BikeKind; color: string }; zone: [number, number] };
+// Kurz vor dem Ziel links: Café „Brot und Kees“ (zu nah dran = Apfelkuchen mit Sahne)
+const CAFE_FROM = 735 * K, CAFE_TO = 749 * K;
+const inCafe = (s: number, y: number) => s >= CAFE_FROM && s <= CAFE_TO && y < center(s) - width(s) / 2 + 2.1;
+const FOREST_FROM = 370 * K, FOREST_TO = 560 * K;
 const { POTHOLES, CARS, CYCLISTS, PEDS } = (() => {
   const rnd = seeded(7);
   const potholes: Pothole[] = [];
@@ -74,33 +78,33 @@ const { POTHOLES, CARS, CYCLISTS, PEDS } = (() => {
   }
   const colors = ["#ef4444", "#3b82f6", "#f8fafc", "#111827", "#f59e0b", "#10b981", "#a855f7"];
   const cars: Car[] = [];
-  // Geparkte Autos am Rand (Geißlerstraße, Südvorstadt, Markkleeberg)
-  for (const [a, b] of [[15 * K, 190 * K], [585 * K, 770 * K]]) for (let s = a; s < b; s += 22 + rnd() * 30) {
-    const side = rnd() < 0.5 ? -1 : 1;
-    if (side > 0 && s > TREU_FROM - 8 && s < TREU_TO + 8) continue; // vor der Treuhand ist Biergarten, kein Parkplatz
-    cars.push({ s0: s, off: side * (width(s) / 2 - 1.1), v: 0, color: colors[Math.floor(rnd() * colors.length)], parked: true });
+  // Geparkte Autos am Rand: Eisenbahnstraße locker, Markkleeberg dicht an dicht (je Seite mit Abstand, nie übereinander)
+  for (const [a, b, gap] of [[15 * K, 126 * K, 22], [578 * K, 770 * K, 7]] as const) for (const side of [-1, 1] as const) {
+    for (let s = a + rnd() * 6; s < b; s += 4.4 + gap + rnd() * gap * 1.4) {
+      if (side > 0 && s > TREU_FROM - 8 && s < TREU_TO + 8) continue;   // vor der Treuhand ist Biergarten
+      if (side < 0 && s > CAFE_FROM - 8 && s < CAFE_TO + 8) continue;   // vor dem Café auch
+      if (a < 100 && rnd() < 0.5) continue;                               // Eisenbahnstraße: nur jede zweite Lücke
+      cars.push({ s0: s, off: side * (width(s) / 2 - 1.0), v: 0, color: colors[Math.floor(rnd() * colors.length)], parked: true, zone: [0, LEN + 20] });
+    }
   }
-  // Fahrende Autos in Fahrtrichtung (langsamer als ein guter Radler) – man muss überholen
-  // Südvorstadt/Straßenbahn: Autos auf beiden Spuren – rechts in Fahrtrichtung, links Gegenverkehr (negatives Tempo)
-  for (const [s0, off, v] of [[190, 1.9, 6], [235, 2.0, 5.4], [275, 1.7, 6.4], [315, 2.1, 5.8], [520, -2.2, -7], [570, -2.0, -7.5], [615, -2.3, -6.8], [660, -2.1, -7.2], [700, -2.2, -7]] as const) {
-    cars.push({ s0: s0 * K, off, v, color: colors[Math.floor(rnd() * colors.length)], parked: false });
-  }
-  for (const [s0, off, v] of [[40, 1.6, 5.2], [130, -1.4, 6], [230, -1.8, 5.5], [610, 1.5, 5], [690, -1.5, 6.2]] as const) {
-    cars.push({ s0: s0 * K, off, v, color: colors[Math.floor(rnd() * colors.length)], parked: false });
-  }
+  // Fahrende Autos – feste Spuren, gleiche Geschwindigkeit je Spur → sie fahren nie ineinander
+  // Rechte Spur (in Fahrtrichtung, langsamer als du): Start bis zum Wald
+  for (const s0 of [40, 120, 190, 235, 280, 320]) cars.push({ s0: s0 * K, off: 1, v: 5.8, color: colors[Math.floor(rnd() * colors.length)], parked: false, zone: [0, FOREST_FROM - 4] });
+  // Linke Spur (Gegenverkehr): Eisenbahnstraße und Südvorstadt
+  for (const s0 of [180, 230, 285, 430, 470, 505, 540, 575, 610]) cars.push({ s0, off: -1, v: -7.2, color: colors[Math.floor(rnd() * colors.length)], parked: false, zone: [EISEN_FROM, RAIL_TO] });
   // Im Auwald: andere Radfahrerinnen (mit und gegen die Fahrtrichtung) statt Autos
   const cyclists: Cyclist[] = [];
   const looks = ["#ef4444", "#8b5cf6", "#0ea5e9", "#f59e0b", "#ec4899", "#14b8a6", "#84cc16"];
   const hair = ["#3f2a1d", "#a16207", "#111827", "#d97706", "#7c2d12"];
   const types: BikeKind[] = ["randonneur", "gravel", "lastenrad", "klapprad"];
-  for (let s = 380 * K; s < 545 * K; s += 26 + rnd() * 24) {
-    const dir: 1 | -1 = rnd() < 0.5 ? 1 : -1;
-    cyclists.push({
-      s0: s + (dir < 0 ? 40 : 0), dir, v: 3.2 + rnd() * 1.6, off: dir > 0 ? 0.9 + rnd() * 0.6 : -(0.9 + rnd() * 0.6),
-      look: { skin: ["#f2c9a8", "#e0ac69", "#8d5524", "#c68642"][Math.floor(rnd() * 4)], hairColor: hair[Math.floor(rnd() * hair.length)], topColor: looks[Math.floor(rnd() * looks.length)], pants: "#1f2937", shoes: "#f8fafc" } as AvatarLook,
-      bike: { type: types[Math.floor(rnd() * 4)], color: looks[Math.floor(rnd() * looks.length)] },
-    });
-  }
+  const rider = (s0: number, dir: 1 | -1, v: number, off: number, zone: [number, number]): Cyclist => ({
+    s0, dir, v, off, zone,
+    look: { skin: ["#f2c9a8", "#e0ac69", "#8d5524", "#c68642"][Math.floor(rnd() * 4)], hairColor: hair[Math.floor(rnd() * hair.length)], topColor: looks[Math.floor(rnd() * looks.length)], pants: "#1f2937", shoes: "#f8fafc" } as AvatarLook,
+    bike: { type: types[Math.floor(rnd() * 4)], color: looks[Math.floor(rnd() * looks.length)] },
+  });
+  // Viele Radfahrer:innen im Auwald und in Markkleeberg – zwei Spuren je Richtung, je Spur gleich schnell
+  for (const [off, v] of [[0.6, 3.8], [1.5, 3.0]] as const) for (let s = FOREST_FROM + 8; s < 900; s += 18 + rnd() * 20) cyclists.push(rider(s, 1, v, off, [FOREST_FROM, LEN]));
+  for (const [off, v] of [[-0.6, 4.2], [-1.5, 3.4]] as const) for (let s = 700; s < 1240; s += 18 + rnd() * 20) cyclists.push(rider(s, -1, v, off, [RAIL_TO, LEN]));
   // Fußgänger:innen auf der Eisenbahnstraße: manche gehen quer über die Straße, manche an den Rändern entlang
   const peds: Ped[] = [];
   const shirts = ["#ef4444", "#f59e0b", "#22c55e", "#3b82f6", "#a855f7", "#ec4899", "#f8fafc", "#111827", "#14b8a6"];
@@ -113,19 +117,25 @@ const { POTHOLES, CARS, CYCLISTS, PEDS } = (() => {
   }
   return { POTHOLES: potholes, CARS: cars, CYCLISTS: cyclists, PEDS: peds };
 })();
-const FOREST_FROM = 370 * K, FOREST_TO = 560 * K;
+// Wildschweine kreuzen im Auwald den Weg (Bache + Frischlinge), laufen dabei ins Unterholz und wieder zurück
+const BOARS = [470, 515, 560, 610, 650].map((s, i) => ({ s, v: 2.2 + (i % 2) * 0.6, phase: i * 7.3 }));
+function boarPos(b: { s: number; v: number; phase: number }, tSec: number, k = 0) {
+  const A = width(b.s) / 2 + 3.5, x = (b.phase + b.v * Math.max(0, tSec) - k * 0.9 + 400 * A) % (4 * A);
+  const off = x < 2 * A ? -A + x : 3 * A - x;
+  return { s: b.s + k * 0.5, y: center(b.s) + off, dir: x < 2 * A ? 1 : -1 };
+}
 const inForest = (s: number) => s >= FOREST_FROM - 4 && s <= FOREST_TO + 4;
 const carS = (c: Car, tSec: number) => c.s0 + c.v * Math.max(0, tSec);
-/** Gegenverkehr nur im Stadtgebiet (vor dem Wald) */
-const oncomingOk = (c: Car, s: number) => c.v >= 0 || s < FOREST_FROM - 4;
+/** Seitliche Lage eines Autos: geparkt fest am Rand, sonst Fahrspur (in der Straßenbahn-Strecke neben den Schienen) */
+const carY = (c: Car, s: number) => c.parked ? center(s) + c.off : center(s) + c.off * (s > RAIL_FROM - 10 && s < RAIL_TO + 10 ? 2.6 : Math.max(1.1, width(s) / 2 - 3.05));
 // Straßenbahnen: kommen ab und zu auf den Schienen entgegen (Abfahrtszeiten in Sekunden nach dem Start)
 const TRAM_LEN = 24, TRAM_V = 8, TRAM_TIMES = [14, 30, 47];
 function tramPos(t0: number, tSec: number) {
   const s = RAIL_TO + 20 - TRAM_V * (tSec - t0);
-  return { s, y: center(s) + 2.3, active: tSec >= t0 && s > RAIL_FROM - TRAM_LEN && s < RAIL_TO + 20 };
+  return { s, y: center(s), active: tSec >= t0 && s > RAIL_FROM - TRAM_LEN && s < RAIL_TO + 20 };
 }
 /** Autos fahren nicht in den Wald – dort biegen sie ab (verschwinden) */
-const carActive = (c: Car, tSec: number) => !inForest(carS(c, tSec)) && carS(c, tSec) < LEN + 20 && oncomingOk(c, carS(c, tSec));
+const carActive = (c: Car, tSec: number) => { const s = carS(c, tSec); return s >= c.zone[0] && s <= c.zone[1] && !inForest(s); };
 /** Wo ist die Person gerade? (quer: hin und her über die Straße, längs: am Rand entlang) */
 function pedPos(p: Ped, tSec: number) {
   const t = Math.max(0, tSec);
@@ -139,7 +149,7 @@ function pedPos(p: Ped, tSec: number) {
 }
 const cycS = (c: Cyclist, tSec: number) => c.s0 + c.dir * c.v * Math.max(0, tSec);
 /** Radlerinnen bleiben im Wald */
-const cycActive = (c: Cyclist, tSec: number) => { const s = cycS(c, tSec); return s > FOREST_FROM && s < FOREST_TO; };
+const cycActive = (c: Cyclist, tSec: number) => { const s = cycS(c, tSec); return s > c.zone[0] && s < c.zone[1]; };
 
 // ───────────── Fahrräder (alle gleich schnell – reine Geschmackssache) ─────────────
 type BikeType = NonNullable<Member["bike"]>["type"];
@@ -390,6 +400,13 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
   // Jede Person fährt als sie selbst: Outfit aus dem Kleiderschrank + eigenes Rad
   const myLook = useRef(lookOf(me ?? ({} as Member))), myBike = useRef(bikeOf(me));
   const myName = useRef(me?.display_name ?? "");
+  // Alle anderen (Mitbewohner und Gäste) warten am Cossi schon in ihren Hängematten
+  const { everyone } = useWG();
+  const crew = useRef(everyone.filter((m) => m.id !== me?.id).slice(0, 8).map((m, i) => ({
+    name: m.display_name, look: lookOf(m), color: bikeOf(m).color,
+    // abwechselnd links/rechts neben deiner Hängematte, ab dem 7. eine Reihe weiter hinten
+    lat: (i % 2 ? 1 : -1) * 7 * (Math.floor((i % 6) / 2) + 1), row: i >= 6 ? 7 : 0, phase: i * 1.7,
+  })));
   const ghostLook = useRef(rivalMember ? lookOf(rivalMember) : null), ghostBike = useRef(bikeOf(rivalMember));
 
   // Eingaben
@@ -474,9 +491,9 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
     const ro = new ResizeObserver(resize); ro.observe(boxRef.current!);
     const st = {
       t: -3000, s: 0, y: 0, v: 0, heading: 0, stun: 0, msg: "", msgT: 0, done: false, pedal: 0,
-      trace: [] as number[], nextSample: 0, hitHoles: new Set<number>(), hitCars: new Set<number>(), hitCyc: new Set<number>(), hitPeds: new Set<number>(), hitTram: new Set<number>(), beer: false, hammock: 0, left: false, chilled: false, railCool: 0, camY: 0,
+      trace: [] as number[], nextSample: 0, hitHoles: new Set<number>(), hitCars: new Set<number>(), hitCyc: new Set<number>(), hitPeds: new Set<number>(), hitTram: new Set<number>(), beer: false, cake: false, hitBoar: new Set<number>(), hammock: 0, left: false, chilled: false, railCool: 0, camY: 0,
     };
-    if (process.env.NODE_ENV !== "production") (window as unknown as { __race?: unknown }).__race = { st, ctl: ctl.current, center, width, LEN, POTHOLES, CARS, carS, carActive, CYCLISTS, cycS, cycActive, PEDS, TRAM_TIMES, tramPos, TRAM_LEN, pedPos, inTreuhand, railLines, RAIL_FROM, RAIL_TO };
+    if (process.env.NODE_ENV !== "production") (window as unknown as { __race?: unknown }).__race = { st, ctl: ctl.current, center, width, LEN, POTHOLES, CARS, carS, carActive, CYCLISTS, cycS, cycActive, PEDS, TRAM_TIMES, tramPos, TRAM_LEN, carY, inCafe, BOARS, boarPos, pedPos, inTreuhand, railLines, RAIL_FROM, RAIL_TO };
     const say = (m: string, sec = 1.1) => { st.msg = m; st.msgT = sec; };
     const ghostAt = (ms: number) => {
       if (!rival) return null;
@@ -520,6 +537,11 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
           const q = pedPos(pd, tSec);
           if (q.active && Math.abs(q.s - st.s) < 0.8 && Math.abs(q.y - st.y) < 0.65) { st.hitPeds.add(i); st.v = Math.min(st.v, 1.5); st.stun = 0.6; say("🚶 Huch! Fußgänger – klingeln!", 1.2); }
         });
+        BOARS.forEach((b, i) => {
+          if (st.hitBoar.has(i) || Math.abs(b.s - st.s) > 2) return;
+          for (let k = 0; k < 3; k++) { const q = boarPos(b, tSec, k); if (Math.abs(q.s - st.s) < 1 && Math.abs(q.y - st.y) < (k ? 0.5 : 0.8)) { st.hitBoar.add(i); st.v = 0; st.stun = 1.3; say("🐗 Wildschwein! Vollbremsung im Auwald!", 1.6); break; } }
+        });
+        if (!st.cake && inCafe(st.s, st.y)) { st.cake = true; st.v = 0; st.stun = 3.2; say("🍰 Brot und Kees: Apfelkuchen mit Sahne muss jetzt sein …", 3.4); }
         if (!st.beer && inTreuhand(st.s, st.y)) { st.beer = true; st.v = 0; st.stun = 3; say("🍺 Ups – in der Treuhand aus Versehen ein Bier getrunken …", 3.2); }
         CYCLISTS.forEach((cy, i) => {
           if (!cycActive(cy, tSec)) return;
@@ -531,7 +553,7 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
         });
         CARS.forEach((car, i) => {
           if (!carActive(car, tSec)) return;
-          const s = carS(car, tSec), y = center(s) + car.off;
+          const s = carS(car, tSec), y = carY(car, s);
           if (Math.abs(s - st.s) < 2.4 && Math.abs(y - st.y) < 1.2) {
             if (!st.hitCars.has(i)) { st.hitCars.add(i); st.v = Math.min(st.v, 1.2); st.stun = 0.8; say(car.parked ? "🚗 Gegen ein parkendes Auto!" : (car.v < 0 ? "🚗 Hupp! Gegenverkehr!" : "🚗 Hupp! Auto gerammt!"), 1.3); }
             st.y += Math.sign(st.y - y || 1) * dt * 3; // wegschubsen
@@ -606,7 +628,7 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
           const h = Math.abs(Math.sin(s * 12.9898 + side * 78.233 + k * 3.7) * 43758.5453) % 1;
           if (sec.forest) {
             ctx.fillStyle = h > 0.5 ? "#166534" : "#15803d"; ctx.beginPath(); ctx.arc(X(s + h * 3), Y(cy + side * (d + 1 + h * 2)), (1.6 + h * 1.2) * ppm, 0, Math.PI * 2); ctx.fill();
-          } else if ((s < 560 * K || s > 600 * K) && !(side > 0 && s > TREU_FROM - 7 && s < TREU_TO + 2)) {
+          } else if ((s < 560 * K || s > 600 * K) && !(side > 0 && s > TREU_FROM - 7 && s < TREU_TO + 2) && !(side < 0 && s > CAFE_FROM - 7 && s < CAFE_TO + 2)) {
             ctx.fillStyle = ["#e7d8c4", "#d6c3ad", "#cbd5c0", "#e2c9b6"][Math.floor(h * 4)];
             const near = cy + side * d, far = cy + side * (d + 5);
             ctx.fillRect(X(s), Y(Math.min(near, far)), 5.5 * ppm, 5 * ppm);
@@ -675,6 +697,32 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
         ctx.fillStyle = "#4b2e1a"; ctx.beginPath(); ctx.arc(0, 0, 0.17 * ppm, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
       }
+      // Café „Brot und Kees“ links kurz vor dem Ziel: Haus, Markise, Tische mit Kuchen bis an die Fahrbahn
+      if (s1 > CAFE_FROM - 4 && s0 < CAFE_TO + 4) {
+        const edge = center(CAFE_FROM) - width(CAFE_FROM) / 2, len = CAFE_TO - CAFE_FROM + 4;
+        ctx.fillStyle = "#fef3c7"; ctx.fillRect(X(CAFE_FROM - 2), Y(edge - 9.2), len * ppm, 7 * ppm);
+        for (let k = 0; k < 9; k++) { ctx.fillStyle = k % 2 ? "#ffffff" : "#15803d"; ctx.fillRect(X(CAFE_FROM - 2 + k * (len / 9)), Y(edge - 2.2), (len / 9) * ppm, 0.8 * ppm); }
+        ctx.fillStyle = "rgba(244,114,182,.25)"; ctx.fillRect(X(CAFE_FROM), Y(edge - 1.4), (CAFE_TO - CAFE_FROM) * ppm, 3.5 * ppm); // Kuchen-Zone
+        for (let k = 0; k < 4; k++) {
+          const ts = CAFE_FROM + 2 + k * 3.2;
+          ctx.fillStyle = "#f8fafc"; ctx.beginPath(); ctx.arc(X(ts), Y(edge + 0.6), 0.55 * ppm, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = "#d97706"; ctx.beginPath(); ctx.moveTo(X(ts), Y(edge + 0.6)); ctx.arc(X(ts), Y(edge + 0.6), 0.32 * ppm, 0, Math.PI / 3); ctx.fill(); // Kuchenstück
+          ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(X(ts + 0.15), Y(edge + 0.75), 0.1 * ppm, 0, Math.PI * 2); ctx.fill();          // Sahne
+        }
+      }
+      // Wildschweine (von oben): Bache vorne, zwei gestreifte Frischlinge hinterher
+      for (const b of BOARS) {
+        if (b.s < s0 - 3 || b.s > s1 + 3) continue;
+        for (let k = 2; k >= 0; k--) {
+          const q = boarPos(b, tSec, k), sc = k ? 0.6 : 1;
+          ctx.save(); ctx.translate(X(q.s), Y(q.y)); ctx.rotate(q.dir > 0 ? Math.PI / 2 : -Math.PI / 2); ctx.scale(sc, sc);
+          ctx.fillStyle = k ? "#a16207" : "#44291a"; ctx.beginPath(); ctx.ellipse(0, 0, 0.75 * ppm, 0.42 * ppm, 0, 0, Math.PI * 2); ctx.fill();
+          if (k) { ctx.strokeStyle = "#fde68a"; ctx.lineWidth = 0.06 * ppm; for (const o of [-0.15, 0.15]) { ctx.beginPath(); ctx.moveTo(-0.5 * ppm, o * ppm); ctx.lineTo(0.5 * ppm, o * ppm); ctx.stroke(); } }
+          ctx.fillStyle = k ? "#854d0e" : "#2b1a10"; ctx.beginPath(); ctx.ellipse(0.75 * ppm, 0, 0.32 * ppm, 0.25 * ppm, 0, 0, Math.PI * 2); ctx.fill(); // Kopf
+          ctx.fillStyle = "#d6a587"; ctx.beginPath(); ctx.arc(1.02 * ppm, 0, 0.1 * ppm, 0, Math.PI * 2); ctx.fill(); // Rüssel
+          ctx.restore();
+        }
+      }
       // Fußgänger:innen (von oben: Schultern + Kopf)
       for (const pd of PEDS) {
         const q = pedPos(pd, tSec); if (!q.active || q.s < s0 - 2 || q.s > s1 + 2) continue;
@@ -693,7 +741,7 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
       for (const car of CARS) {
         if (!carActive(car, tSec)) continue;
         const s = carS(car, tSec); if (s < s0 - 5 || s > s1 + 5) continue;
-        const x = X(s), y = Y(center(s) + car.off), L = 4.4 * ppm, B = 1.9 * ppm;
+        const x = X(s), y = Y(carY(car, s)), L = 4.4 * ppm, B = 1.9 * ppm;
         ctx.fillStyle = "rgba(0,0,0,.2)"; ctx.fillRect(x - L / 2 + 3, y - B / 2 + 3, L, B);
         ctx.fillStyle = car.color; ctx.beginPath(); ctx.roundRect(x - L / 2, y - B / 2, L, B, 0.5 * ppm); ctx.fill();
         ctx.fillStyle = "rgba(30,41,59,.75)"; ctx.fillRect(x + L * 0.12, y - B * 0.38, L * 0.18, B * 0.76); ctx.fillRect(x - L * 0.32, y - B * 0.36, L * 0.14, B * 0.72);
@@ -709,32 +757,37 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
         for (let k = 0; k < 3; k++) { ctx.fillStyle = "#94a3b8"; ctx.fillRect(x - L / 2 + (k + 1) * (L / 4) - 2, y - B / 2, 4, B); }
         ctx.fillStyle = "#fde047"; ctx.fillRect(x - L / 2 - 1, y - B * 0.38, 3, 5); ctx.fillRect(x - L / 2 - 1, y + B * 0.38 - 5, 3, 5);
       }
-      // Am Cossi: zwei Bäume am Strand, dazwischen die eigene Hängematte
-      if (s1 > LEN + HAMMOCK_S - 8) {
-        const hs = LEN + HAMMOCK_S, cy = center(LEN), a = cy - 2.9, b = cy + 2.9;
+      // Hängematte zwischen zwei Bäumen, optional mit Person drin
+      const hammock = (hs: number, cy: number, color: string, look: AvatarLook | null, rope = 1, swing = 0) => {
+        const a = cy - 2.9, b = cy + 2.9;
         for (const ty of [a, b]) {
           ctx.fillStyle = "#713f12"; ctx.beginPath(); ctx.arc(X(hs), Y(ty), 0.35 * ppm, 0, Math.PI * 2); ctx.fill();
           ctx.fillStyle = "rgba(22,101,52,.85)"; ctx.beginPath(); ctx.arc(X(hs + 0.3), Y(ty + (ty < cy ? -0.8 : 0.8)), 1.7 * ppm, 0, Math.PI * 2); ctx.fill();
         }
-        if (st.hammock > 0) {
-          const pr = Math.min(1, st.hammock / 0.9), end = a + (b - a) * pr;
-          ctx.strokeStyle = "#fef3c7"; ctx.lineWidth = 0.08 * ppm;
-          ctx.beginPath(); ctx.moveTo(X(hs), Y(a)); ctx.lineTo(X(hs), Y(end)); ctx.stroke(); // Seil
-          if (pr >= 1) {
-            ctx.fillStyle = myBike.current.color; ctx.beginPath(); ctx.ellipse(X(hs), Y(cy), 0.75 * ppm, 2.2 * ppm, 0, 0, Math.PI * 2); ctx.fill(); // Stoff
-            ctx.strokeStyle = "rgba(255,255,255,.6)"; ctx.lineWidth = 0.06 * ppm;
-            for (const k of [-0.4, 0, 0.4]) { ctx.beginPath(); ctx.moveTo(X(hs + k), Y(cy - 2)); ctx.lineTo(X(hs + k), Y(cy + 2)); ctx.stroke(); }
-            if (st.hammock > 1.1) {
-              const L = myLook.current;
-              ctx.fillStyle = L.pants; ctx.fillRect(X(hs) - 0.18 * ppm, Y(cy + 0.2), 0.36 * ppm, 1.3 * ppm);          // Beine
-              ctx.fillStyle = L.topColor; ctx.beginPath(); ctx.ellipse(X(hs), Y(cy - 0.35), 0.32 * ppm, 0.6 * ppm, 0, 0, Math.PI * 2); ctx.fill(); // Oberkörper
-              ctx.fillStyle = L.skin; ctx.beginPath(); ctx.arc(X(hs), Y(cy - 1.15), 0.24 * ppm, 0, Math.PI * 2); ctx.fill();               // Gesicht
-              ctx.fillStyle = L.hairColor; ctx.beginPath(); ctx.arc(X(hs), Y(cy - 1.25), 0.24 * ppm, Math.PI * 0.5, Math.PI * 1.5); ctx.fill();
-            }
-          }
-          // abgestelltes Rad
-          drawRider(ctx, R, X(LEN + HAMMOCK_S - 5), Y(cy + 3.4), Math.PI / 2, EMPTY_LOOK, myBike.current, 1, 0);
-        }
+        if (rope <= 0) return;
+        ctx.strokeStyle = "#fef3c7"; ctx.lineWidth = 0.08 * ppm;
+        ctx.beginPath(); ctx.moveTo(X(hs), Y(a)); ctx.lineTo(X(hs), Y(a + (b - a) * Math.min(1, rope))); ctx.stroke();
+        if (rope < 1) return;
+        const x0 = hs + swing;
+        ctx.fillStyle = color; ctx.beginPath(); ctx.ellipse(X(x0), Y(cy), 0.75 * ppm, 2.2 * ppm, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = "rgba(255,255,255,.6)"; ctx.lineWidth = 0.06 * ppm;
+        for (const k of [-0.4, 0, 0.4]) { ctx.beginPath(); ctx.moveTo(X(x0 + k), Y(cy - 2)); ctx.lineTo(X(x0 + k), Y(cy + 2)); ctx.stroke(); }
+        if (!look) return;
+        ctx.fillStyle = look.pants; ctx.fillRect(X(x0) - 0.18 * ppm, Y(cy + 0.2), 0.36 * ppm, 1.3 * ppm);
+        ctx.fillStyle = look.topColor; ctx.beginPath(); ctx.ellipse(X(x0), Y(cy - 0.35), 0.32 * ppm, 0.6 * ppm, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = look.skin; ctx.beginPath(); ctx.arc(X(x0), Y(cy - 1.15), 0.24 * ppm, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = look.hairColor; ctx.beginPath(); ctx.arc(X(x0), Y(cy - 1.25), 0.24 * ppm, Math.PI * 0.5, Math.PI * 1.5); ctx.fill();
+      };
+      // Die anderen warten schon in ihren Hängematten (schaukeln, wenn du ankommst)
+      if (s1 > LEN + HAMMOCK_S - 8) {
+        const cyB = center(LEN);
+        for (const c of crew.current) hammock(LEN + HAMMOCK_S + c.row, cyB + c.lat, c.color, c.look, 1, st.done ? Math.sin(performance.now() / 260 + c.phase) * 0.25 : 0);
+      }
+      // Am Cossi: deine Hängematte in der Mitte – sie wird nach der Ankunft aufgehängt
+      if (s1 > LEN + HAMMOCK_S - 8) {
+        const cy = center(LEN);
+        hammock(LEN + HAMMOCK_S, cy, myBike.current.color, st.hammock > 1.1 ? myLook.current : null, st.hammock > 0 ? st.hammock / 0.9 : 0);
+        if (st.hammock > 0) drawRider(ctx, R, X(LEN + HAMMOCK_S - 5), Y(cy + 3.4), Math.PI / 2, EMPTY_LOOK, myBike.current, 1, 0); // abgestelltes Rad
       }
       // Geist & Fahrer
       const g = ghostAt(Math.max(0, st.t));
@@ -755,6 +808,33 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
         ctx.fillStyle = "#111827"; ctx.fillText(text, bx + 10, by);
         ctx.font = `bold ${Math.round(ppm * 0.55)}px system-ui`; ctx.fillStyle = "#fff"; ctx.textAlign = "center";
         ctx.fillText("Micha", mx, my + ppm * 1.1);
+      }
+      // Die anderen jubeln dir am Ziel zu
+      if (st.s > LEN - 25 && crew.current.length) {
+        const cheers = ["Juhu! 🎉", "Endlich! 🥳", "Bravo! 👏", "Da bist du ja! 😎", "Komm in die Hängematte! 🌴", "Prost! 🍻"];
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        crew.current.forEach((c, k) => {
+          const hs = LEN + HAMMOCK_S + c.row, cy = center(LEN) + c.lat;
+          const sx = W / 2 + (cy - st.camY) * ppm, sy = ahead - (hs - st.s) * ppm - 2.4 * ppm;
+          if (sx < -60 || sx > W + 60 || sy < -40 || sy > H + 40) return;
+          const text = k === 0 && myName.current ? `Juhu, ${myName.current}! 🎉` : cheers[k % cheers.length];
+          const bounce = Math.sin(performance.now() / 180 + c.phase) * 3;
+          ctx.font = `bold ${Math.round(ppm * 0.62)}px system-ui`;
+          const tw = ctx.measureText(text).width;
+          ctx.fillStyle = "rgba(255,255,255,.95)"; ctx.beginPath(); ctx.roundRect(sx - tw / 2 - 8, sy - ppm * 0.55 + bounce, tw + 16, ppm * 1.1, ppm * 0.4); ctx.fill();
+          ctx.fillStyle = "#111827"; ctx.fillText(text, sx, sy + bounce);
+          ctx.font = `bold ${Math.round(ppm * 0.5)}px system-ui`; ctx.fillStyle = "#78350f";
+          ctx.fillText(c.name, sx, ahead - (hs - st.s) * ppm + 2.9 * ppm);
+        });
+      }
+      // Schild „Brot und Kees“
+      const cmid = (CAFE_FROM + CAFE_TO) / 2;
+      if (cmid > s0 - 4 && cmid < s1 + 4) {
+        const sx = W / 2 + (center(cmid) - width(cmid) / 2 - 5.7 - st.camY) * ppm, sy = ahead - (cmid - st.s) * ppm;
+        ctx.font = `bold ${Math.round(ppm * 0.8)}px system-ui`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        const label = "☕ BROT UND KEES", tw = ctx.measureText(label).width;
+        ctx.fillStyle = "rgba(21,128,61,.9)"; ctx.fillRect(sx - tw / 2 - 6, sy - ppm * 0.7, tw + 12, ppm * 1.4);
+        ctx.fillStyle = "#fef3c7"; ctx.fillText(label, sx, sy);
       }
       // Schild „TREUHAND“ (nach dem Zurückdrehen, damit es lesbar ist)
       const mid = (TREU_FROM + TREU_TO) / 2;
