@@ -1014,7 +1014,7 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
           onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); (e.target as Element).setPointerCapture?.(e.pointerId); ctl.current.steerTouch.set(e.pointerId, dir); }}
           onPointerUp={(e) => { ctl.current.steerTouch.delete(e.pointerId); }} onPointerCancel={(e) => { ctl.current.steerTouch.delete(e.pointerId); }}
           onLostPointerCapture={(e) => { ctl.current.steerTouch.delete(e.pointerId); }} onContextMenu={(e) => e.preventDefault()}
-          className={`absolute top-[4.6rem] flex h-16 w-20 select-none items-center justify-center rounded-2xl border-2 border-white/40 bg-black/35 text-3xl font-bold text-white shadow-lg active:scale-95 active:bg-white/30 ${dir < 0 ? "left-3" : "right-3"}`}
+          className={`absolute top-[4.4rem] flex h-28 w-32 select-none items-center justify-center rounded-3xl border-2 border-white/40 bg-black/35 text-6xl font-bold text-white shadow-lg active:scale-95 active:bg-white/30 ${dir < 0 ? "left-3" : "right-3"}`}
           style={{ touchAction: "none" }}>
           {dir < 0 ? "◀" : "▶"}
         </button>
