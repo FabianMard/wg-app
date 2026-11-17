@@ -377,7 +377,7 @@ export function BikeRace({ onResult }: { onResult?: (text: string) => void }) {
       <ul className="mx-auto max-w-xs space-y-1 text-left text-sm text-muted">
         <li>📱 <b>Handy quer</b>, mit beiden Daumen halten</li>
         <li>🚴 Du fährst <b>von selbst</b> los – volle Fahrt voraus</li>
-        <li>🔄 <b>Lenken:</b> Handy neigen wie ein Lenkrad · am Computer: Pfeiltasten</li>
+        <li>🔄 <b>Lenken:</b> Handy neigen wie ein Lenkrad – oder die Pfeile ◀ ▶ oben links/rechts gedrückt halten · am Computer: Pfeiltasten</li>
         <li>🛑 <b>Bremsen:</b> Bremshebel rechts am Rand gedrückt halten · am Computer: Leertaste</li>
         <li>🚗 Autos, 🕳️ Schlaglöcher, 🚋 Schienen und 🌿 Gras bremsen dich aus</li>
       </ul>
@@ -439,7 +439,7 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
 
   // Eingaben
   const ctl = useRef({
-    steerKeys: 0, tilt: 0, tiltSign: 0, brakeKey: false, brakeTouch: new Set<number>(), ringQueue: 0,
+    steerKeys: 0, tilt: 0, tiltSign: 0, brakeKey: false, brakeTouch: new Set<number>(), ringQueue: 0, steerTouch: new Map<number, -1 | 1>(),
   });
   const [braking, setBraking] = useState(false);
   const [bellReady, setBellReady] = useState(true);
@@ -562,7 +562,8 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
       if (c.ringQueue > 0) { c.ringQueue = 0; if (st.t >= 0 && !st.done) ring(); }
       if (st.t >= 0 && !st.done) {
         if (!phaseSet) { phaseSet = true; setPhase("fahrt"); }
-        const steer = Math.max(-1, Math.min(1, c.steerKeys + c.tilt));
+        const touchSteer = [...c.steerTouch.values()].reduce((a: number, b) => a + b, 0);
+        const steer = Math.max(-1, Math.min(1, c.steerKeys + c.tilt + touchSteer));
         const w = width(st.s), cs = center(st.s);
         // Fährt von selbst: beschleunigt bis zur Höchstgeschwindigkeit (nach Stößen auch wieder hoch)
         if (brake) st.v -= dt * 8;
@@ -1007,12 +1008,23 @@ function RaceRun({ rival, rivalMember, onOver }: { rival: Ghost | null; rivalMem
         <button className="pointer-events-auto rounded-lg bg-black/55 px-3 py-1" onPointerDown={(e) => e.stopPropagation()} onClick={() => leave(null, [])} aria-label="Rennen abbrechen">✕</button>
       </div>
       <p className="pointer-events-none absolute left-2 top-11 rounded-lg bg-black/45 px-2 py-0.5 text-xs font-semibold">{hud.section}</p>
+      {/* Lenken per Tippen: Pfeiltasten oben links und oben rechts gedrückt halten (zusätzlich zum Neigen) */}
+      {([-1, 1] as const).map((dir) => (
+        <button key={dir} aria-label={dir < 0 ? "Nach links lenken" : "Nach rechts lenken"}
+          onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); (e.target as Element).setPointerCapture?.(e.pointerId); ctl.current.steerTouch.set(e.pointerId, dir); }}
+          onPointerUp={(e) => { ctl.current.steerTouch.delete(e.pointerId); }} onPointerCancel={(e) => { ctl.current.steerTouch.delete(e.pointerId); }}
+          onLostPointerCapture={(e) => { ctl.current.steerTouch.delete(e.pointerId); }} onContextMenu={(e) => e.preventDefault()}
+          className={`absolute top-[4.6rem] flex h-16 w-20 select-none items-center justify-center rounded-2xl border-2 border-white/40 bg-black/35 text-3xl font-bold text-white shadow-lg active:scale-95 active:bg-white/30 ${dir < 0 ? "left-3" : "right-3"}`}
+          style={{ touchAction: "none" }}>
+          {dir < 0 ? "◀" : "▶"}
+        </button>
+      ))}
       {hud.msg && <p className="pointer-events-none absolute inset-x-0 top-1/4 mx-auto w-fit rounded-xl bg-black/70 px-3 py-1.5 text-base font-bold">{hud.msg}</p>}
       {(phase === "countdown" || (phase === "fahrt" && hud.t < 6000)) && (
         <>
           <span className="pointer-events-none absolute bottom-10 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-xl bg-black/55 px-3 py-2 text-center text-xs">
             🚴 Du fährst von selbst · Bremshebel rechts halten = bremsen<br />
-            {hasTilt ? "📱 Handy neigen = lenken" : "Pfeiltasten lenken · Leertaste bremst"}
+            {hasTilt ? "📱 Handy neigen oder ◀ ▶ oben halten = lenken" : "◀ ▶ oben oder Pfeiltasten = lenken · Leertaste bremst"}
           </span>
         </>
       )}
